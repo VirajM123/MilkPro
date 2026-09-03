@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 
 class RoutesScreen extends StatefulWidget {
@@ -19,32 +24,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // ============================================================
   // EXISTING ROUTE DATA
   // ============================================================
-  final List<RouteItem> _routes = [
-    RouteItem(
-      name: 'Route A',
-      areas: ['Shirwal', 'Area 1', 'Area 2', 'Area 3'],
-      salesman: 'Omkar',
-      isActive: true,
-    ),
-    RouteItem(
-      name: 'Route B',
-      areas: ['Area 4', 'Area 5', 'Area 6'],
-      salesman: 'Rohit',
-      isActive: true,
-    ),
-    RouteItem(
-      name: 'Route C',
-      areas: ['Area 7', 'Area 8', 'Area 9'],
-      salesman: 'Sagar',
-      isActive: false,
-    ),
-    RouteItem(
-      name: 'Route D',
-      areas: ['Area 10', 'Area 11'],
-      salesman: 'Mahesh',
-      isActive: false,
-    ),
-  ];
+final List<RouteItem> _routes = [];
+
+final List<SalesmanOption> _salesmen = [];
+
+bool _loading = true;
+
+bool _loadingSalesmen = false;
 
   String _searchText = '';
 
@@ -64,7 +50,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
     Color(0xFFFFF7ED),
     Color(0xFFF5F3FF),
   ];
+@override
+void initState() {
+  super.initState();
 
+  _loadRoutes();
+  _loadSalesmen();
+}
   @override
   void dispose() {
     _searchController.dispose();
@@ -219,22 +211,44 @@ class _RoutesScreenState extends State<RoutesScreen> {
             // ==================================================
             // ROUTE LIST
             // ==================================================
-            if (_filteredRoutes.isEmpty)
-              _buildEmptyState()
-            else
-              ...List.generate(_filteredRoutes.length, (index) {
-                final route = _filteredRoutes[index];
+       if (_loading)
+  const Padding(
+    padding:
+        EdgeInsets.symmetric(
+          vertical: 40,
+        ),
+    child: Center(
+      child:
+          CircularProgressIndicator(),
+    ),
+  )
+else if (_filteredRoutes.isEmpty)
+  _buildEmptyState()
+else
+  ...List.generate(
+    _filteredRoutes.length,
+    (index) {
+      final route =
+          _filteredRoutes[index];
 
-                final originalIndex = _routes.indexOf(route);
+      final originalIndex =
+          _routes.indexOf(route);
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _buildRouteCard(
-                    route,
-                    originalIndex == -1 ? index : originalIndex,
-                  ),
-                );
-              }),
+      return Padding(
+        padding:
+            const EdgeInsets.only(
+              bottom: 8,
+            ),
+        child: _buildRouteCard(
+          route,
+          originalIndex == -1
+              ? index
+              : originalIndex,
+        ),
+      );
+    },
+  ),
+           
           ],
         ),
       ),
@@ -435,6 +449,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
       ],
     );
   }
+
 
   // ============================================================
   // SUMMARY SECTION
@@ -785,6 +800,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
     );
   }
 
+void _showMessage(String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+      ),
+    );
+}
   // ============================================================
   // STATUS CHIP
   // ============================================================
@@ -896,45 +920,414 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // ADD ROUTE
   // ORIGINAL LOGIC PRESERVED
   // ============================================================
-  Future<void> _showAddRouteDialog() async {
-    final result = await showDialog<RouteItem>(
-      context: context,
-      builder: (context) => const _RouteFormDialog(),
-    );
+Future<void> _showAddRouteDialog() async {
+  if (_salesmen.isEmpty) {
+    await _loadSalesmen();
 
-    if (result == null || !mounted) {
+    if (_salesmen.isEmpty) {
+      if (!mounted) return;
+
+      _showMessage(
+        'No active salesman found. Please register a salesman first.',
+      );
+
       return;
     }
+  }
 
+
+  final result =
+      await showDialog<RouteItem>(
+    context: context,
+    builder: (context) =>
+        _RouteFormDialog(
+      salesmen: _salesmen,
+    ),
+  );
+
+
+  if (result == null ||
+      !mounted) {
+    return;
+  }
+
+
+  await _saveRoute(result);
+}
+
+Future<void> _saveRoute(
+  RouteItem route,
+) async {
+  try {
+    final response =
+        await http.post(
+      Uri.parse(
+        ApiConfig.routes,
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'routeName':
+            route.name,
+
+        'areas':
+            route.areas,
+
+        'salesmanId':
+            route.salesmanId,
+
+        'isActive':
+            route.isActive,
+      }),
+    );
+
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+
+    if (!mounted) return;
+
+
+    if (
+        response.statusCode == 200 ||
+        response.statusCode == 201
+    ) {
+      _showMessage(
+        data['message']?.toString() ??
+            'Route added successfully.',
+      );
+
+
+      await _loadRoutes();
+
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to add route.',
+      );
+    }
+
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to connect to backend.',
+    );
+  }
+}
+Future<void> _showEditRouteDialog(
+  RouteItem route,
+) async {
+  if (_salesmen.isEmpty) {
+  await _loadSalesmen();
+
+  if (!mounted) return;
+
+  if (_salesmen.isEmpty) {
+    _showMessage(
+      'No active salesman found.',
+    );
+    return;
+  }
+}
+  final result =
+      await showDialog<RouteItem>(
+    context: context,
+    builder: (context) =>
+        _RouteFormDialog(
+      route: route,
+      salesmen: _salesmen,
+    ),
+  );
+
+
+  if (result == null ||
+      !mounted) {
+    return;
+  }
+
+
+  try {
+    final response =
+        await http.put(
+      Uri.parse(
+        '${ApiConfig.routes}/${route.id}',
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'routeName':
+            result.name,
+
+        'areas':
+            result.areas,
+
+        'salesmanId':
+            result.salesmanId,
+
+        'isActive':
+            result.isActive,
+      }),
+    );
+
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+
+    if (!mounted) return;
+
+
+    if (
+        response.statusCode == 200 &&
+        data['success'] == true
+    ) {
+      _showMessage(
+        'Route updated successfully.',
+      );
+
+      await _loadRoutes();
+
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to update route.',
+      );
+    }
+
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to update route.',
+    );
+  }
+}
+
+Future<void> _loadRoutes() async {
+  if (mounted) {
     setState(() {
-      _routes.insert(0, result);
+      _loading = true;
     });
   }
 
+  try {
+    final response =
+        await http.get(
+      Uri.parse(
+        ApiConfig.routes,
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+
+    if (!mounted) return;
+
+
+    if (
+        response.statusCode == 200 &&
+        data['success'] == true
+    ) {
+      final records =
+          data['data']
+              as List<dynamic>? ??
+          [];
+
+
+      final routes =
+          records.map((item) {
+        final map =
+            item as Map<String, dynamic>;
+
+        return RouteItem(
+          id:
+              map['_id']?.toString() ??
+                  '',
+
+          routeId:
+              map['routeId']
+                      ?.toString() ??
+                  '',
+
+          name:
+              map['routeName']
+                      ?.toString() ??
+                  '',
+
+          areas:
+              (map['areas']
+                          as List<dynamic>? ??
+                      [])
+                  .map(
+                    (area) =>
+                        area.toString(),
+                  )
+                  .toList(),
+
+          salesmanId:
+              map['salesmanId']
+                      ?.toString() ??
+                  '',
+
+          salesman:
+              map['salesmanName']
+                      ?.toString() ??
+                  '',
+
+          isActive:
+              map['isActive'] !=
+                  false,
+        );
+      }).toList();
+
+
+      setState(() {
+        _routes
+          ..clear()
+          ..addAll(routes);
+      });
+
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to load routes.',
+      );
+    }
+
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load routes from server.',
+    );
+
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+}
+Future<void> _loadSalesmen() async {
+  if (mounted) {
+    setState(() {
+      _loadingSalesmen = true;
+    });
+  }
+
+  try {
+    final response =
+        await http.get(
+      Uri.parse(
+        ApiConfig.salesmen,
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+
+    if (!mounted) return;
+
+
+    if (
+        response.statusCode == 200 &&
+        data['success'] == true
+    ) {
+      final records =
+          data['data']
+              as List<dynamic>? ??
+          [];
+
+
+      final salesmen =
+          records.map((item) {
+        final map =
+            item as Map<String, dynamic>;
+
+        return SalesmanOption(
+          id:
+              map['_id']?.toString() ??
+                  '',
+
+          salesmanId:
+              map['salesmanId']
+                      ?.toString() ??
+                  '',
+
+          name:
+              map['name']?.toString() ??
+                  '',
+        );
+      }).toList();
+
+
+      setState(() {
+        _salesmen
+          ..clear()
+          ..addAll(salesmen);
+      });
+    }
+
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load salesmen.',
+    );
+
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingSalesmen =
+            false;
+      });
+    }
+  }
+}
   // ============================================================
   // EDIT ROUTE
   // ORIGINAL LOGIC PRESERVED
   // ============================================================
-  Future<void> _showEditRouteDialog(RouteItem route) async {
-    final result = await showDialog<RouteItem>(
-      context: context,
-      builder: (context) => _RouteFormDialog(route: route),
-    );
-
-    if (result == null || !mounted) {
-      return;
-    }
-
-    final index = _routes.indexOf(route);
-
-    if (index == -1) {
-      return;
-    }
-
-    setState(() {
-      _routes[index] = result;
-    });
-  }
+ 
 }
 
 // ============================================================
@@ -942,9 +1335,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
 // ORIGINAL ADD / EDIT LOGIC PRESERVED
 // ============================================================
 class _RouteFormDialog extends StatefulWidget {
-  final RouteItem? route;
+final RouteItem? route;
 
-  const _RouteFormDialog({this.route});
+final List<SalesmanOption> salesmen;
+
+const _RouteFormDialog({
+  this.route,
+  required this.salesmen,
+});
 
   @override
   State<_RouteFormDialog> createState() => _RouteFormDialogState();
@@ -955,9 +1353,10 @@ class _RouteFormDialogState extends State<_RouteFormDialog> {
 
   late final TextEditingController _areasController;
 
-  late final TextEditingController _salesmanController;
+String? _selectedSalesmanId;
 
   late bool _isActive;
+
 
   @override
   void initState() {
@@ -969,9 +1368,20 @@ class _RouteFormDialogState extends State<_RouteFormDialog> {
       text: widget.route?.areas.join(', ') ?? '',
     );
 
-    _salesmanController = TextEditingController(
-      text: widget.route?.salesman ?? '',
-    );
+final routeSalesmanId =
+    widget.route?.salesmanId ?? '';
+
+final salesmanExists =
+    widget.salesmen.any(
+  (salesman) =>
+      salesman.salesmanId ==
+      routeSalesmanId,
+);
+
+_selectedSalesmanId =
+    salesmanExists
+        ? routeSalesmanId
+        : null;
 
     _isActive = widget.route?.isActive ?? true;
   }
@@ -980,7 +1390,7 @@ class _RouteFormDialogState extends State<_RouteFormDialog> {
   void dispose() {
     _routeController.dispose();
     _areasController.dispose();
-    _salesmanController.dispose();
+
 
     super.dispose();
   }
@@ -988,42 +1398,66 @@ class _RouteFormDialogState extends State<_RouteFormDialog> {
   // ============================================================
   // SAVE LOGIC
   // ============================================================
-  void _save() {
-    final name = _routeController.text.trim();
+void _save() {
+  final name =
+      _routeController.text.trim();
 
-    final salesman = _salesmanController.text.trim();
+  final areas =
+      _areasController.text
+          .split(',')
+          .map(
+            (area) => area.trim(),
+          )
+          .where(
+            (area) => area.isNotEmpty,
+          )
+          .toList();
 
-    final areas = _areasController.text
-        .split(',')
-        .map((area) => area.trim())
-        .where((area) => area.isNotEmpty)
-        .toList();
-
-    if (name.isEmpty) {
-      _showMessage('Please enter route name');
-      return;
-    }
-
-    if (areas.isEmpty) {
-      _showMessage('Please enter at least one area');
-      return;
-    }
-
-    if (salesman.isEmpty) {
-      _showMessage('Please enter salesman name');
-      return;
-    }
-
-    Navigator.of(context).pop(
-      RouteItem(
-        name: name,
-        areas: areas,
-        salesman: salesman,
-        isActive: _isActive,
-      ),
+  if (name.isEmpty) {
+    _showMessage(
+      'Please enter route name',
     );
+    return;
   }
 
+  if (areas.isEmpty) {
+    _showMessage(
+      'Please enter at least one area',
+    );
+    return;
+  }
+
+  if (_selectedSalesmanId == null ||
+      _selectedSalesmanId!.isEmpty) {
+    _showMessage(
+      'Please select salesman',
+    );
+    return;
+  }
+
+  final selectedSalesman =
+      widget.salesmen.firstWhere(
+    (salesman) =>
+        salesman.salesmanId ==
+        _selectedSalesmanId,
+  );
+
+  Navigator.of(context).pop(
+    RouteItem(
+      id: widget.route?.id ?? '',
+      routeId:
+          widget.route?.routeId ?? '',
+      name: name,
+      areas: areas,
+      salesmanId:
+          selectedSalesman.salesmanId,
+      salesman:
+          selectedSalesman.name,
+      isActive:
+          _isActive,
+    ),
+  );
+}
   // ============================================================
   // MESSAGE
   // ============================================================
@@ -1081,11 +1515,58 @@ class _RouteFormDialogState extends State<_RouteFormDialog> {
 
             const SizedBox(height: 12),
 
-            _field(
-              controller: _salesmanController,
-              label: 'Salesman',
-              hint: 'Salesman name',
-            ),
+      DropdownButtonFormField<String>(
+  value: _selectedSalesmanId,
+
+  isExpanded: true,
+
+  decoration: InputDecoration(
+    labelText: 'Salesman',
+
+    prefixIcon:
+        const Icon(
+      Icons.badge_outlined,
+    ),
+
+    filled: true,
+
+    fillColor:
+        const Color(
+          0xFFF8FAFC,
+        ),
+
+    border:
+        OutlineInputBorder(
+      borderRadius:
+          BorderRadius.circular(
+            10,
+          ),
+    ),
+  ),
+
+  items:
+      widget.salesmen.map(
+    (salesman) {
+      return DropdownMenuItem<String>(
+        value:
+            salesman.salesmanId,
+
+        child: Text(
+          '${salesman.name} (${salesman.salesmanId})',
+          overflow:
+              TextOverflow.ellipsis,
+        ),
+      );
+    },
+  ).toList(),
+
+  onChanged: (value) {
+    setState(() {
+      _selectedSalesmanId =
+          value;
+    });
+  },
+),
 
             const SizedBox(height: 8),
 
@@ -1178,15 +1659,50 @@ class _RouteFormDialogState extends State<_RouteFormDialog> {
 // REQUIRED BY ROUTES SCREEN + DIALOG
 // ============================================================
 class RouteItem {
+  final String id;
+
+  final String routeId;
+
   final String name;
+
   final List<String> areas;
+
+  final String salesmanId;
+
   final String salesman;
+
   final bool isActive;
 
+
   const RouteItem({
+    this.id = '',
+
+    this.routeId = '',
+
     required this.name,
+
     required this.areas,
+
+    this.salesmanId = '',
+
     required this.salesman,
+
     required this.isActive,
+  });
+}
+class SalesmanOption {
+  final String id;
+
+  final String salesmanId;
+
+  final String name;
+
+
+  const SalesmanOption({
+    required this.id,
+
+    required this.salesmanId,
+
+    required this.name,
   });
 }

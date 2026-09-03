@@ -1,5 +1,9 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
@@ -29,27 +33,160 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _login() async {
-    FocusScope.of(context).unfocus();
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _loading = true);
-    try {
-      // Preserve the existing UI-only boundary. The selected role is explicit
-      // and can later be sent to the real authentication endpoint.
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      if (!mounted) return;
-      UiSession.instance.signInForRole(_role, _identifierController.text);
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(builder: (_) => const DashboardScreen()),
-        (_) => false,
-      );
-    } catch (_) {
-      if (mounted) _message('Unable to sign in. Please try again.');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+Future<void> _login() async {
+  FocusScope.of(context).unfocus();
+
+  if (!(_formKey.currentState?.validate() ?? false)) {
+    return;
   }
 
+  setState(() => _loading = true);
+
+  try {
+    final response = await http.post(
+      Uri.parse(ApiConfig.login),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'role': _role == UserRole.admin
+            ? 'admin'
+            : 'salesman',
+
+        'identifier':
+            _identifierController.text.trim(),
+
+        'password':
+            _passwordController.text,
+      }),
+    );
+
+    final Map<String, dynamic> data =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+
+      final user =
+          data['user'] as Map<String, dynamic>?;
+
+
+      if (user == null) {
+        _message('Invalid response from server.');
+        return;
+      }
+      ApiConfig.token =
+    data['token']?.toString() ?? '';
+
+ApiConfig.farmId =
+    user['farmId']?.toString() ?? '';
+
+      final serverRole =
+          user['role']?.toString() ?? '';
+
+      if (_role == UserRole.admin &&
+          serverRole != 'admin') {
+        _message(
+          'This account is not an Admin account.',
+        );
+        return;
+      }
+
+      if (_role == UserRole.salesman &&
+          serverRole != 'salesman') {
+        _message(
+          'This account is not a Salesman account.',
+        );
+        return;
+      }
+// ============================================================
+// CONVERT BACKEND PERMISSIONS TO AppPermission
+// ============================================================
+
+final Set<AppPermission> permissions =
+    <AppPermission>{};
+
+final rawPermissions =
+    user['permissions'];
+
+if (rawPermissions is List) {
+  for (final permission in rawPermissions) {
+    final permissionName =
+        permission.toString().trim();
+
+    for (final appPermission
+        in AppPermission.values) {
+      if (appPermission.name ==
+          permissionName) {
+        permissions.add(appPermission);
+        break;
+      }
+    }
+  }
+}
+
+
+// ============================================================
+// CREATE REAL APP USER FROM BACKEND
+// ============================================================
+
+final loggedInUser = AppUser(
+  id: user['id']?.toString() ?? '',
+  name:
+      user['name']?.toString() ?? '',
+  role: serverRole == 'salesman'
+      ? UserRole.salesman
+      : UserRole.admin,
+  branch:
+      user['businessName']?.toString() ??
+      'Main Distribution Centre',
+  mobile:
+      user['mobile']?.toString() ?? '',
+  salesmanId:
+      serverRole == 'salesman'
+          ? user['salesmanId']?.toString()
+          : null,
+  route:
+      user['routeName']?.toString(),
+  permissions:
+      permissions,
+);
+
+
+// ============================================================
+// SAVE AUTHENTICATED USER IN UI SESSION
+// ============================================================
+
+UiSession.instance.signInFromBackend(
+  loggedInUser,
+);
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(
+          builder: (_) => const DashboardScreen(),
+        ),
+        (_) => false,
+      );
+    } else {
+      _message(
+        data['message']?.toString() ??
+            'Invalid login credentials.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _message(
+      'Unable to connect to backend. Make sure server.js is running.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() => _loading = false);
+    }
+  }
+}
   void _message(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -119,12 +256,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                         AutofillHints.username,
                                       ],
                                       decoration: InputDecoration(
-                                        labelText: _role == UserRole.admin
-                                            ? 'Admin ID / Username'
-                                            : 'Salesman ID / Mobile / Username',
-                                        hintText: _role == UserRole.admin
-                                            ? 'Enter admin ID'
-                                            : 'Example: SM001',
+                                 labelText: _role == UserRole.admin
+    ? 'Farm ID / Admin ID / Username'
+    : 'Salesman ID / Mobile / Username',
+
+hintText: _role == UserRole.admin
+    ? 'Example: FARM123456'
+    : 'Example: SM123456',
                                         prefixIcon: Icon(
                                           _role == UserRole.admin
                                               ? Icons

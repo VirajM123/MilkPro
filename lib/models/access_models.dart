@@ -22,6 +22,7 @@ enum AppPermission {
   ledgerView,
   reportsView,
   expensesView,
+  suppliersView,
 }
 
 class AppUser {
@@ -113,6 +114,12 @@ const permissionGroups = <PermissionGroup>[
   PermissionGroup('Products', [
     PermissionOption(AppPermission.productsView, 'View products'),
   ]),
+  PermissionGroup('Suppliers', [
+  PermissionOption(
+    AppPermission.suppliersView,
+    'View suppliers',
+  ),
+]),
   PermissionGroup('Customers', [
     PermissionOption(AppPermission.customersView, 'View customers'),
     PermissionOption(AppPermission.customersCreate, 'Add customer'),

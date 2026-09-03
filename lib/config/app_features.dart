@@ -32,6 +32,14 @@ abstract final class AppFeatures {
     permission: AppPermission.productsView,
     assetPath: 'assets/img/product_full_cream_milk.png',
   );
+    static const suppliers = AppFeature(
+    title: 'Suppliers',
+    icon: Icons.local_shipping_outlined,
+    route: '/suppliers',
+    permission: AppPermission.suppliersView,
+    salesmanVisible: false,
+    adminOnly: true,
+  );
   static const customers = AppFeature(
     title: 'Customers',
     icon: Icons.people_outline_rounded,
@@ -123,21 +131,22 @@ abstract final class AppFeatures {
     salesmanVisible: false,
   );
 
-  static const all = <AppFeature>[
-    customers,
-    customerRates,
-    products,
-    allocation,
-    sales,
-    returns,
-    collection,
-    routes,
-    purchase,
-    reports,
-    expenses,
-    payments,
-    ledger,
-  ];
+static const all = <AppFeature>[
+  customers,
+  customerRates,
+  products,
+  suppliers,
+  allocation,
+  sales,
+  returns,
+  collection,
+  routes,
+  purchase,
+  reports,
+  expenses,
+  payments,
+  ledger,
+];
 
   static List<AppFeature> visibleFor(AppUser user) => all
       .where((feature) {

@@ -1,5 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 
 class PurchaseScreen extends StatefulWidget {
@@ -36,54 +41,13 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isCreatingPurchase = false;
 
-  final List<_PurchaseRecord> _savedPurchases = <_PurchaseRecord>[
-    _PurchaseRecord(
-      number: 'PUR-2026-0012',
-      date: DateTime(2026, 8, 20),
-      supplier: 'Gokul Dairy Farm',
-      invoice: 'INV-2548',
-      paymentType: 'Credit',
-      itemCount: 4,
-      quantity: 240,
-      amount: 9120,
-    ),
-    _PurchaseRecord(
-      number: 'PUR-2026-0011',
-      date: DateTime(2026, 8, 19),
-      supplier: 'Shree Milk Supplier',
-      invoice: 'INV-2539',
-      paymentType: 'Cash',
-      itemCount: 3,
-      quantity: 175,
-      amount: 6840,
-    ),
-    _PurchaseRecord(
-      number: 'PUR-2026-0010',
-      date: DateTime(2026, 8, 18),
-      supplier: 'Krishna Dairy',
-      invoice: 'INV-2526',
-      paymentType: 'UPI',
-      itemCount: 5,
-      quantity: 310,
-      amount: 12750,
-    ),
-    _PurchaseRecord(
-      number: 'PUR-2026-0009',
-      date: DateTime(2026, 8, 17),
-      supplier: 'Sai Dairy Products',
-      invoice: 'INV-2518',
-      paymentType: 'Credit',
-      itemCount: 2,
-      quantity: 120,
-      amount: 5260,
-    ),
-  ];
+final List<_PurchaseRecord> _savedPurchases = [];
 
   DateTime purchaseDate = DateTime(2026, 8, 20);
   DateTime billDate = DateTime(2026, 8, 20);
   DateTime dueDate = DateTime(2026, 8, 30);
 
-  String selectedSupplier = 'Gokul Dairy Farm';
+String? selectedSupplierId;
   String selectedPaymentType = 'Credit';
   String selectedGodown = 'Main Godown';
 
@@ -103,12 +67,13 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
   final TextEditingController taxController = TextEditingController(text: '5');
 
-  final List<String> suppliers = [
-    'Gokul Dairy Farm',
-    'Shree Milk Supplier',
-    'Krishna Dairy',
-    'Sai Dairy Products',
-  ];
+final List<_SupplierOption> suppliers = [];
+final List<_ProductOption> masterProducts = [];
+
+bool _loadingSuppliers = false;
+bool _loadingMasterProducts = false;
+bool _loadingPurchases = true;
+bool _savingPurchase = false;
 
   final List<String> paymentTypes = ['Credit', 'Cash', 'UPI', 'Bank Transfer'];
 
@@ -123,36 +88,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   // PRODUCTS
   // ============================================================
 
-  final List<PurchaseProduct> products = [
-    PurchaseProduct(
-      name: 'Raw Milk',
-      description: 'Full Cream',
-      quantity: 100,
-      unit: 'Ltr',
-      rate: 36,
-    ),
-    PurchaseProduct(
-      name: 'Toned Milk',
-      description: '500 ml',
-      quantity: 50,
-      unit: 'Ltr',
-      rate: 28,
-    ),
-    PurchaseProduct(
-      name: 'Curd',
-      description: '1 Kg',
-      quantity: 30,
-      unit: 'Ltr',
-      rate: 60,
-    ),
-    PurchaseProduct(
-      name: 'Butter',
-      description: '500 gm',
-      quantity: 10,
-      unit: 'Ltr',
-      rate: 240,
-    ),
-  ];
+final List<PurchaseProduct> products = [];
 
   // ============================================================
   // GETTERS
@@ -248,273 +184,780 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     );
   }
 
+Future<void> _loadSuppliers() async {
+  if (mounted) {
+    setState(() {
+      _loadingSuppliers = true;
+    });
+  }
+
+  try {
+    final response = await http.get(
+      Uri.parse(ApiConfig.suppliers),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      final records =
+          data['data']
+                  as List<dynamic>? ??
+              [];
+
+      final loaded =
+          records
+              .where((item) {
+                final map =
+                    item
+                        as Map<
+                          String,
+                          dynamic
+                        >;
+
+                return map['isActive'] !=
+                    false;
+              })
+              .map((item) {
+                final map =
+                    item
+                        as Map<
+                          String,
+                          dynamic
+                        >;
+
+                return _SupplierOption(
+                  id:
+                      map['_id']
+                              ?.toString() ??
+                          '',
+                  supplierId:
+                      map['supplierId']
+                              ?.toString() ??
+                          '',
+                  supplierName:
+                      map['supplierName']
+                              ?.toString() ??
+                          '',
+                );
+              })
+              .where(
+                (item) =>
+                    item.supplierId
+                        .isNotEmpty &&
+                    item.supplierName
+                        .isNotEmpty,
+              )
+              .toList();
+
+      setState(() {
+        suppliers
+          ..clear()
+          ..addAll(loaded);
+
+        if (selectedSupplierId ==
+                null &&
+            suppliers.isNotEmpty) {
+          selectedSupplierId =
+              suppliers.first.supplierId;
+        }
+      });
+    }
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load suppliers.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingSuppliers = false;
+      });
+    }
+  }
+}
+Future<void> _loadMasterProducts() async {
+  if (mounted) {
+    setState(() {
+      _loadingMasterProducts = true;
+    });
+  }
+
+  try {
+    final response = await http.get(
+      Uri.parse(ApiConfig.products),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      final records =
+          data['data']
+                  as List<dynamic>? ??
+              [];
+
+      final loaded =
+          records
+              .where((item) {
+                final map =
+                    item
+                        as Map<
+                          String,
+                          dynamic
+                        >;
+
+                return map['isActive'] !=
+                    false;
+              })
+              .map((item) {
+                final map =
+                    item
+                        as Map<
+                          String,
+                          dynamic
+                        >;
+
+                return _ProductOption(
+                  id:
+                      map['_id']
+                              ?.toString() ??
+                          '',
+                  productId:
+                      map['productId']
+                              ?.toString() ??
+                          '',
+                  name:
+                      map['productName']
+                              ?.toString() ??
+                          '',
+                  variant:
+                      map['variant']
+                              ?.toString() ??
+                          '',
+                  unit:
+                      map['unit']
+                              ?.toString() ??
+                          'Pcs',
+                  price:
+                      double.tryParse(
+                        map['price']
+                                ?.toString() ??
+                            '0',
+                      ) ??
+                      0,
+                );
+              })
+              .where(
+                (item) =>
+                    item.productId
+                        .isNotEmpty &&
+                    item.name.isNotEmpty,
+              )
+              .toList();
+
+      setState(() {
+        masterProducts
+          ..clear()
+          ..addAll(loaded);
+      });
+    }
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load products.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingMasterProducts = false;
+      });
+    }
+  }
+}
+
+Future<void> _loadPurchases() async {
+  if (mounted) {
+    setState(() {
+      _loadingPurchases = true;
+    });
+  }
+
+  try {
+    final response = await http.get(
+      Uri.parse(ApiConfig.purchases),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      final records =
+          data['data']
+                  as List<dynamic>? ??
+              [];
+
+      final loaded =
+          records.map((item) {
+        final map =
+            item
+                as Map<String, dynamic>;
+
+        final productLines =
+            map['products']
+                    as List<dynamic>? ??
+                [];
+
+        return _PurchaseRecord(
+          id:
+              map['_id']?.toString() ??
+                  '',
+          number:
+              map['purchaseNo']
+                      ?.toString() ??
+                  '',
+          date:
+              DateTime.tryParse(
+                map['purchaseDate']
+                        ?.toString() ??
+                    '',
+              ) ??
+              DateTime.now(),
+          supplier:
+              map['supplierName']
+                      ?.toString() ??
+                  '',
+          invoice:
+              map['invoiceNo']
+                      ?.toString() ??
+                  '',
+          paymentType:
+              map['paymentType']
+                      ?.toString() ??
+                  '',
+          itemCount:
+              productLines.length,
+          quantity:
+              double.tryParse(
+                map['totalQuantity']
+                        ?.toString() ??
+                    '0',
+              ) ??
+              0,
+          amount:
+              double.tryParse(
+                map['grandTotal']
+                        ?.toString() ??
+                    '0',
+              ) ??
+              0,
+          status:
+              map['status']
+                      ?.toString() ??
+                  'POSTED',
+        );
+      }).toList();
+
+      setState(() {
+        _savedPurchases
+          ..clear()
+          ..addAll(loaded);
+      });
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to load purchases.',
+      );
+    }
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load purchases.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingPurchases = false;
+      });
+    }
+  }
+}
   // ============================================================
   // ADD PRODUCT
   // ============================================================
 
-  Future<void> _showAddProductDialog() async {
-    final nameController = TextEditingController();
-    final descriptionController = TextEditingController();
-    final quantityController = TextEditingController();
-    final rateController = TextEditingController();
-
-    String unit = 'Ltr';
-
-    final result = await showDialog<PurchaseProduct>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Dialog(
-              insetPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 24,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 520),
-                padding: const EdgeInsets.all(22),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          _smallIconBox(Icons.inventory_2_outlined),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Add Product',
-                              style: TextStyle(
-                                color: darkBlue,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 20,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              Navigator.pop(dialogContext);
-                            },
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      _dialogTextField(
-                        controller: nameController,
-                        label: 'Product Name',
-                        hint: 'Enter product name',
-                        icon: Icons.local_drink_outlined,
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      _dialogTextField(
-                        controller: descriptionController,
-                        label: 'Description / Pack Size',
-                        hint: 'Example: 500 ml',
-                        icon: Icons.description_outlined,
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: _dialogTextField(
-                              controller: quantityController,
-                              label: 'Quantity',
-                              hint: '0.00',
-                              icon: Icons.numbers,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Unit',
-                                  style: TextStyle(
-                                    color: textBlue,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                const SizedBox(height: 7),
-                                Container(
-                                  height: 54,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    border: Border.all(color: borderColor),
-                                    borderRadius: BorderRadius.circular(13),
-                                  ),
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      value: unit,
-                                      isExpanded: true,
-                                      items: ['Ltr', 'Kg', 'Pcs', 'Box', 'Pkt']
-                                          .map(
-                                            (value) => DropdownMenuItem(
-                                              value: value,
-                                              child: Text(value),
-                                            ),
-                                          )
-                                          .toList(),
-                                      onChanged: (value) {
-                                        if (value != null) {
-                                          setDialogState(() {
-                                            unit = value;
-                                          });
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      _dialogTextField(
-                        controller: rateController,
-                        label: 'Purchase Rate',
-                        hint: '₹ 0.00',
-                        icon: Icons.currency_rupee,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                      ),
-
-                      const SizedBox(height: 26),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                Navigator.pop(dialogContext);
-                              },
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size.fromHeight(52),
-                                side: const BorderSide(color: primaryBlue),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
-                                ),
-                              ),
-                              child: const Text(
-                                'Cancel',
-                                style: TextStyle(
-                                  color: primaryBlue,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                final productName = nameController.text.trim();
-
-                                final qty =
-                                    double.tryParse(
-                                      quantityController.text.trim(),
-                                    ) ??
-                                    0;
-
-                                final rate =
-                                    double.tryParse(
-                                      rateController.text.trim(),
-                                    ) ??
-                                    0;
-
-                                if (productName.isEmpty ||
-                                    qty <= 0 ||
-                                    rate <= 0) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Enter valid product, quantity and rate.',
-                                      ),
-                                    ),
-                                  );
-                                  return;
-                                }
-
-                                Navigator.pop(
-                                  dialogContext,
-                                  PurchaseProduct(
-                                    name: productName,
-                                    description: descriptionController.text
-                                        .trim(),
-                                    quantity: qty,
-                                    unit: unit,
-                                    rate: rate,
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.add, color: Colors.white),
-                              label: const Text(
-                                'Add Product',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryBlue,
-                                elevation: 0,
-                                minimumSize: const Size.fromHeight(52),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    nameController.dispose();
-    descriptionController.dispose();
-    quantityController.dispose();
-    rateController.dispose();
+Future<void>
+_showAddProductDialog() async {
+  if (masterProducts.isEmpty) {
+    await _loadMasterProducts();
 
     if (!mounted) return;
 
-    if (result != null) {
-      setState(() {
-        products.add(result);
-      });
+    if (masterProducts.isEmpty) {
+      _showMessage(
+        'No active products found in Product Master.',
+      );
+      return;
     }
   }
+
+  String? selectedProductId;
+
+  final quantityController =
+      TextEditingController();
+
+  final rateController =
+      TextEditingController();
+
+  final result =
+      await showDialog<
+        PurchaseProduct
+      >(
+    context: context,
+    barrierDismissible: false,
+
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder:
+            (
+              context,
+              setDialogState,
+            ) {
+          _ProductOption?
+          selectedProduct;
+
+          if (
+              selectedProductId !=
+              null) {
+            for (
+              final item
+                  in masterProducts) {
+              if (item.productId ==
+                  selectedProductId) {
+                selectedProduct =
+                    item;
+                break;
+              }
+            }
+          }
+
+          return Dialog(
+            insetPadding:
+                const EdgeInsets
+                    .symmetric(
+              horizontal: 20,
+              vertical: 24,
+            ),
+
+            shape:
+                RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.circular(
+                22,
+              ),
+            ),
+
+            child: Container(
+              constraints:
+                  const BoxConstraints(
+                maxWidth: 520,
+              ),
+
+              padding:
+                  const EdgeInsets.all(
+                22,
+              ),
+
+              child:
+                  SingleChildScrollView(
+                child: Column(
+                  mainAxisSize:
+                      MainAxisSize.min,
+
+                  crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+
+                  children: [
+                    Row(
+                      children: [
+                        _smallIconBox(
+                          Icons
+                              .inventory_2_outlined,
+                        ),
+
+                        const SizedBox(
+                            width: 12),
+
+                        const Expanded(
+                          child: Text(
+                            'Add Product',
+                            style:
+                                TextStyle(
+                              color:
+                                  darkBlue,
+                              fontWeight:
+                                  FontWeight
+                                      .w700,
+                              fontSize:
+                                  20,
+                            ),
+                          ),
+                        ),
+
+                        IconButton(
+                          onPressed: () {
+                            Navigator.pop(
+                              dialogContext,
+                            );
+                          },
+                          icon:
+                              const Icon(
+                            Icons.close,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(
+                        height: 24),
+
+                    const Text(
+                      'Product',
+                      style: TextStyle(
+                        color: textBlue,
+                        fontWeight:
+                            FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+
+                    const SizedBox(
+                        height: 7),
+
+                    DropdownButtonFormField<
+                      String
+                    >(
+                      value:
+                          selectedProductId,
+
+                      isExpanded: true,
+
+                      decoration:
+                          InputDecoration(
+                        hintText:
+                            'Select Product',
+
+                        prefixIcon:
+                            const Icon(
+                          Icons
+                              .local_drink_outlined,
+                          color:
+                              primaryBlue,
+                        ),
+
+                        filled: true,
+                        fillColor:
+                            Colors.white,
+
+                        border:
+                            OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius
+                                  .circular(
+                            13,
+                          ),
+                        ),
+                      ),
+
+                      items:
+                          masterProducts
+                              .map(
+                                (
+                                  product,
+                                ) =>
+                                    DropdownMenuItem<
+                                      String
+                                    >(
+                                      value:
+                                          product
+                                              .productId,
+                                      child: Text(
+                                        product.variant
+                                                .isEmpty
+                                            ? product
+                                                .name
+                                            : '${product.name} - ${product.variant}',
+                                      ),
+                                    ),
+                              )
+                              .toList(),
+
+                      onChanged: (
+                        value,
+                      ) {
+                        setDialogState(
+                          () {
+                            selectedProductId =
+                                value;
+
+                            _ProductOption?
+                            found;
+
+                            for (
+                              final item
+                                  in masterProducts) {
+                              if (item
+                                      .productId ==
+                                  value) {
+                                found =
+                                    item;
+                                break;
+                              }
+                            }
+
+                            if (found !=
+                                null) {
+                              rateController
+                                      .text =
+                                  found.price
+                                      .toStringAsFixed(
+                                    2,
+                                  );
+                            }
+                          },
+                        );
+                      },
+                    ),
+
+                    if (selectedProduct !=
+                        null) ...[
+                      const SizedBox(
+                          height: 10),
+
+                      Text(
+                        '${selectedProduct.variant.isEmpty ? '' : '${selectedProduct.variant} • '}${selectedProduct.unit}',
+                        style:
+                            const TextStyle(
+                          color: AppColors
+                              .textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(
+                        height: 16),
+
+                    _dialogTextField(
+                      controller:
+                          quantityController,
+                      label:
+                          'Quantity',
+                      hint:
+                          '0.00',
+                      icon:
+                          Icons.numbers,
+                      keyboardType:
+                          const TextInputType
+                              .numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+
+                    const SizedBox(
+                        height: 16),
+
+                    _dialogTextField(
+                      controller:
+                          rateController,
+                      label:
+                          'Purchase Rate',
+                      hint:
+                          '₹ 0.00',
+                      icon:
+                          Icons
+                              .currency_rupee,
+                      keyboardType:
+                          const TextInputType
+                              .numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+
+                    const SizedBox(
+                        height: 26),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child:
+                              OutlinedButton(
+                            onPressed: () =>
+                                Navigator.pop(
+                              dialogContext,
+                            ),
+                            child:
+                                const Text(
+                              'Cancel',
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(
+                            width: 12),
+
+                        Expanded(
+                          child:
+                              ElevatedButton.icon(
+                            onPressed:
+                                () {
+                              if (selectedProduct ==
+                                  null) {
+                        _showMessage(
+  'Please select a product.',
+);
+                                return;
+                              }
+
+                              final qty =
+                                  double.tryParse(
+                                    quantityController
+                                        .text
+                                        .trim(),
+                                  ) ??
+                                  0;
+
+                              final rate =
+                                  double.tryParse(
+                                    rateController
+                                        .text
+                                        .trim(),
+                                  ) ??
+                                  0;
+
+                              if (qty <=
+                                      0 ||
+                                  rate <
+                                      0) {
+                          _showMessage(
+  'Enter valid quantity and rate.',
+);
+
+                                return;
+                              }
+
+                              Navigator.pop(
+                                dialogContext,
+
+                                PurchaseProduct(
+                                  productId:
+                                      selectedProduct!
+                                          .productId,
+
+                                  name:
+                                      selectedProduct
+                                          .name,
+
+                                  description:
+                                      selectedProduct
+                                          .variant,
+
+                                  quantity:
+                                      qty,
+
+                                  unit:
+                                      selectedProduct
+                                          .unit,
+
+                                  rate:
+                                      rate,
+                                ),
+                              );
+                            },
+
+                            icon:
+                                const Icon(
+                              Icons.add,
+                              color:
+                                  Colors.white,
+                            ),
+
+                            label:
+                                const Text(
+                              'Add Product',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+
+
+
+  if (!mounted) return;
+
+  if (result != null) {
+    final alreadyAdded =
+        products.any(
+      (item) =>
+          item.productId ==
+          result.productId,
+    );
+
+    if (alreadyAdded) {
+      _showMessage(
+        'Product already added. Edit its quantity instead.',
+      );
+      return;
+    }
+
+    setState(() {
+      products.add(result);
+    });
+  }
+}
 
   Widget _dialogTextField({
     required TextEditingController controller,
@@ -561,107 +1004,359 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     );
   }
 
+  void _showMessage(
+  String message,
+) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content:
+            Text(message),
+      ),
+    );
+}
+
+
   // ============================================================
   // CLEAR
   // ============================================================
 
-  void _clearPurchase() {
-    setState(() {
-      purchaseDate = DateTime.now();
-      billDate = DateTime.now();
-      dueDate = DateTime.now().add(const Duration(days: 10));
+void _resetPurchaseForm() {
+  purchaseDate =
+      DateTime.now();
 
-      selectedSupplier = suppliers.first;
-      selectedPaymentType = paymentTypes.first;
-      selectedGodown = godowns.first;
+  billDate =
+      DateTime.now();
 
-      invoiceController.clear();
-      remarksController.clear();
-      discountController.text = '0';
-      taxController.text = '5';
+  dueDate =
+      DateTime.now().add(
+    const Duration(days: 10),
+  );
 
-      products.clear();
-    });
+  selectedSupplierId =
+      suppliers.isNotEmpty
+          ? suppliers.first
+              .supplierId
+          : null;
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Purchase form cleared')));
-  }
+  selectedPaymentType =
+      paymentTypes.first;
+
+  selectedGodown =
+      godowns.first;
+
+  invoiceController.clear();
+  remarksController.clear();
+
+  discountController.text =
+      '0';
+
+  taxController.text =
+      '5';
+
+  productSearchController
+      .clear();
+
+  productQuery = '';
+
+  products.clear();
+}
+
+void _clearPurchase() {
+  setState(() {
+    _resetPurchaseForm();
+  });
+
+  _showMessage(
+    'Purchase form cleared',
+  );
+}
 
   // ============================================================
   // SAVE
   // ============================================================
 
-  void _savePurchase() {
-    final formState = _formKey.currentState;
-    if (formState == null || !formState.validate()) {
-      return;
-    }
+Future<void> _savePurchase() async {
+  if (_savingPurchase) return;
 
-    if (products.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one product.')),
+  final formState =
+      _formKey.currentState;
+
+  if (formState == null ||
+      !formState.validate()) {
+    return;
+  }
+
+  if (selectedSupplierId == null ||
+      selectedSupplierId!.isEmpty) {
+    _showMessage(
+      'Please select supplier.',
+    );
+    return;
+  }
+
+  if (products.isEmpty) {
+    _showMessage(
+      'Please add at least one product.',
+    );
+    return;
+  }
+
+  for (final product in products) {
+    if (product.quantity <= 0) {
+      _showMessage(
+        'Product quantity must be greater than zero.',
       );
       return;
     }
 
-    final purchaseData = {
-      'purchaseNo': 'PUR-2026-0012',
-      'purchaseDate': purchaseDate.toIso8601String(),
-      'supplier': selectedSupplier,
-      'invoiceNo': invoiceController.text.trim(),
-      'billDate': billDate.toIso8601String(),
-      'paymentType': selectedPaymentType,
-      'dueDate': dueDate.toIso8601String(),
-      'godown': selectedGodown,
-      'remarks': remarksController.text.trim(),
-      'products': products.map((e) => e.toJson()).toList(),
-      'totalQuantity': totalQuantity,
-      'subTotal': subTotal,
-      'discount': discount,
-      'taxPercentage': taxPercentage,
-      'taxAmount': taxAmount,
-      'grandTotal': grandTotal,
-    };
-
-    debugPrint('PURCHASE DATA => $purchaseData');
-
-    _savedPurchases.insert(
-      0,
-      _PurchaseRecord(
-        number:
-            'PUR-2026-${(_savedPurchases.length + 13).toString().padLeft(4, '0')}',
-        date: purchaseDate,
-        supplier: selectedSupplier,
-        invoice: invoiceController.text.trim(),
-        paymentType: selectedPaymentType,
-        itemCount: products.length,
-        quantity: totalQuantity,
-        amount: grandTotal,
-      ),
-    );
-    _isCreatingPurchase = false;
-    setState(() {});
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: green,
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_outline, color: Colors.white),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Purchase saved successfully • ₹${_money(grandTotal)}',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    if (product.rate < 0) {
+      _showMessage(
+        'Invalid purchase rate.',
+      );
+      return;
+    }
   }
 
+  setState(() {
+    _savingPurchase = true;
+  });
+
+  try {
+    final response =
+        await http.post(
+      Uri.parse(
+        ApiConfig.purchases,
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'purchaseDate':
+            purchaseDate
+                .toIso8601String(),
+
+        'supplierId':
+            selectedSupplierId,
+
+        'invoiceNo':
+            invoiceController
+                .text
+                .trim(),
+
+        'billDate':
+            billDate
+                .toIso8601String(),
+
+        'paymentType':
+            selectedPaymentType,
+
+        'dueDate':
+            dueDate
+                .toIso8601String(),
+
+        'godown':
+            selectedGodown,
+
+        'remarks':
+            remarksController
+                .text
+                .trim(),
+
+        'products':
+            products
+                .map(
+                  (item) =>
+                      item.toJson(),
+                )
+                .toList(),
+
+        'discount':
+            discount,
+
+        'taxPercentage':
+            taxPercentage,
+      }),
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if ((response.statusCode ==
+                200 ||
+            response.statusCode ==
+                201) &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Purchase saved successfully.',
+      );
+
+      await _loadPurchases();
+
+      await _loadMasterProducts();
+
+      if (!mounted) return;
+
+      _resetPurchaseForm();
+
+      setState(() {
+        _isCreatingPurchase =
+            false;
+      });
+    } else {
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Unable to save purchase.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to connect to backend.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _savingPurchase = false;
+      });
+    }
+  }
+}
+
+Future<void> _cancelPurchase(
+  _PurchaseRecord purchase,
+) async {
+  if (purchase.id.isEmpty) {
+    _showMessage(
+      'Purchase database ID is missing.',
+    );
+    return;
+  }
+
+  if (purchase.isCancelled) {
+    _showMessage(
+      'Purchase is already cancelled.',
+    );
+    return;
+  }
+
+  final confirmed =
+      await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text(
+          'Cancel Purchase?',
+        ),
+
+        content: Text(
+          'Are you sure you want to cancel ${purchase.number}?\n\n'
+          'The purchased stock will be reversed automatically.',
+        ),
+
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(
+                dialogContext,
+                false,
+              );
+            },
+            child: const Text(
+              'No',
+            ),
+          ),
+
+          ElevatedButton(
+            style:
+                ElevatedButton.styleFrom(
+              backgroundColor:
+                  AppColors.error,
+              foregroundColor:
+                  Colors.white,
+            ),
+
+            onPressed: () {
+              Navigator.pop(
+                dialogContext,
+                true,
+              );
+            },
+
+            child: const Text(
+              'Cancel Purchase',
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true ||
+      !mounted) {
+    return;
+  }
+
+  try {
+    final response =
+        await http.put(
+      Uri.parse(
+        '${ApiConfig.purchases}/${purchase.id}/cancel',
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']?.toString() ??
+            'Purchase cancelled successfully.',
+      );
+
+      await _loadPurchases();
+
+      await _loadMasterProducts();
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to cancel purchase.',
+      );
+    }
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to cancel purchase.',
+    );
+  }
+}
   // ============================================================
   // MONEY
   // ============================================================
@@ -699,6 +1394,28 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   // ============================================================
   // BUILD
   // ============================================================
+
+@override
+void initState() {
+  super.initState();
+
+  purchaseDate = DateTime.now();
+  billDate = DateTime.now();
+  dueDate =
+      DateTime.now().add(
+    const Duration(days: 10),
+  );
+
+  _loadInitialData();
+}
+
+Future<void> _loadInitialData() async {
+  await Future.wait([
+    _loadSuppliers(),
+    _loadMasterProducts(),
+    _loadPurchases(),
+  ]);
+}
 
   @override
   Widget build(BuildContext context) {
@@ -881,7 +1598,33 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          ..._savedPurchases.map(_buildSavedPurchaseCard),
+          if (_loadingPurchases)
+  const Padding(
+    padding:
+        EdgeInsets.symmetric(
+      vertical: 50,
+    ),
+    child: Center(
+      child:
+          CircularProgressIndicator(),
+    ),
+  )
+else if (_savedPurchases.isEmpty)
+  const Padding(
+    padding:
+        EdgeInsets.symmetric(
+      vertical: 50,
+    ),
+    child: Center(
+      child: Text(
+        'No purchases found.',
+      ),
+    ),
+  )
+else
+  ..._savedPurchases.map(
+    _buildSavedPurchaseCard,
+  ),
         ],
       ),
       floatingActionButton: Row(
@@ -1021,24 +1764,30 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.successSoft,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Saved',
-                  style: TextStyle(
-                    color: green,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
+       Container(
+  padding: const EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: 5,
+  ),
+  decoration: BoxDecoration(
+    color: purchase.isCancelled
+        ? const Color(0xFFFFF1F2)
+        : AppColors.successSoft,
+    borderRadius: BorderRadius.circular(20),
+  ),
+  child: Text(
+    purchase.isCancelled
+        ? 'Cancelled'
+        : 'Posted',
+    style: TextStyle(
+      color: purchase.isCancelled
+          ? AppColors.error
+          : AppColors.success,
+      fontSize: 10.5,
+      fontWeight: FontWeight.w800,
+    ),
+  ),
+),
               const SizedBox(height: 9),
               Text(
                 '₹${_money(purchase.amount)}',
@@ -1051,11 +1800,48 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
               const SizedBox(height: 4),
               Text(
                 '${purchase.itemCount} Items • ${purchase.quantity.toStringAsFixed(0)} Pcs',
+                
                 style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 10.5,
                 ),
               ),
+              if (!purchase.isCancelled) ...[
+  const SizedBox(height: 8),
+
+  SizedBox(
+    height: 30,
+    child: TextButton.icon(
+      onPressed: () {
+        _cancelPurchase(
+          purchase,
+        );
+      },
+
+      icon: const Icon(
+        Icons.cancel_outlined,
+        size: 15,
+        color: AppColors.error,
+      ),
+
+      label: const Text(
+        'Cancel',
+        style: TextStyle(
+          color: AppColors.error,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 0,
+        ),
+      ),
+    ),
+  ),
+],
             ],
           ),
         ],
@@ -1063,7 +1849,14 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     );
   }
 
-  void _openNewPurchase() => setState(() => _isCreatingPurchase = true);
+void _openNewPurchase() {
+  setState(() {
+    _resetPurchaseForm();
+
+    _isCreatingPurchase =
+        true;
+  });
+}
 
   // ============================================================
   // HEADER
@@ -1562,20 +2355,115 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
       },
     );
   }
+Widget _supplierField() {
+  return Column(
+    crossAxisAlignment:
+        CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Supplier / Vendor',
+        style: TextStyle(
+          color: textBlue,
+          fontSize: 13,
+          fontWeight:
+              FontWeight.w500,
+        ),
+      ),
 
-  Widget _supplierField() {
-    return _dropdownField(
-      label: 'Supplier / Vendor',
-      icon: Icons.person_outline,
-      value: selectedSupplier,
-      items: suppliers,
-      onChanged: (value) {
-        setState(() {
-          selectedSupplier = value!;
-        });
-      },
-    );
-  }
+      const SizedBox(height: 8),
+
+      Container(
+        height: 58,
+        decoration: BoxDecoration(
+          color: fieldBackground,
+          borderRadius:
+              BorderRadius.circular(13),
+          border: Border.all(
+            color: borderColor,
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 11),
+
+            _fieldIcon(
+              Icons.person_outline,
+            ),
+
+            const SizedBox(width: 10),
+
+            Expanded(
+              child:
+                  _loadingSuppliers
+                      ? const Center(
+                          child:
+                              LinearProgressIndicator(),
+                        )
+                      : DropdownButtonHideUnderline(
+                          child:
+                              DropdownButton<
+                                String
+                              >(
+                            value:
+                                suppliers.any(
+                                  (item) =>
+                                      item.supplierId ==
+                                      selectedSupplierId,
+                                )
+                                ? selectedSupplierId
+                                : null,
+
+                            hint: const Text(
+                              'Select Supplier',
+                            ),
+
+                            isExpanded: true,
+
+                            items:
+                                suppliers
+                                    .map(
+                                      (
+                                        supplier,
+                                      ) =>
+                                          DropdownMenuItem<
+                                            String
+                                          >(
+                                            value:
+                                                supplier
+                                                    .supplierId,
+                                            child: Text(
+                                              supplier
+                                                  .supplierName,
+                                              overflow:
+                                                  TextOverflow
+                                                      .ellipsis,
+                                            ),
+                                          ),
+                                    )
+                                    .toList(),
+
+                            onChanged:
+                                suppliers.isEmpty
+                                    ? null
+                                    : (
+                                      value,
+                                    ) {
+                                      setState(
+                                        () {
+                                          selectedSupplierId =
+                                              value;
+                                        },
+                                      );
+                                    },
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
 
   Widget _invoiceField() {
     return _inputField(
@@ -2833,13 +3721,18 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             child: SizedBox(
               height: 58,
               child: ElevatedButton.icon(
-                onPressed: _savePurchase,
+                onPressed:
+    _savingPurchase
+        ? null
+        : _savePurchase,
                 icon: const Icon(
                   Icons.shopping_bag_outlined,
                   color: Colors.white,
                 ),
-                label: const Text(
-                  'Save Purchase',
+                label: Text(
+  _savingPurchase
+      ? 'Saving...'
+      : 'Save Purchase',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -3119,6 +4012,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 // ============================================================
 
 class PurchaseProduct {
+  String productId;
   String name;
   String description;
   double quantity;
@@ -3126,6 +4020,7 @@ class PurchaseProduct {
   double rate;
 
   PurchaseProduct({
+    required this.productId,
     required this.name,
     required this.description,
     required this.quantity,
@@ -3133,22 +4028,24 @@ class PurchaseProduct {
     required this.rate,
   });
 
-  double get amount => quantity * rate;
+  double get amount =>
+      quantity * rate;
 
   Map<String, dynamic> toJson() {
     return {
-      'name': name,
-      'description': description,
-      'quantity': quantity,
-      'unit': unit,
-      'rate': rate,
-      'amount': amount,
+      'productId':
+          productId,
+      'quantity':
+          quantity,
+      'rate':
+          rate,
     };
   }
 }
 
 class _PurchaseRecord {
   const _PurchaseRecord({
+    required this.id,
     required this.number,
     required this.date,
     required this.supplier,
@@ -3157,8 +4054,10 @@ class _PurchaseRecord {
     required this.itemCount,
     required this.quantity,
     required this.amount,
+    required this.status,
   });
 
+  final String id;
   final String number;
   final DateTime date;
   final String supplier;
@@ -3167,4 +4066,38 @@ class _PurchaseRecord {
   final int itemCount;
   final double quantity;
   final double amount;
+  final String status;
+
+  bool get isCancelled =>
+      status.toUpperCase() ==
+      'CANCELLED';
+}
+class _SupplierOption {
+  const _SupplierOption({
+    required this.id,
+    required this.supplierId,
+    required this.supplierName,
+  });
+
+  final String id;
+  final String supplierId;
+  final String supplierName;
+}
+
+class _ProductOption {
+  const _ProductOption({
+    required this.id,
+    required this.productId,
+    required this.name,
+    required this.variant,
+    required this.unit,
+    required this.price,
+  });
+
+  final String id;
+  final String productId;
+  final String name;
+  final String variant;
+  final String unit;
+  final double price;
 }

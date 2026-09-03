@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
 import '../returns/return_settlement_screen.dart';
@@ -25,27 +30,479 @@ class _AllocationScreenState extends State<AllocationScreen> {
   // MASTER DATA
   // ============================================================
 
-  final List<String> _salesmen = ['Omkar', 'Viraj', 'Mahesh'];
+// ============================================================
+// API MASTER DATA
+// ============================================================
 
-  final List<String> _routes = ['Route A', 'Route B', 'Route C'];
+final List<Map<String, dynamic>> _salesmen =
+    <Map<String, dynamic>>[];
 
-  // This UI supports any number of products.
-  // Replace/add your actual product master items here or load them from API.
-  final List<String> _products = [
-    'Full Cream Milk',
-    'Toned Milk',
-    'Buffalo Milk',
-    'Ghee',
-    'Curd',
-  ];
+final List<Map<String, dynamic>> _routes =
+    <Map<String, dynamic>>[];
 
-  // ============================================================
-  // ALLOCATION DATA
-  // ============================================================
+final List<Map<String, dynamic>> _products =
+    <Map<String, dynamic>>[];
 
-  final List<Map<String, dynamic>> _allocations = AllocationStore.allocations;
+final List<Map<String, dynamic>> _customers =
+    <Map<String, dynamic>>[];
 
-  DateTime _selectedDate = DateTime(2026, 8, 20);
+
+// ============================================================
+// ALLOCATION DATA
+// ============================================================
+
+final List<Map<String, dynamic>> _allocations =
+    <Map<String, dynamic>>[];
+
+DateTime _selectedDate = DateTime.now();
+
+bool _loadingAllocationData = false;
+
+@override
+void initState() {
+  super.initState();
+
+  _selectedDate = DateTime.now();
+
+  _loadAllocationData();
+}
+Map<String, String> get _apiHeaders {
+  return <String, String>{
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ${ApiConfig.token}',
+  };
+}
+Future<void> _loadAllocationData() async {
+  if (_loadingAllocationData) {
+    return;
+  }
+
+  setState(() {
+    _loadingAllocationData = true;
+  });
+
+  try {
+    await Future.wait([
+      _loadSalesmen(),
+      _loadRoutes(),
+      _loadProducts(),
+      _loadCustomers(),
+      _loadAllocations(),
+    ]);
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    _showApiMessage(
+      'Unable to load allocation data: $error',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingAllocationData = false;
+      });
+    }
+  }
+}
+
+Future<void> _loadSalesmen() async {
+  final response = await http.get(
+    Uri.parse(ApiConfig.salesmen),
+    headers: _apiHeaders,
+  );
+
+  final dynamic decoded =
+      jsonDecode(response.body);
+
+  if (response.statusCode != 200) {
+    throw Exception(
+      decoded is Map
+          ? decoded['message']?.toString() ??
+              'Unable to load salesmen.'
+          : 'Unable to load salesmen.',
+    );
+  }
+
+  final List<dynamic> records =
+      decoded is Map &&
+              decoded['data'] is List
+          ? decoded['data'] as List
+          : <dynamic>[];
+
+  final loaded =
+      records
+          .whereType<Map>()
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(item),
+          )
+          .where(
+            (item) =>
+                item['isActive'] != false,
+          )
+          .toList();
+
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {
+    _salesmen
+      ..clear()
+      ..addAll(loaded);
+  });
+}
+Future<void> _loadRoutes() async {
+  final response = await http.get(
+    Uri.parse(ApiConfig.routes),
+    headers: _apiHeaders,
+  );
+
+  final dynamic decoded =
+      jsonDecode(response.body);
+
+  if (response.statusCode != 200) {
+    throw Exception(
+      decoded is Map
+          ? decoded['message']?.toString() ??
+              'Unable to load routes.'
+          : 'Unable to load routes.',
+    );
+  }
+
+  final List<dynamic> records =
+      decoded is Map &&
+              decoded['data'] is List
+          ? decoded['data'] as List
+          : <dynamic>[];
+
+  final loaded =
+      records
+          .whereType<Map>()
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(item),
+          )
+          .where(
+            (item) =>
+                item['isActive'] != false,
+          )
+          .toList();
+
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {
+    _routes
+      ..clear()
+      ..addAll(loaded);
+  });
+}
+Future<void> _loadProducts() async {
+  final response = await http.get(
+    Uri.parse(ApiConfig.products),
+    headers: _apiHeaders,
+  );
+
+  final dynamic decoded =
+      jsonDecode(response.body);
+
+  if (response.statusCode != 200) {
+    throw Exception(
+      decoded is Map
+          ? decoded['message']?.toString() ??
+              'Unable to load products.'
+          : 'Unable to load products.',
+    );
+  }
+
+  final List<dynamic> records =
+      decoded is Map &&
+              decoded['data'] is List
+          ? decoded['data'] as List
+          : <dynamic>[];
+
+  final loaded =
+      records
+          .whereType<Map>()
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(item),
+          )
+          .where(
+            (item) =>
+                item['isActive'] != false,
+          )
+          .toList();
+
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {
+    _products
+      ..clear()
+      ..addAll(loaded);
+  });
+}
+Future<void> _loadCustomers() async {
+  final response = await http.get(
+    Uri.parse(ApiConfig.customers),
+    headers: _apiHeaders,
+  );
+
+  final dynamic decoded =
+      jsonDecode(response.body);
+
+  if (response.statusCode != 200) {
+    throw Exception(
+      decoded is Map
+          ? decoded['message']?.toString() ??
+              'Unable to load customers.'
+          : 'Unable to load customers.',
+    );
+  }
+
+  final List<dynamic> records =
+      decoded is Map &&
+              decoded['data'] is List
+          ? decoded['data'] as List
+          : <dynamic>[];
+
+  final loaded =
+      records
+          .whereType<Map>()
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(item),
+          )
+          .where(
+            (item) =>
+                item['isActive'] != false,
+          )
+          .toList();
+
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {
+    _customers
+      ..clear()
+      ..addAll(loaded);
+  });
+}
+
+  Future<void> _loadAllocations() async {
+  final response = await http.get(
+    Uri.parse(
+      '${ApiConfig.baseUrl}/api/allocations',
+    ),
+    headers: _apiHeaders,
+  );
+
+  final dynamic decoded =
+      jsonDecode(response.body);
+
+  if (response.statusCode != 200) {
+    throw Exception(
+      decoded is Map
+          ? decoded['message']?.toString() ??
+              'Unable to load allocations.'
+          : 'Unable to load allocations.',
+    );
+  }
+
+  final List<dynamic> records =
+      decoded is Map &&
+              decoded['data'] is List
+          ? decoded['data'] as List
+          : <dynamic>[];
+
+  final List<Map<String, dynamic>>
+      loadedLines =
+      <Map<String, dynamic>>[];
+
+  for (final dynamic rawRecord
+      in records) {
+    if (rawRecord is! Map) {
+      continue;
+    }
+
+    final allocation =
+        Map<String, dynamic>.from(
+          rawRecord,
+        );
+
+    final allocationId =
+        allocation['allocationId']
+                ?.toString() ??
+            allocation['_id']
+                ?.toString() ??
+            '';
+
+    final allocationNo =
+        allocation['allocationNo']
+                ?.toString() ??
+            '';
+
+    DateTime allocationDate =
+        DateTime.now();
+
+    final rawDate =
+        allocation['allocationDate'];
+
+    if (rawDate != null) {
+      allocationDate =
+          DateTime.tryParse(
+            rawDate.toString(),
+          )?.toLocal() ??
+          DateTime.now();
+    }
+
+    final products =
+        allocation['products'];
+
+    if (products is! List) {
+      continue;
+    }
+
+    for (final dynamic rawProduct
+        in products) {
+      if (rawProduct is! Map) {
+        continue;
+      }
+
+      final product =
+          Map<String, dynamic>.from(
+            rawProduct,
+          );
+
+      loadedLines.add({
+        'batchId':
+            allocationId,
+
+        'allocationId':
+            allocationId,
+
+        'allocationNo':
+            allocationNo,
+
+        'date':
+            allocationDate,
+
+        'routeId':
+            allocation['routeId']
+                    ?.toString() ??
+                '',
+
+        'route':
+            allocation['routeName']
+                    ?.toString() ??
+                '',
+
+        'salesmanId':
+            allocation['salesmanId']
+                    ?.toString() ??
+                '',
+
+        'salesman':
+            allocation['salesmanName']
+                    ?.toString() ??
+                '',
+
+        'customerId':
+            allocation['customerId']
+                    ?.toString() ??
+                '',
+
+        'customer':
+            allocation['customerName']
+                    ?.toString() ??
+                '',
+
+        'productId':
+            product['productId']
+                    ?.toString() ??
+                '',
+
+        'product':
+            product['productName']
+                    ?.toString() ??
+                '',
+
+        'variant':
+            product['variant']
+                    ?.toString() ??
+                '',
+
+        'unit':
+            product['unit']
+                    ?.toString() ??
+                'Pcs',
+
+       'qty':
+    _asInt(
+      product['quantity'],
+    ),
+
+'soldQty':
+    _asInt(
+      product['soldQuantity'],
+    ),
+
+'returnedQty':
+    _asInt(
+      product['returnedQuantity'],
+    ),
+
+'remainingQty':
+    _asInt(
+      product['remainingQuantity'],
+    ),
+
+        'notes':
+            allocation['notes']
+                    ?.toString() ??
+                '',
+
+        'status':
+            allocation['status']
+                    ?.toString() ??
+                'POSTED',
+      });
+    }
+  }
+
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {
+    _allocations
+      ..clear()
+      ..addAll(loadedLines);
+  });
+}
+void _showApiMessage(String message) {
+  if (!mounted) {
+    return;
+  }
+
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior:
+            SnackBarBehavior.floating,
+      ),
+    );
+}
+
+
 
   // ============================================================
   // HELPERS / CALCULATIONS
@@ -113,17 +570,30 @@ class _AllocationScreenState extends State<AllocationScreen> {
     return total;
   }
 
-  int get _totalReturned {
-    int total = 0;
+int get _totalSold {
+  int total = 0;
 
-    for (final item in _allocations) {
-      total += _asInt(item['returnedQty']);
-    }
-
-    return total;
+  for (final item in _allocations) {
+    total += _asInt(item['soldQty']);
   }
 
-  int get _totalPending => _totalAllocated - _totalReturned;
+  return total;
+}
+
+int get _totalReturned {
+  int total = 0;
+
+  for (final item in _allocations) {
+    total += _asInt(item['returnedQty']);
+  }
+
+  return total;
+}
+
+int get _totalPending =>
+    _totalAllocated -
+    _totalSold -
+    _totalReturned;
 
   int get _totalRoutes {
     return _allocations
@@ -171,43 +641,67 @@ class _AllocationScreenState extends State<AllocationScreen> {
   // OPEN ASSIGN ALLOCATION - MULTIPLE PRODUCTS
   // ============================================================
 
-  Future<void> _openAssignAllocation() async {
-    final List<Map<String, dynamic>>? result = await Navigator.of(context)
-        .push<List<Map<String, dynamic>>>(
-          MaterialPageRoute(
-            builder: (_) => AssignAllocationPage(
-              routes: _routes,
-              salesmen: _salesmen,
-              products: _products,
-            ),
-          ),
-        );
-
-    if (!mounted || result == null || result.isEmpty) {
-      return;
-    }
-
-    setState(() {
-      // Insert all selected product lines together.
-      // They share the same batchId, route, salesman and date.
-      _allocations.insertAll(0, result);
-
-      final dynamic allocationDate = result.first['date'];
-
-      if (allocationDate is DateTime) {
-        _selectedDate = allocationDate;
-      }
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${result.length} product${result.length == 1 ? '' : 's'} allocated successfully.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+Future<void> _openAssignAllocation() async {
+  if (_loadingAllocationData) {
+    return;
   }
+
+  if (_salesmen.isEmpty) {
+    _showApiMessage(
+      'No active salesman found.',
+    );
+    return;
+  }
+
+  if (_routes.isEmpty) {
+    _showApiMessage(
+      'No active route found.',
+    );
+    return;
+  }
+
+  if (_products.isEmpty) {
+    _showApiMessage(
+      'No active product found.',
+    );
+    return;
+  }
+
+  final bool? saved =
+      await Navigator.of(context)
+          .push<bool>(
+    MaterialPageRoute(
+      builder: (_) =>
+          AssignAllocationPage(
+        routes: _routes,
+        salesmen: _salesmen,
+        products: _products,
+        customers: _customers,
+      ),
+    ),
+  );
+
+  if (!mounted ||
+      saved != true) {
+    return;
+  }
+
+  await _loadAllocations();
+  await _loadProducts();
+
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {
+    _selectedDate =
+        DateTime.now();
+  });
+
+  _showApiMessage(
+    'Allocation saved successfully.',
+  );
+}
 
   // ============================================================
   // TAKE RETURN FOR INDIVIDUAL PRODUCT
@@ -812,15 +1306,17 @@ class _AllocationScreenState extends State<AllocationScreen> {
     final String salesman = (first['salesman'] ?? '').toString();
     final String route = (first['route'] ?? '').toString();
 
-    int totalQty = 0;
-    int returnedQty = 0;
+int totalQty = 0;
+int soldQty = 0;
+int returnedQty = 0;
+int remainingQty = 0;
 
-    for (final item in group.items) {
-      totalQty += _asInt(item['qty']);
-      returnedQty += _asInt(item['returnedQty']);
-    }
-
-    final int pendingQty = totalQty - returnedQty;
+for (final item in group.items) {
+  totalQty += _asInt(item['qty']);
+  soldQty += _asInt(item['soldQty']);
+  returnedQty += _asInt(item['returnedQty']);
+  remainingQty += _asInt(item['remainingQty']);
+}
 
     return Container(
       width: double.infinity,
@@ -934,27 +1430,35 @@ class _AllocationScreenState extends State<AllocationScreen> {
                   ],
                 ),
                 const SizedBox(height: 7),
-                Row(
-                  children: [
-                    _miniMetric(
-                      label: 'Allocated',
-                      value: '$totalQty L',
-                      color: primaryBlue,
-                    ),
-                    const SizedBox(width: 6),
-                    _miniMetric(
-                      label: 'Returned',
-                      value: '$returnedQty L',
-                      color: orange,
-                    ),
-                    const SizedBox(width: 6),
-                    _miniMetric(
-                      label: 'Pending',
-                      value: '$pendingQty L',
-                      color: pendingQty <= 0 ? green : purple,
-                    ),
-                  ],
-                ),
+            Row(
+  children: [
+    _miniMetric(
+      label: 'Allocated',
+      value: '$totalQty',
+      color: primaryBlue,
+    ),
+    const SizedBox(width: 5),
+    _miniMetric(
+      label: 'Sold',
+      value: '$soldQty',
+      color: green,
+    ),
+    const SizedBox(width: 5),
+    _miniMetric(
+      label: 'Returned',
+      value: '$returnedQty',
+      color: orange,
+    ),
+    const SizedBox(width: 5),
+    _miniMetric(
+      label: 'Remaining',
+      value: '$remainingQty',
+      color: remainingQty <= 0
+          ? green
+          : purple,
+    ),
+  ],
+),
               ],
             ),
           ),
@@ -1050,12 +1554,28 @@ class _AllocationScreenState extends State<AllocationScreen> {
   }
 
   Widget _buildProductAllocationRow(Map<String, dynamic> item) {
-    final String product = (item['product'] ?? '').toString();
-    final int qty = _asInt(item['qty']);
-    final int returned = _asInt(item['returnedQty']);
-    final int pending = qty - returned;
+    final String product =
+    (item['product'] ?? '').toString();
 
-    final bool hasSettlement = item['settlement'] is Map;
+final String unit =
+    (item['unit'] ?? '').toString();
+
+final int qty =
+    _asInt(item['qty']);
+
+final int sold =
+    _asInt(item['soldQty']);
+
+final int returned =
+    _asInt(item['returnedQty']);
+
+final int remaining =
+    _asInt(item['remainingQty']);
+
+final bool hasSettlement =
+    item['settlement'] is Map;
+
+    
 
     return Container(
       width: double.infinity,
@@ -1095,17 +1615,52 @@ class _AllocationScreenState extends State<AllocationScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                if (returned > 0) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Returned $returned • Pending $pending',
-                    style: TextStyle(
-                      color: pending <= 0 ? green : orange,
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+             const SizedBox(height: 4),
+
+Wrap(
+  spacing: 7,
+  runSpacing: 3,
+  children: [
+    Text(
+      'Allocated $qty $unit',
+      style: const TextStyle(
+        color: primaryBlue,
+        fontSize: 8.5,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+
+    Text(
+      'Sold $sold $unit',
+      style: const TextStyle(
+        color: green,
+        fontSize: 8.5,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+
+    Text(
+      'Returned $returned $unit',
+      style: const TextStyle(
+        color: orange,
+        fontSize: 8.5,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+
+    Text(
+      'Remaining $remaining $unit',
+      style: TextStyle(
+        color:
+            remaining <= 0
+                ? green
+                : purple,
+        fontSize: 8.5,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  ],
+),
               ],
             ),
           ),
@@ -1113,7 +1668,7 @@ class _AllocationScreenState extends State<AllocationScreen> {
           SizedBox(
             width: 65,
             child: Text(
-              '$qty Ltr',
+             '$remaining $unit',
               textAlign: TextAlign.right,
               maxLines: 1,
               style: const TextStyle(
@@ -1345,15 +1900,35 @@ class _AllocationScreenState extends State<AllocationScreen> {
                   purple,
                 ),
                 const SizedBox(height: 8),
-                _summaryLine(
-                  'Total Allocated',
-                  '$_totalAllocated Ltr',
-                  primaryBlue,
-                ),
-                const SizedBox(height: 8),
-                _summaryLine('Total Returned', '$_totalReturned Ltr', orange),
-                const SizedBox(height: 8),
-                _summaryLine('Pending Quantity', '$_totalPending Ltr', green),
+          _summaryLine(
+  'Total Allocated',
+  '$_totalAllocated',
+  primaryBlue,
+),
+
+const SizedBox(height: 8),
+
+_summaryLine(
+  'Total Sold',
+  '$_totalSold',
+  green,
+),
+
+const SizedBox(height: 8),
+
+_summaryLine(
+  'Total Returned',
+  '$_totalReturned',
+  orange,
+),
+
+const SizedBox(height: 8),
+
+_summaryLine(
+  'Remaining Quantity',
+  '$_totalPending',
+  purple,
+),
                 const SizedBox(height: 8),
                 _summaryLine('Total Routes', '$_totalRoutes', purple),
                 const SizedBox(height: 8),

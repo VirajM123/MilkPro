@@ -1,6 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
+import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
@@ -16,7 +20,8 @@ class RegistrationScreen extends StatefulWidget {
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _controllers = List.generate(11, (_) => TextEditingController());
+  final _controllers = List.generate(12, (_) => TextEditingController());
+
   late UserRole _role;
   bool _hidePassword = true;
   bool _hideConfirm = true;
@@ -33,6 +38,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   TextEditingController get _city => _controllers[8];
   TextEditingController get _state => _controllers[9];
   TextEditingController get _pin => _controllers[10];
+  TextEditingController get _farmId => _controllers[11];
 
   @override
   void initState() {
@@ -47,22 +53,168 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
     super.dispose();
   }
+Future<void> _register() async {
+  FocusScope.of(context).unfocus();
 
-  Future<void> _register() async {
-    FocusScope.of(context).unfocus();
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _loading = true);
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+  if (!(_formKey.currentState?.validate() ?? false)) {
+    return;
+  }
+
+  setState(() => _loading = true);
+
+  try {
+    final response = await http.post(
+      Uri.parse(ApiConfig.register),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'role': _role == UserRole.admin ? 'admin' : 'salesman',
+
+        'farmId': _role == UserRole.salesman
+            ? _farmId.text.trim().toUpperCase()
+            : null,
+
+        'name': _name.text.trim(),
+        'mobile': _mobile.text.trim(),
+        'email': _email.text.trim(),
+        'username': _username.text.trim(),
+        'password': _password.text,
+
+        'businessName':
+            _role == UserRole.admin ? _business.text.trim() : '',
+
+        'address': _address.text.trim(),
+        'city': _city.text.trim(),
+        'state': _state.text.trim(),
+        'pin': _pin.text.trim(),
+      }),
+    );
+
+    final Map<String, dynamic> data =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
     if (!mounted) return;
-    setState(() => _loading = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Registration is ready; backend account creation is pending.',
-        ),
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final accountData =
+          data['data'] as Map<String, dynamic>? ?? {};
+
+      final generatedId = _role == UserRole.admin
+          ? accountData['farmId']?.toString() ?? ''
+          : accountData['salesmanId']?.toString() ?? '';
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: Text(
+              _role == UserRole.admin
+                  ? 'Admin Registered Successfully'
+                  : 'Salesman Registered Successfully',
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data['message']?.toString() ??
+                      'Account created successfully.',
+                ),
+
+                const SizedBox(height: 18),
+
+                Text(
+                  _role == UserRole.admin
+                      ? 'Your Farm ID'
+                      : 'Your Salesman ID',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                SelectableText(
+                  generatedId,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                if (_role == UserRole.admin) ...[
+                  const SizedBox(height: 12),
+
+                  Text(
+                    'Admin ID: ${accountData['adminId'] ?? ''}',
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  const Text(
+                    'Keep this Farm ID safe. Give this Farm ID to your salesman for registration.',
+                  ),
+                ],
+
+                if (_role == UserRole.salesman) ...[
+                  const SizedBox(height: 12),
+
+                  Text(
+                    'Farm ID: ${accountData['farmId'] ?? ''}',
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  const Text(
+                    'Keep your Salesman ID safe. You can use it for login.',
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (!mounted) return;
+
+      Navigator.maybePop(context);
+    } else {
+      _message(
+        data['message']?.toString() ??
+            'Unable to create account.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _message(
+      'Unable to connect to backend. Make sure server.js is running.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() => _loading = false);
+    }
+  }
+}
+void _message(String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
       ),
     );
-  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +234,32 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           children: [
+            if (_role == UserRole.salesman) ...[
+  _section(
+    'Farm Details',
+    Icons.business_outlined,
+    [
+      _field(
+        _farmId,
+        'Farm ID',
+        Icons.badge_outlined,
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return 'Farm ID is required';
+          }
+
+          if (!value.trim().toUpperCase().startsWith('FARM')) {
+            return 'Enter a valid Farm ID';
+          }
+
+          return null;
+        },
+      ),
+    ],
+  ),
+
+  const SizedBox(height: 14),
+],
             _section('Personal Details', Icons.person_outline_rounded, [
               _field(_name, 'Full Name', Icons.person_outline_rounded),
               _field(
@@ -132,56 +310,68 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     value == _password.text ? null : 'Passwords do not match',
               ),
             ]),
-            const SizedBox(height: 14),
-            _section('Business Details', Icons.storefront_outlined, [
-              _field(
-                _business,
-                'Business / Dairy Name',
-                Icons.storefront_outlined,
-                required: _role == UserRole.admin,
-              ),
-              _field(
-                _address,
-                'Address',
-                Icons.location_on_outlined,
-                required: false,
-                maxLines: 2,
-              ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _field(
-                      _city,
-                      'City',
-                      Icons.location_city_outlined,
-                      required: false,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _field(
-                      _state,
-                      'State',
-                      Icons.map_outlined,
-                      required: false,
-                    ),
-                  ),
-                ],
-              ),
-              _field(
-                _pin,
-                'PIN Code',
-                Icons.pin_drop_outlined,
-                required: false,
-                keyboardType: TextInputType.number,
-                formatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(6),
-                ],
-              ),
-            ]),
-            const SizedBox(height: 14),
+           const SizedBox(height: 14),
+
+if (_role == UserRole.admin) ...[
+  _section(
+    'Business Details',
+    Icons.storefront_outlined,
+    [
+      _field(
+        _business,
+        'Business / Dairy Name',
+        Icons.storefront_outlined,
+      ),
+
+      _field(
+        _address,
+        'Address',
+        Icons.location_on_outlined,
+        required: false,
+        maxLines: 2,
+      ),
+
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: _field(
+              _city,
+              'City',
+              Icons.location_city_outlined,
+              required: false,
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          Expanded(
+            child: _field(
+              _state,
+              'State',
+              Icons.map_outlined,
+              required: false,
+            ),
+          ),
+        ],
+      ),
+
+      _field(
+        _pin,
+        'PIN Code',
+        Icons.pin_drop_outlined,
+        required: false,
+        keyboardType: TextInputType.number,
+        formatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(6),
+        ],
+      ),
+    ],
+  ),
+
+  const SizedBox(height: 14),
+],
             _section('Role', Icons.manage_accounts_outlined, [
               SizedBox(
                 width: double.infinity,
@@ -204,10 +394,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       setState(() => _role = value.first),
                 ),
               ),
-              const Text(
-                'Role approval and account creation require backend support.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
-              ),
+             Text(
+  _role == UserRole.admin
+      ? 'A unique Farm ID and Admin ID will be generated automatically.'
+      : 'Enter your Admin Farm ID. Your Salesman ID will be generated automatically.',
+  style: const TextStyle(
+    color: AppColors.textSecondary,
+    fontSize: 11,
+  ),
+),
             ]),
             const SizedBox(height: 10),
             Row(

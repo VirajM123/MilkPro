@@ -1,49 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 
-/// Shared in-memory allocation data used by AllocationScreen and the Return menu.
-/// This keeps the existing local/sample-data approach, but both screens now
-/// read and update the SAME allocation records.
-class AllocationStore {
-  AllocationStore._();
-
-  static final List<Map<String, dynamic>> allocations = [
-    {
-      'date': DateTime(2026, 8, 20),
-      'route': 'Route A',
-      'salesman': 'Omkar',
-      'product': '500 ml Milk',
-      'qty': 300,
-      'returnedQty': 0,
-    },
-    {
-      'date': DateTime(2026, 8, 20),
-      'route': 'Route A',
-      'salesman': 'Omkar',
-      'product': '1 L Milk',
-      'qty': 150,
-      'returnedQty': 0,
-    },
-    {
-      'date': DateTime(2026, 8, 19),
-      'route': 'Route B',
-      'salesman': 'Viraj',
-      'product': 'Curd',
-      'qty': 80,
-      'returnedQty': 10,
-      'settlement': {
-        'status': 'saved',
-        'returnType': 0,
-        'soldQty': 60,
-        'goodReturnQty': 8,
-        'damageQty': 2,
-        'shortExcessQty': 0,
-        'reason': 'Previous return entry',
-        'remarks': 'Saved return can be edited.',
-      },
-    },
-  ];
-}
 
 class ReturnSettlementScreen extends StatefulWidget {
   const ReturnSettlementScreen({super.key, this.allocation});
@@ -68,8 +30,19 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
   static const Color green = AppColors.success;
   static const Color orange = AppColors.warning;
 
-  Map<String, dynamic>? _selectedAllocation;
-  DateTime _listDate = DateTime(2026, 8, 20);
+Map<String, dynamic>? _selectedAllocation;
+
+DateTime _listDate =
+    DateTime.now();
+
+bool _isSaving = false;
+
+bool _isLoadingAllocations = false;
+
+String _allocationLoadError = '';
+
+final List<Map<String, dynamic>>
+    _allocations = [];
 
   final TextEditingController reasonController = TextEditingController();
   final TextEditingController remarksController = TextEditingController();
@@ -92,19 +65,317 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
     {'title': 'Other', 'icon': Icons.note_alt_outlined},
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedAllocation = widget.allocation;
+ @override
+void initState() {
+  super.initState();
 
-    if (_selectedAllocation != null) {
-      final rawDate = _selectedAllocation!['date'];
-      if (rawDate is DateTime) {
-        _listDate = rawDate;
-      }
-      _loadSettlement(_selectedAllocation!);
+  _selectedAllocation =
+      widget.allocation;
+
+  if (_selectedAllocation != null) {
+
+    final rawDate =
+        _selectedAllocation!['date'];
+
+    if (rawDate is DateTime) {
+      _listDate = rawDate;
     }
+
+    _loadSettlement(
+      _selectedAllocation!,
+    );
+  } else {
+
+    _loadAllocations();
   }
+}
+Future<void> _loadAllocations() async {
+
+  if (_isLoadingAllocations) {
+    return;
+  }
+
+  setState(() {
+    _isLoadingAllocations = true;
+    _allocationLoadError = '';
+  });
+
+
+  try {
+
+    final response =
+        await http.get(
+
+      Uri.parse(
+        '${ApiConfig.baseUrl}/api/allocations',
+      ),
+
+      headers: {
+
+        'Content-Type':
+            'application/json',
+
+        if (ApiConfig.token != null &&
+            ApiConfig.token!.isNotEmpty)
+
+          'Authorization':
+              'Bearer ${ApiConfig.token}',
+      },
+    );
+
+
+    final decoded =
+        jsonDecode(response.body);
+
+
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        decoded is! Map ||
+        decoded['success'] != true) {
+
+      throw Exception(
+        decoded is Map
+            ? (decoded['message'] ??
+                    'Unable to load allocations.')
+                .toString()
+            : 'Unable to load allocations.',
+      );
+    }
+
+
+    final rawData =
+        decoded['data'];
+
+
+    final List<Map<String, dynamic>>
+        loaded = [];
+
+
+    if (rawData is List) {
+
+      for (final rawAllocation in rawData) {
+
+        if (rawAllocation is! Map) {
+          continue;
+        }
+
+
+        final allocation =
+            Map<String, dynamic>.from(
+              rawAllocation,
+            );
+
+
+        final allocationId =
+            (allocation['allocationId'] ?? '')
+                .toString();
+
+
+        final allocationNo =
+            (allocation['allocationNo'] ?? '')
+                .toString();
+
+
+        final salesmanId =
+            (allocation['salesmanId'] ?? '')
+                .toString();
+
+
+        final salesmanName =
+            (allocation['salesmanName'] ?? '')
+                .toString();
+
+
+        final routeId =
+            (allocation['routeId'] ?? '')
+                .toString();
+
+
+        final routeName =
+            (allocation['routeName'] ?? '')
+                .toString();
+
+
+        DateTime allocationDate =
+            DateTime.now();
+
+
+        final rawDate =
+            allocation['allocationDate'];
+
+
+        if (rawDate != null) {
+
+          allocationDate =
+              DateTime.tryParse(
+                rawDate.toString(),
+              ) ??
+              DateTime.now();
+        }
+
+
+        final products =
+            allocation['products'];
+
+
+        if (products is! List) {
+          continue;
+        }
+
+
+        for (final rawProduct in products) {
+
+          if (rawProduct is! Map) {
+            continue;
+          }
+
+
+          final product =
+              Map<String, dynamic>.from(
+                rawProduct,
+              );
+
+
+          loaded.add({
+
+            'allocationId':
+                allocationId,
+
+            'allocationNo':
+                allocationNo,
+
+            'date':
+                allocationDate,
+
+            'salesmanId':
+                salesmanId,
+
+            'salesman':
+                salesmanName,
+
+            'routeId':
+                routeId,
+
+            'route':
+                routeName,
+
+            'productId':
+                (product['productId'] ?? '')
+                    .toString(),
+
+            'product':
+                (product['productName'] ?? '')
+                    .toString(),
+
+            'variant':
+                (product['variant'] ?? '')
+                    .toString(),
+
+            'unit':
+                (product['unit'] ?? '')
+                    .toString(),
+
+            'qty':
+                _asInt(
+                  product['quantity'],
+                ),
+
+            'soldQty':
+                _asInt(
+                  product[
+                    'soldQuantity'
+                  ],
+                ),
+
+            'returnedQty':
+                _asInt(
+                  product[
+                    'returnedQuantity'
+                  ],
+                ),
+
+            'remainingQty':
+                _asInt(
+                  product[
+                    'remainingQuantity'
+                  ],
+                ),
+                'salesValue':
+    _asDouble(
+      product['salesValue'],
+    ),
+
+'cashSales':
+    _asDouble(
+      product['cashSales'],
+    ),
+
+'onlineSales':
+    _asDouble(
+      product['onlineSales'],
+    ),
+
+'creditSales':
+    _asDouble(
+      product['creditSales'],
+    ),
+
+            'allocationStatus':
+                (allocation['status'] ?? '')
+                    .toString(),
+          });
+        }
+      }
+    }
+
+
+    if (!mounted) {
+      return;
+    }
+
+
+    setState(() {
+
+      _allocations
+        ..clear()
+        ..addAll(loaded);
+
+      _isLoadingAllocations =
+          false;
+    });
+
+
+  } catch (error) {
+
+    if (!mounted) {
+      return;
+    }
+
+
+    String message =
+        error.toString();
+
+
+    if (message.startsWith(
+      'Exception: ',
+    )) {
+
+      message =
+          message.substring(11);
+    }
+
+
+    setState(() {
+
+      _isLoadingAllocations =
+          false;
+
+      _allocationLoadError =
+          message;
+    });
+  }
+}
+
 
   @override
   void dispose() {
@@ -152,14 +423,12 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
 
   int get _differenceQty => _allocatedQty - _accountedQty;
 
-  double get _salesValue {
-    final settlement = _settlement;
-    final savedValue = _asDouble(settlement?['salesValue']);
-    if (savedValue > 0) return savedValue;
-
-    // UI-only fallback because the supplied allocation model does not have rate.
-    return _soldQty * 5.0;
-  }
+double get _salesValue =>
+    _asDouble(
+      _selectedAllocation?[
+        'salesValue'
+      ],
+    );
 
   double get _cashReceived => _asDouble(cashReceivedController.text);
   double get _onlineReceived => _asDouble(onlineReceivedController.text);
@@ -182,22 +451,31 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
       selectedReturnType = 0;
     }
 
-    soldController.text =
-        '${_asInt(settlement?['soldQty']) > 0 ? _asInt(settlement?['soldQty']) : (qty - alreadyReturned)}';
-    goodReturnController.text =
-        '${_asInt(settlement?['goodReturnQty']) > 0 ? _asInt(settlement?['goodReturnQty']) : alreadyReturned}';
-    damageController.text = '${_asInt(settlement?['damageQty'])}';
+ final soldQty = _asInt(allocation['soldQty']);
+
+soldController.text = '$soldQty';
+goodReturnController.text = '0';
+
+damageController.text = '0';
     shortExcessController.text = '${_asInt(settlement?['shortExcessQty'])}';
 
     reasonController.text = (settlement?['reason'] ?? '').toString();
     remarksController.text = (settlement?['remarks'] ?? '').toString();
 
-    cashReceivedController.text =
-        '${_asDouble(settlement?['cashReceived']).toStringAsFixed(0)}';
-    onlineReceivedController.text =
-        '${_asDouble(settlement?['onlineReceived']).toStringAsFixed(0)}';
-    creditSalesController.text =
-        '${_asDouble(settlement?['creditSales']).toStringAsFixed(0)}';
+ cashReceivedController.text =
+    _asDouble(
+      allocation['cashSales'],
+    ).toStringAsFixed(2);
+
+onlineReceivedController.text =
+    _asDouble(
+      allocation['onlineSales'],
+    ).toStringAsFixed(2);
+
+creditSalesController.text =
+    _asDouble(
+      allocation['creditSales'],
+    ).toStringAsFixed(2);
   }
 
   void _selectAllocation(Map<String, dynamic> allocation) {
@@ -218,24 +496,62 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
     });
   }
 
-  List<Map<String, dynamic>> get _currentAllocations {
-    final items = AllocationStore.allocations.where((item) {
-      final rawDate = item['date'];
-      if (rawDate is! DateTime) return false;
+List<Map<String, dynamic>>
+    get _currentAllocations {
 
-      return rawDate.year == _listDate.year &&
-          rawDate.month == _listDate.month &&
-          rawDate.day == _listDate.day;
-    }).toList();
+  final items =
+      _allocations.where((item) {
 
-    items.sort((a, b) {
-      final aSettled = a['settlement'] != null ? 1 : 0;
-      final bSettled = b['settlement'] != null ? 1 : 0;
-      return aSettled.compareTo(bSettled);
-    });
+    final rawDate =
+        item['date'];
 
-    return items;
-  }
+    if (rawDate is! DateTime) {
+      return false;
+    }
+
+
+    return (
+      rawDate.year ==
+          _listDate.year &&
+      rawDate.month ==
+          _listDate.month &&
+      rawDate.day ==
+          _listDate.day
+    );
+  }).toList();
+
+
+  items.sort((a, b) {
+
+    final aRemaining =
+        _asInt(
+          a['remainingQty'],
+        );
+
+    final bRemaining =
+        _asInt(
+          b['remainingQty'],
+        );
+
+
+    // Pending returns first
+    if (aRemaining > 0 &&
+        bRemaining <= 0) {
+      return -1;
+    }
+
+    if (aRemaining <= 0 &&
+        bRemaining > 0) {
+      return 1;
+    }
+
+
+    return 0;
+  });
+
+
+  return items;
+}
 
   Future<void> _pickListDate() async {
     final picked = await showDatePicker(
@@ -523,11 +839,26 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
   }
 
   Widget _buildSelectableAllocationCard(Map<String, dynamic> item) {
-    final qty = _asInt(item['qty']);
-    final returned = _asInt(item['returnedQty']);
-    final balance = qty - returned;
-    final hasSettlement = item['settlement'] != null;
-    final status = ((item['settlement'] as Map?)?['status'] ?? '').toString();
+final qty =
+    _asInt(item['qty']);
+
+final sold =
+    _asInt(item['soldQty']);
+
+final returned =
+    _asInt(item['returnedQty']);
+
+final balance =
+    _asInt(item['remainingQty']);
+
+final String unit =
+    (item['unit'] ?? '')
+        .toString();
+final hasSettlement =
+    returned > 0;
+
+final bool isCompleted =
+    balance <= 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -582,7 +913,7 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${item['product']}  |  $qty L allocated',
+                      '${item['product']}  |  $qty $unit allocated',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -596,16 +927,21 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
                       spacing: 6,
                       runSpacing: 5,
                       children: [
+                   _statusPill(
+  isCompleted
+      ? 'Completed'
+      : returned > 0
+          ? 'Part Return'
+          : 'Pending Return',
+
+  isCompleted
+      ? green
+      : returned > 0
+          ? primaryBlue
+          : orange,
+),
                         _statusPill(
-                          hasSettlement
-                              ? (status == 'completed'
-                                    ? 'Completed'
-                                    : 'Saved Return')
-                              : 'Pending Return',
-                          hasSettlement ? green : orange,
-                        ),
-                        _statusPill(
-                          'Balance $balance L',
+                        'Balance $balance $unit',
                           balance <= 0 ? green : primaryBlue,
                         ),
                       ],
@@ -979,9 +1315,13 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
                 ),
               ),
               const SizedBox(width: 7),
-              Expanded(
-                child: _qtyBox(label: 'Sold', controller: soldController),
-              ),
+            Expanded(
+  child: _qtyBox(
+    label: 'Sold',
+    controller: soldController,
+    enabled: false,
+  ),
+),
               const SizedBox(width: 7),
               Expanded(
                 child: _qtyBox(
@@ -1248,23 +1588,29 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
             children: [
               Expanded(
                 child: _moneyField(
-                  label: 'Cash',
-                  controller: cashReceivedController,
-                ),
+  label: 'Cash',
+  controller:
+      cashReceivedController,
+  enabled: false,
+),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _moneyField(
-                  label: 'Online',
-                  controller: onlineReceivedController,
-                ),
+  label: 'Online',
+  controller:
+      onlineReceivedController,
+  enabled: false,
+),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _moneyField(
-                  label: 'Credit',
-                  controller: creditSalesController,
-                ),
+  label: 'Credit',
+  controller:
+      creditSalesController,
+  enabled: false,
+),
               ),
             ],
           ),
@@ -1346,12 +1692,14 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
     );
   }
 
-  Widget _moneyField({
-    required String label,
-    required TextEditingController controller,
-  }) {
-    return TextField(
-      controller: controller,
+Widget _moneyField({
+  required String label,
+  required TextEditingController controller,
+  bool enabled = true,
+}) {
+ return TextField(
+  controller: controller,
+  enabled: enabled,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
@@ -1474,7 +1822,13 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
           child: SizedBox(
             height: 54,
             child: OutlinedButton.icon(
-              onPressed: () => _saveSettlement(completed: false),
+             onPressed: _isSaving
+    ? null
+    : () async {
+        await _saveSettlement(
+          completed: false,
+        );
+      },
               icon: const Icon(Icons.save_outlined),
               label: Text(
                 _isEditing ? 'Update Return' : 'Save Return',
@@ -1498,7 +1852,10 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
           child: SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: _completeSettlement,
+             onPressed:
+    _isSaving
+        ? null
+        : _completeSettlement,
               icon: const Icon(Icons.check, color: Colors.white),
               label: const Text(
                 'Complete Settlement',
@@ -1597,42 +1954,228 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
     };
   }
 
-  void _saveSettlement({required bool completed}) {
-    final allocation = _selectedAllocation;
-    if (allocation == null) return;
+Future<void> _saveSettlement({
+  required bool completed,
+}) async {
+  final allocation = _selectedAllocation;
 
-    if (_soldQty < 0 ||
-        _goodReturnQty < 0 ||
-        _damageQty < 0 ||
-        _shortExcessQty < 0) {
-      _showMessage('Quantity cannot be negative.');
-      return;
+  if (allocation == null) return;
+  if (_isSaving) return;
+
+  // =========================================================
+  // BASIC VALIDATION
+  // =========================================================
+
+  if (_goodReturnQty < 0 ||
+      _damageQty < 0 ||
+      _shortExcessQty < 0) {
+    _showMessage('Quantity cannot be negative.');
+    return;
+  }
+
+  final allocationId =
+      (allocation['allocationId'] ?? '').toString().trim();
+
+  final productId =
+      (allocation['productId'] ?? '').toString().trim();
+
+  if (allocationId.isEmpty) {
+    _showMessage('Allocation ID not found.');
+    return;
+  }
+
+  if (productId.isEmpty) {
+    _showMessage('Product ID not found.');
+    return;
+  }
+
+  final returnQty = _goodReturnQty + _damageQty;
+
+  final availableQty =
+      _asInt(allocation['remainingQty']);
+
+  if (returnQty <= 0) {
+    _showMessage('Please enter return quantity.');
+    return;
+  }
+
+  if (returnQty > availableQty) {
+    _showMessage(
+      'Return quantity cannot exceed available quantity $availableQty.',
+    );
+    return;
+  }
+
+  setState(() {
+    _isSaving = true;
+  });
+
+  try {
+    final uri = Uri.parse(
+      '${ApiConfig.baseUrl}/api/allocations/$allocationId/return',
+    );
+
+    final response = await http.put(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        if (ApiConfig.token != null &&
+            ApiConfig.token!.isNotEmpty)
+          'Authorization': 'Bearer ${ApiConfig.token}',
+      },
+      body: jsonEncode({
+        'productId': productId,
+        'goodReturnQty': _goodReturnQty,
+        'damageQty': _damageQty,
+        'shortExcessQty': _shortExcessQty,
+        'returnType': selectedReturnType,
+        'reason': reasonController.text.trim(),
+        'remarks': remarksController.text.trim(),
+      }),
+    );
+
+    Map<String, dynamic> body = {};
+
+    if (response.body.isNotEmpty) {
+      final decoded = jsonDecode(response.body);
+
+      if (decoded is Map<String, dynamic>) {
+        body = decoded;
+      }
     }
 
-    final result = _buildSettlementResult(completed ? 'completed' : 'saved');
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['success'] != true) {
+      throw Exception(
+        (body['message'] ?? 'Unable to save return.').toString(),
+      );
+    }
+
+    final rawData = body['data'];
+
+    if (rawData is! Map) {
+      throw Exception(
+        'Invalid return response from server.',
+      );
+    }
+
+    final data =
+        Map<String, dynamic>.from(rawData);
+
+    // =========================================================
+    // USE VALUES RETURNED BY BACKEND
+    // =========================================================
+
+    final returnedQty =
+        _asInt(data['returnedQuantity']);
+
+    final soldQty =
+        _asInt(data['soldQuantity']);
+
+    final remainingQty =
+        _asInt(data['remainingQuantity']);
+
+    final result = <String, dynamic>{
+      'status':
+          completed ? 'completed' : 'saved',
+
+      'returnType':
+          selectedReturnType,
+
+      'soldQty':
+          soldQty,
+
+      'goodReturnQty':
+          _asInt(data['goodReturnQuantity']),
+
+      'damageQty':
+          _asInt(data['damageQuantity']),
+
+      'shortExcessQty':
+          _asInt(data['shortExcessQuantity']),
+
+      'returnedQty':
+          returnedQty,
+
+      'remainingQty':
+          remainingQty,
+
+      'reason':
+          reasonController.text.trim(),
+
+      'remarks':
+          remarksController.text.trim(),
+
+      'cashReceived':
+          _cashReceived,
+
+      'onlineReceived':
+          _onlineReceived,
+
+      'creditSales':
+          _creditSales,
+
+      'salesValue':
+          _salesValue,
+
+      'updatedAt':
+          DateTime.now(),
+    };
+
+    if (!mounted) return;
 
     setState(() {
-      allocation['returnedQty'] = result['returnedQty'];
-      allocation['settlement'] = result;
+      allocation['soldQty'] =
+          soldQty;
+
+      allocation['returnedQty'] =
+          returnedQty;
+
+      allocation['remainingQty'] =
+          remainingQty;
+
+      allocation['settlement'] =
+          result;
     });
 
+    // Opened from Allocation screen
     if (widget.allocation != null) {
-      Navigator.pop<Map<String, dynamic>>(context, result);
+      Navigator.pop<Map<String, dynamic>>(
+        context,
+        result,
+      );
+
       return;
     }
 
     _showMessage(
       completed
           ? 'Allocation settlement completed successfully.'
-          : (_isEditing
-                ? 'Return updated successfully.'
-                : 'Return saved successfully.'),
+          : 'Return saved successfully.',
     );
 
     setState(() {
       _selectedAllocation = null;
     });
+  } catch (error) {
+    if (!mounted) return;
+
+    String message = error.toString();
+
+    if (message.startsWith('Exception: ')) {
+      message = message.substring(11);
+    }
+
+    _showMessage(message);
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isSaving = false;
+      });
+    }
   }
+}
 
   void _completeSettlement() {
     if (_differenceQty != 0) {
@@ -1671,10 +2214,13 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
                 backgroundColor: primaryBlue,
                 foregroundColor: Colors.white,
               ),
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _saveSettlement(completed: true);
-              },
+          onPressed: () async {
+  Navigator.pop(dialogContext);
+
+  await _saveSettlement(
+    completed: true,
+  );
+},
               child: const Text('Complete'),
             ),
           ],

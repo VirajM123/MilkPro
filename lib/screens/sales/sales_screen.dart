@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 
 import '../../models/sale_model.dart';
-import '../../providers/sales_provider.dart';
 import '../returns/return_settlement_screen.dart';
 import 'sales_bill_preview_screen.dart';
 
@@ -36,7 +40,25 @@ class _SalesScreenState extends State<SalesScreen> {
   bool _isCreatingSale = false;
   bool _showSearch = false;
   _SalesPeriod _selectedPeriod = _SalesPeriod.all;
-  late final List<SaleModel> _demoSales;
+final List<Map<String, dynamic>> _customers =
+    <Map<String, dynamic>>[];
+
+final List<Map<String, dynamic>> _saleProducts =
+    <Map<String, dynamic>>[];
+
+final List<SaleModel> _serverSales =
+    <SaleModel>[];
+    final Set<String> _cancelledSaleIds =
+    <String>{};
+
+bool _cancellingSale = false;
+
+Map<String, dynamic>? _selectedCustomer;
+
+bool _loadingCustomers = false;
+bool _loadingProducts = false;
+bool _loadingSales = false;
+bool _savingSale = false;
 
   final List<String> _paymentModes = const <String>[
     'Cash',
@@ -45,15 +67,18 @@ class _SalesScreenState extends State<SalesScreen> {
     'Bank Transfer',
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedDate = _latestAllocationDate();
-    _demoSales = _buildDemoSales();
-    _selectFirstAvailableAllocation();
-    _quantityController.addListener(_refreshTotal);
-    _rateController.addListener(_refreshTotal);
-  }
+@override
+void initState() {
+  super.initState();
+
+  _selectedDate = DateTime.now();
+
+  _quantityController.addListener(_refreshTotal);
+  _rateController.addListener(_refreshTotal);
+
+  _loadCustomers();
+  _loadSales();
+}
 
   @override
   void dispose() {
@@ -77,26 +102,15 @@ class _SalesScreenState extends State<SalesScreen> {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
-  DateTime _latestAllocationDate() {
-    final dates = AllocationStore.allocations
-        .map((item) => item['date'])
-        .whereType<DateTime>()
-        .toList();
-    if (dates.isEmpty) return DateTime.now();
-    dates.sort((a, b) => b.compareTo(a));
-    return dates.first;
-  }
+ 
 
   bool _sameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  List<Map<String, dynamic>> get _dayAllocations {
-    return AllocationStore.allocations.where((item) {
-      final date = item['date'];
-      return date is DateTime && _sameDay(date, _selectedDate);
-    }).toList();
-  }
+List<Map<String, dynamic>> get _dayAllocations {
+  return _saleProducts;
+}
 
   int _soldFor(Map<String, dynamic> allocation) =>
       _asInt(allocation['soldQty']);
@@ -153,15 +167,17 @@ class _SalesScreenState extends State<SalesScreen> {
   }
 
   double _suggestedRateFor(String product) {
-    if (product.contains('500 ml')) {
-      return 30;
-    } else if (product.contains('1 L')) {
-      return 58;
-    } else if (product.toLowerCase().contains('curd')) {
-      return 60;
+  for (final item in _saleProducts) {
+    if ((item['product'] ?? '').toString() == product) {
+      return double.tryParse(
+            item['rate']?.toString() ?? '0',
+          ) ??
+          0;
     }
-    return 50;
   }
+
+  return 0;
+}
 
   Future<void> _pickDate() async {
     final date = await showDatePicker(
@@ -171,10 +187,10 @@ class _SalesScreenState extends State<SalesScreen> {
       lastDate: DateTime(2040),
     );
     if (date == null || !mounted) return;
-    _selectedDate = date;
-    _cart.clear();
-    _selectFirstAvailableAllocation();
-    setState(() {});
+setState(() {
+  _selectedDate = date;
+  _cart.clear();
+});
   }
 
   void _showMessage(String message, {Color? color}) {
@@ -186,6 +202,498 @@ class _SalesScreenState extends State<SalesScreen> {
       ),
     );
   }
+  Future<void> _loadSales() async {
+  if (!mounted) return;
+
+  setState(() {
+    _loadingSales = true;
+  });
+
+  try {
+    final response = await http.get(
+      Uri.parse(ApiConfig.sales),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data is Map<String, dynamic> &&
+        data['success'] == true) {
+      final records =
+          data['data'] as List<dynamic>? ?? <dynamic>[];
+
+      final loadedSales = <SaleModel>[];
+
+      final cancelledIds = <String>{};
+
+
+      for (final record in records) {
+        final sale =
+            Map<String, dynamic>.from(record as Map);
+            final saleIdentifier =
+    sale['saleNo']?.toString() ??
+    sale['saleId']?.toString() ??
+    sale['_id']?.toString() ??
+    '';
+
+final status =
+    sale['status']
+        ?.toString()
+        .toUpperCase() ??
+    'POSTED';
+
+if (status == 'CANCELLED' &&
+    saleIdentifier.isNotEmpty) {
+  cancelledIds.add(
+    saleIdentifier,
+  );
+}
+
+        final products =
+            sale['products'] as List<dynamic>? ??
+            <dynamic>[];
+
+        final saleDate =
+            DateTime.tryParse(
+              sale['saleDate']?.toString() ?? '',
+            ) ??
+            DateTime.now();
+
+        // Current SaleModel is product-line based.
+        // Therefore one MongoDB sale containing multiple
+        // products is converted into multiple SaleModel lines.
+        for (int index = 0;
+            index < products.length;
+            index++) {
+          final product =
+              Map<String, dynamic>.from(
+                products[index] as Map,
+              );
+
+          loadedSales.add(
+            SaleModel(
+              id:
+                  sale['saleNo']?.toString() ??
+                  sale['saleId']?.toString() ??
+                  sale['_id']?.toString() ??
+                  '',
+
+              date: saleDate,
+
+              customerName:
+                  sale['customerName']
+                      ?.toString() ??
+                  '',
+
+              route:
+                  sale['route']?.toString() ??
+                  '',
+
+              salesman:
+                  sale['createdRole']
+                              ?.toString()
+                              .toLowerCase() ==
+                          'admin'
+                      ? 'Admin'
+                      : sale['createdRole']
+                              ?.toString() ??
+                          '',
+
+              product:
+                  product['productName']
+                      ?.toString() ??
+                  '',
+
+              quantity:
+                  int.tryParse(
+                    product['quantity']
+                            ?.toString() ??
+                        '0',
+                  ) ??
+                  0,
+
+              rate:
+                  double.tryParse(
+                    product['rate']
+                            ?.toString() ??
+                        '0',
+                  ) ??
+                  0,
+
+              paymentMode:
+                  sale['paymentMode']
+                      ?.toString() ??
+                  'Cash',
+            ),
+          );
+        }
+      }
+
+      if (!mounted) return;
+setState(() {
+  _serverSales
+    ..clear()
+    ..addAll(loadedSales);
+
+  _cancelledSaleIds
+    ..clear()
+    ..addAll(cancelledIds);
+});
+    } else {
+      _showMessage(
+        data is Map
+            ? data['message']?.toString() ??
+                'Unable to load sales.'
+            : 'Unable to load sales.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load sales from server: $error',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingSales = false;
+      });
+    }
+  }
+}
+bool _isSaleCancelled(
+  SaleModel sale,
+) {
+  return _cancelledSaleIds.contains(
+    sale.id,
+  );
+}
+Future<void> _cancelSale(
+  SaleModel sale,
+) async {
+  if (_cancellingSale) {
+    return;
+  }
+
+  if (_isSaleCancelled(sale)) {
+    _showMessage(
+      'This sale is already cancelled.',
+    );
+    return;
+  }
+
+  final confirmed =
+      await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text(
+          'Cancel Sale',
+        ),
+        content: Text(
+          'Are you sure you want to cancel ${sale.id}?\n\n'
+          'The sold stock will be added back to the product stock.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () {
+              Navigator.pop(
+                dialogContext,
+                false,
+              );
+            },
+            child: const Text(
+              'No',
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(
+                dialogContext,
+                true,
+              );
+            },
+            style:
+                ElevatedButton.styleFrom(
+              backgroundColor:
+                  AppColors.error,
+              foregroundColor:
+                  Colors.white,
+            ),
+            child: const Text(
+              'Yes, Cancel Sale',
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true ||
+      !mounted) {
+    return;
+  }
+
+  setState(() {
+    _cancellingSale = true;
+  });
+
+  try {
+    final response =
+        await http.put(
+      Uri.parse(
+        '${ApiConfig.sales}/${Uri.encodeComponent(sale.id)}/cancel',
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(
+      response.body,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (response.statusCode == 200 &&
+        data is Map<String, dynamic> &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']?.toString() ??
+            'Sale cancelled and stock restored successfully.',
+        color: _green,
+      );
+
+      // Refresh sales status.
+      await _loadSales();
+
+      // If customer is currently selected,
+      // refresh stock visible in Create Sale.
+      if (_selectedCustomer != null) {
+        await _loadCustomerProducts();
+      }
+    } else {
+      _showMessage(
+        data is Map
+            ? data['message']?.toString() ??
+                'Unable to cancel sale.'
+            : 'Unable to cancel sale.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    _showMessage(
+      'Unable to cancel sale: $error',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _cancellingSale = false;
+      });
+    }
+  }
+}
+
+  Future<void> _loadCustomers() async {
+  if (!mounted) return;
+
+  setState(() {
+    _loadingCustomers = true;
+  });
+
+  try {
+    final response = await http.get(
+      Uri.parse(ApiConfig.customers),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data is Map<String, dynamic> &&
+        data['success'] == true) {
+      final records =
+          data['data'] as List<dynamic>? ?? <dynamic>[];
+
+      setState(() {
+        _customers
+          ..clear()
+          ..addAll(
+            records.map(
+              (item) => Map<String, dynamic>.from(item as Map),
+            ),
+          );
+      });
+    } else {
+      _showMessage(
+        data is Map
+            ? data['message']?.toString() ??
+                'Unable to load customers.'
+            : 'Unable to load customers.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load customers from server: $error',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingCustomers = false;
+      });
+    }
+  }
+}
+
+Future<void> _loadCustomerProducts() async {
+  final customer = _selectedCustomer;
+
+  if (customer == null) return;
+
+  final customerId =
+      customer['customerId']?.toString() ?? '';
+
+  if (customerId.isEmpty) {
+    _showMessage('Customer ID not found.');
+    return;
+  }
+
+  setState(() {
+    _loadingProducts = true;
+    _saleProducts.clear();
+    _cart.clear();
+    _selectedAllocation = null;
+  });
+
+  try {
+    final response = await http.get(
+      Uri.parse(
+        '${ApiConfig.customerRates}/$customerId',
+      ),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data is Map<String, dynamic> &&
+        data['success'] == true) {
+      final records =
+          data['data'] as List<dynamic>? ?? <dynamic>[];
+
+      final loadedProducts =
+          <Map<String, dynamic>>[];
+
+      for (final item in records) {
+        final map =
+            Map<String, dynamic>.from(item as Map);
+
+        loadedProducts.add({
+          'productId':
+              map['productId']?.toString() ?? '',
+
+          'product':
+              map['productName']?.toString() ?? '',
+
+          'variant':
+              map['variant']?.toString() ?? '',
+
+          'unit':
+              map['unit']?.toString() ?? 'Pcs',
+
+          'qty':
+              int.tryParse(
+                    map['stock']?.toString() ?? '0',
+                  ) ??
+                  0,
+
+          'returnedQty': 0,
+          'soldQty': 0,
+
+          'rate':
+              double.tryParse(
+                    map['specialRate']?.toString() ?? '0',
+                  ) ??
+                  0,
+
+          'defaultRate':
+              double.tryParse(
+                    map['defaultRate']?.toString() ?? '0',
+                  ) ??
+                  0,
+
+          'hasCustomRate':
+              map['hasCustomRate'] == true,
+
+          'route':
+              customer['route']?.toString() ?? '',
+
+          'salesman': 'Admin',
+        });
+      }
+
+      setState(() {
+        _saleProducts
+          ..clear()
+          ..addAll(loadedProducts);
+
+        if (_saleProducts.isNotEmpty) {
+          _selectedAllocation =
+              _saleProducts.first;
+
+          _setSuggestedRate();
+        }
+      });
+    } else {
+      _showMessage(
+        data is Map
+            ? data['message']?.toString() ??
+                'Unable to load products.'
+            : 'Unable to load products.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load customer products: $error',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingProducts = false;
+      });
+    }
+  }
+}
+
 
   void _addProductToSale() {
     final allocation = _selectedAllocation;
@@ -217,50 +725,159 @@ class _SalesScreenState extends State<SalesScreen> {
     _showMessage('${allocation['product']} added to this sale.', color: _green);
   }
 
-  void _completeSale() {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (_cart.isEmpty) {
-      _showMessage('Add at least one product before completing the sale.');
-      return;
-    }
+Future<void> _completeSale() async {
+  if (_savingSale) return;
 
-    final customer = _customerController.text.trim();
-    final saleGroupId = DateTime.now().microsecondsSinceEpoch;
+  if (!(_formKey.currentState?.validate() ?? false)) {
+    return;
+  }
 
-    for (int index = 0; index < _cart.length; index++) {
-      final line = _cart[index];
-      final allocation = line.allocation;
-      SalesStore.add(
-        SaleModel(
-          id: 'SALE-$saleGroupId-$index',
-          date: _selectedDate,
-          customerName: customer,
-          route: (allocation['route'] ?? '').toString(),
-          salesman: (allocation['salesman'] ?? '').toString(),
-          product: (allocation['product'] ?? '').toString(),
-          quantity: line.quantity,
-          rate: line.rate,
-          paymentMode: _paymentMode,
-        ),
+  final customer = _selectedCustomer;
+
+  if (customer == null) {
+    _showMessage('Please select a customer.');
+    return;
+  }
+
+  if (_cart.isEmpty) {
+    _showMessage(
+      'Add at least one product before completing the sale.',
+    );
+    return;
+  }
+
+  final customerId =
+      customer['customerId']?.toString() ?? '';
+
+  if (customerId.isEmpty) {
+    _showMessage('Customer ID not found.');
+    return;
+  }
+
+  setState(() {
+    _savingSale = true;
+  });
+
+  try {
+    final response = await http.post(
+      Uri.parse(ApiConfig.sales),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      },
+      body: jsonEncode({
+        'saleDate': _selectedDate.toIso8601String(),
+        'customerId': customerId,
+        'paymentMode': _paymentMode,
+        'products': _cart.map((line) {
+          return {
+            'productId':
+                line.allocation['productId']?.toString() ?? '',
+            'quantity': line.quantity,
+          };
+        }).toList(),
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (!mounted) return;
+
+    if (response.statusCode == 201 &&
+        data is Map<String, dynamic> &&
+        data['success'] == true) {
+      final saleData =
+          data['data'] as Map<String, dynamic>?;
+
+      final saleNo =
+          saleData?['saleNo']?.toString() ?? '';
+
+      _showMessage(
+        saleNo.isEmpty
+            ? 'Sale saved successfully.'
+            : 'Sale $saleNo saved successfully.',
+        color: _green,
       );
-      allocation['soldQty'] = _soldFor(allocation) + line.quantity;
-    }
 
-    final itemCount = _cart.length;
-    final total = _cartTotal;
-    final totalQuantity = _cartQuantity;
-    _customerController.clear();
-    _quantityController.clear();
-    _cart.clear();
-    _isCreatingSale = false;
-    setState(() {});
+      // Keep same customer selected so we can
+      // immediately reload updated stock.
+      setState(() {
+        _cart.clear();
+        _quantityController.clear();
+        _rateController.clear();
+        _selectedAllocation = null;
+      });
+
+      // Reload products from server.
+      // This will show reduced stock immediately.
+     await _loadCustomerProducts();
+await _loadSales();
+    } else {
+      _showMessage(
+        data is Map
+            ? data['message']?.toString() ??
+                'Unable to save sale.'
+            : 'Unable to save sale.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
 
     _showMessage(
-      'Sale saved: $itemCount products, $totalQuantity units for '
-      '₹${total.toStringAsFixed(0)}.',
-      color: _green,
+      'Unable to save sale: $error',
     );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _savingSale = false;
+      });
+    }
   }
+}
+  // void _completeSale() {
+  //   if (!(_formKey.currentState?.validate() ?? false)) return;
+  //   if (_cart.isEmpty) {
+  //     _showMessage('Add at least one product before completing the sale.');
+  //     return;
+  //   }
+
+  //   final customer = _customerController.text.trim();
+  //   final saleGroupId = DateTime.now().microsecondsSinceEpoch;
+
+  //   for (int index = 0; index < _cart.length; index++) {
+  //     final line = _cart[index];
+  //     final allocation = line.allocation;
+  //     SalesStore.add(
+  //       SaleModel(
+  //         id: 'SALE-$saleGroupId-$index',
+  //         date: _selectedDate,
+  //         customerName: customer,
+  //         route: (allocation['route'] ?? '').toString(),
+  //         salesman: (allocation['salesman'] ?? '').toString(),
+  //         product: (allocation['product'] ?? '').toString(),
+  //         quantity: line.quantity,
+  //         rate: line.rate,
+  //         paymentMode: _paymentMode,
+  //       ),
+  //     );
+  //     allocation['soldQty'] = _soldFor(allocation) + line.quantity;
+  //   }
+
+  //   final itemCount = _cart.length;
+  //   final total = _cartTotal;
+  //   final totalQuantity = _cartQuantity;
+  //   _customerController.clear();
+  //   _quantityController.clear();
+  //   _cart.clear();
+  //   _isCreatingSale = false;
+  //   setState(() {});
+
+  //   _showMessage(
+  //     'Sale saved: $itemCount products, $totalQuantity units for '
+  //     '₹${total.toStringAsFixed(0)}.',
+  //     color: _green,
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -309,38 +926,76 @@ class _SalesScreenState extends State<SalesScreen> {
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
-            children: <Widget>[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: _cardDecoration(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _buildNumberedHeading(1, 'Sale Information'),
-                    const SizedBox(height: 16),
-                    if (_dayAllocations.isEmpty)
-                      _buildEmptyAllocation()
-                    else
-                      Row(
-                        children: <Widget>[
-                          Expanded(child: _buildDateField()),
-                          const SizedBox(width: 10),
-                          Expanded(child: _buildRouteAllocationField()),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-              if (_dayAllocations.isNotEmpty) ...<Widget>[
-                const SizedBox(height: 10),
-                _buildCustomerInformationPanel(),
-                const SizedBox(height: 10),
-                _buildSmartProductInformationPanel(),
-                const SizedBox(height: 10),
-                _buildSaleSummaryPanel(),
-                const SizedBox(height: 48),
-              ],
-            ],
+          children: <Widget>[
+  Container(
+    padding: const EdgeInsets.all(16),
+    decoration: _cardDecoration(),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _buildNumberedHeading(
+          1,
+          'Sale Information',
+        ),
+
+        const SizedBox(height: 16),
+
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: _buildDateField(),
+            ),
+
+            const SizedBox(width: 10),
+
+            Expanded(
+              child: _buildRouteAllocationField(),
+            ),
+          ],
+        ),
+      ],
+    ),
+  ),
+
+  const SizedBox(height: 10),
+
+  _buildCustomerInformationPanel(),
+
+  if (_selectedCustomer != null) ...<Widget>[
+    const SizedBox(height: 10),
+
+    if (_loadingProducts)
+      const Padding(
+        padding: EdgeInsets.all(30),
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      )
+    else if (_saleProducts.isEmpty)
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: _cardDecoration(),
+        child: const Text(
+          'No products available.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _muted,
+          ),
+        ),
+      )
+    else
+      _buildSmartProductInformationPanel(),
+
+    if (!_loadingProducts &&
+        _saleProducts.isNotEmpty) ...<Widget>[
+      const SizedBox(height: 10),
+      _buildSaleSummaryPanel(),
+    ],
+
+    const SizedBox(height: 48),
+  ],
+],
           ),
         ),
       ),
@@ -550,85 +1205,13 @@ class _SalesScreenState extends State<SalesScreen> {
     );
   }
 
-  List<SaleModel> get _salesSource =>
-      SalesStore.sales.isEmpty ? _demoSales : SalesStore.sales;
+List<SaleModel> get _salesSource => _serverSales;
 
-  List<SaleModel> _buildDemoSales() {
-    return <SaleModel>[
-      SaleModel(
-        id: 'S-000125',
-        date: DateTime(2026, 8, 20, 10, 30),
-        customerName: 'Rajesh Dairy',
-        route: 'Route A',
-        salesman: 'Omkar',
-        product: '500 ml Milk',
-        quantity: 3,
-        rate: 1250 / 3,
-        paymentMode: 'Cash',
-      ),
-      SaleModel(
-        id: 'S-000124',
-        date: DateTime(2026, 8, 20, 9, 15),
-        customerName: 'Fresh Farms',
-        route: 'Route A',
-        salesman: 'Omkar',
-        product: '1 L Milk',
-        quantity: 2,
-        rate: 475,
-        paymentMode: 'UPI',
-      ),
-      SaleModel(
-        id: 'S-000123',
-        date: DateTime(2026, 8, 19, 18, 45),
-        customerName: 'Green Dairy',
-        route: 'Route B',
-        salesman: 'Viraj',
-        product: 'Curd',
-        quantity: 4,
-        rate: 575,
-        paymentMode: 'Cash',
-      ),
-      SaleModel(
-        id: 'S-000122',
-        date: DateTime(2026, 8, 19, 16, 20),
-        customerName: 'Krishna Dairy',
-        route: 'Route B',
-        salesman: 'Viraj',
-        product: '500 ml Milk',
-        quantity: 3,
-        rate: 1750 / 3,
-        paymentMode: 'Credit',
-      ),
-      SaleModel(
-        id: 'S-000121',
-        date: DateTime(2026, 8, 19, 11, 10),
-        customerName: 'Sai Dairy',
-        route: 'Route A',
-        salesman: 'Omkar',
-        product: '1 L Milk',
-        quantity: 2,
-        rate: 740,
-        paymentMode: 'UPI',
-      ),
-      SaleModel(
-        id: 'S-000120',
-        date: DateTime(2026, 8, 18, 19, 30),
-        customerName: 'Om Dairy',
-        route: 'Route C',
-        salesman: 'Mahesh',
-        product: '500 ml Milk',
-        quantity: 2,
-        rate: 810,
-        paymentMode: 'Cash',
-      ),
-    ];
-  }
 
-  List<SaleModel> get _filteredSales {
-    final query = _searchController.text.trim().toLowerCase();
-    final now = SalesStore.sales.isEmpty
-        ? _demoSales.first.date
-        : DateTime.now();
+
+List<SaleModel> get _filteredSales {
+  final query = _searchController.text.trim().toLowerCase();
+  final now = DateTime.now();
     return _salesSource.where((sale) {
       final matchesQuery =
           query.isEmpty ||
@@ -648,16 +1231,25 @@ class _SalesScreenState extends State<SalesScreen> {
     }).toList();
   }
 
-  double get _monthlySalesTotal {
-    final now = SalesStore.sales.isEmpty
-        ? _demoSales.first.date
-        : DateTime.now();
-    return _salesSource
-        .where(
-          (sale) => sale.date.year == now.year && sale.date.month == now.month,
-        )
-        .fold<double>(0, (total, sale) => total + sale.total);
-  }
+double get _monthlySalesTotal {
+  final now =
+      DateTime.now();
+
+  return _salesSource
+      .where(
+        (sale) =>
+            !_isSaleCancelled(sale) &&
+            sale.date.year ==
+                now.year &&
+            sale.date.month ==
+                now.month,
+      )
+      .fold<double>(
+        0,
+        (total, sale) =>
+            total + sale.total,
+      );
+}
 
   Widget _buildMonthlySummary() {
     return Container(
@@ -838,6 +1430,8 @@ class _SalesScreenState extends State<SalesScreen> {
     ];
     final index = _salesSource.indexOf(sale);
     final accent = accents[index.abs() % accents.length];
+    final isCancelled =
+    _isSaleCancelled(sale);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.fromLTRB(16, 18, 13, 18),
@@ -895,24 +1489,33 @@ class _SalesScreenState extends State<SalesScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFDDF8E8),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Completed',
-                  style: TextStyle(
-                    color: Color(0xFF21884B),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
+      Container(
+  padding:
+      const EdgeInsets.symmetric(
+    horizontal: 11,
+    vertical: 6,
+  ),
+  decoration: BoxDecoration(
+    color: isCancelled
+        ? const Color(0xFFFFE5E5)
+        : const Color(0xFFDDF8E8),
+    borderRadius:
+        BorderRadius.circular(20),
+  ),
+  child: Text(
+    isCancelled
+        ? 'Cancelled'
+        : 'Completed',
+    style: TextStyle(
+      color: isCancelled
+          ? AppColors.error
+          : const Color(0xFF21884B),
+      fontSize: 10.5,
+      fontWeight:
+          FontWeight.w800,
+    ),
+  ),
+),
               const SizedBox(height: 9),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -936,34 +1539,90 @@ class _SalesScreenState extends State<SalesScreen> {
                     ],
                   ),
                   const SizedBox(width: 6),
-                  PopupMenuButton<String>(
-                    tooltip: 'Bill actions',
-                    onSelected: (action) =>
-                        _openBill(sale, openWhatsApp: action == 'whatsapp'),
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: 'pdf',
-                        child: ListTile(
-                          leading: Icon(Icons.picture_as_pdf_outlined),
-                          title: Text('View PDF Bill'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: 'whatsapp',
-                        child: ListTile(
-                          leading: Icon(Icons.chat_outlined),
-                          title: Text('Send on WhatsApp'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
-                    icon: const Icon(
-                      Icons.more_vert_rounded,
-                      color: _muted,
-                      size: 24,
-                    ),
-                  ),
+                PopupMenuButton<String>(
+  tooltip: 'Sale actions',
+
+  onSelected: (action) async {
+    if (action == 'pdf') {
+      _openBill(sale);
+      return;
+    }
+
+    if (action == 'whatsapp') {
+      _openBill(
+        sale,
+        openWhatsApp: true,
+      );
+      return;
+    }
+
+    if (action == 'cancel') {
+      await _cancelSale(sale);
+    }
+  },
+
+  itemBuilder: (_) {
+    return <PopupMenuEntry<String>>[
+      const PopupMenuItem<String>(
+        value: 'pdf',
+        child: ListTile(
+          leading: Icon(
+            Icons.picture_as_pdf_outlined,
+          ),
+          title: Text(
+            'View PDF Bill',
+          ),
+          contentPadding:
+              EdgeInsets.zero,
+        ),
+      ),
+
+      const PopupMenuItem<String>(
+        value: 'whatsapp',
+        child: ListTile(
+          leading: Icon(
+            Icons.chat_outlined,
+          ),
+          title: Text(
+            'Send on WhatsApp',
+          ),
+          contentPadding:
+              EdgeInsets.zero,
+        ),
+      ),
+
+      if (!isCancelled)
+        const PopupMenuDivider(),
+
+      if (!isCancelled)
+        PopupMenuItem<String>(
+          value: 'cancel',
+          child: ListTile(
+            leading: Icon(
+              Icons.cancel_outlined,
+              color: AppColors.error,
+            ),
+            title: Text(
+              'Cancel Sale',
+              style: TextStyle(
+                color: AppColors.error,
+                fontWeight:
+                    FontWeight.w700,
+              ),
+            ),
+            contentPadding:
+                EdgeInsets.zero,
+          ),
+        ),
+    ];
+  },
+
+  icon: const Icon(
+    Icons.more_vert_rounded,
+    color: _muted,
+    size: 24,
+  ),
+),
                 ],
               ),
             ],
@@ -1024,13 +1683,26 @@ class _SalesScreenState extends State<SalesScreen> {
     );
   }
 
-  void _openCreateSale() {
-    setState(() {
-      _isCreatingSale = true;
-      _selectedDate = _latestAllocationDate();
-      _selectFirstAvailableAllocation();
-    });
-  }
+void _openCreateSale() {
+  setState(() {
+    _isCreatingSale = true;
+
+    _selectedDate = DateTime.now();
+
+    _selectedCustomer = null;
+    _selectedAllocation = null;
+
+    _customerController.clear();
+    _quantityController.clear();
+    _rateController.clear();
+    _productSearchController.clear();
+
+    _saleProducts.clear();
+    _cart.clear();
+
+    _paymentMode = 'Cash';
+  });
+}
 
   Widget _buildBottomNavigation() {
     return BottomNavigationBar(
@@ -1301,54 +1973,90 @@ class _SalesScreenState extends State<SalesScreen> {
     );
   }
 
-  Widget _buildRouteAllocationField() {
-    final allocation = _selectedAllocation;
-    return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+ Widget _buildRouteAllocationField() {
+  final customer = _selectedCustomer;
+
+  final route =
+      customer?['route']
+          ?.toString()
+          .trim() ??
+      '';
+
+  return Container(
+    height: 72,
+    padding: const EdgeInsets.symmetric(
+      horizontal: 14,
+    ),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius:
+          BorderRadius.circular(12),
+      border:
+          Border.all(
+        color: AppColors.border,
       ),
-      child: Row(
-        children: <Widget>[
-          const Icon(Icons.route_outlined, color: _primary, size: 27),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Text(
-                  'Route / Allotted',
-                  style: TextStyle(
-                    color: _muted,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
+    ),
+    child: Row(
+      children: <Widget>[
+        const Icon(
+          Icons.route_outlined,
+          color: _primary,
+          size: 27,
+        ),
+
+        const SizedBox(width: 12),
+
+        Expanded(
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Customer Route',
+                style: TextStyle(
+                  color: _muted,
+                  fontSize: 10,
+                  fontWeight:
+                      FontWeight.w700,
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  allocation == null
-                      ? 'No route available'
-                      : '${allocation['route']}  ($_availableToAdd available)',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _dark,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
+              ),
+
+              const SizedBox(height: 5),
+
+              Text(
+                customer == null
+                    ? 'Select customer'
+                    : route.isEmpty
+                        ? 'No route assigned'
+                        : route,
+                maxLines: 1,
+                overflow:
+                    TextOverflow.ellipsis,
+                style: TextStyle(
+                  color:
+                      route.isEmpty
+                          ? _muted
+                          : _dark,
+                  fontSize: 13,
+                  fontWeight:
+                      FontWeight.w900,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const Icon(Icons.keyboard_arrow_down_rounded, color: _dark),
-        ],
-      ),
-    );
-  }
+        ),
+
+        const Icon(
+          Icons.route_rounded,
+          color: _primary,
+          size: 20,
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildCustomerInformationPanel() {
     return Container(
@@ -1359,19 +2067,74 @@ class _SalesScreenState extends State<SalesScreen> {
         children: <Widget>[
           _buildNumberedHeading(2, 'Customer Information'),
           const SizedBox(height: 16),
-          TextFormField(
-            controller: _customerController,
-            textCapitalization: TextCapitalization.words,
-            decoration: _referenceInputDecoration(
-              label: 'Customer Name',
-              hint: 'Select Customer',
-              icon: Icons.person_outline_rounded,
-              trailing: Icons.keyboard_arrow_down_rounded,
-            ),
-            validator: (value) => value == null || value.trim().isEmpty
-                ? 'Please enter the customer name'
-                : null,
+       DropdownButtonFormField<Map<String, dynamic>>(
+  value: _selectedCustomer,
+  isExpanded: true,
+
+  decoration: _referenceInputDecoration(
+    label: 'Customer Name',
+    icon: Icons.person_outline_rounded,
+    trailing: Icons.keyboard_arrow_down_rounded,
+  ),
+
+  hint: Text(
+    _loadingCustomers
+        ? 'Loading customers...'
+        : 'Select Customer',
+  ),
+
+  items: _customers
+      .where(
+        (customer) =>
+            customer['isActive'] != false,
+      )
+      .map(
+        (customer) =>
+            DropdownMenuItem<Map<String, dynamic>>(
+          value: customer,
+          child: Text(
+            customer['name']?.toString() ?? '',
+            overflow: TextOverflow.ellipsis,
           ),
+        ),
+      )
+      .toList(),
+
+onChanged: _loadingCustomers
+    ? null
+    : (customer) async {
+        if (customer == null) {
+          return;
+        }
+
+        setState(() {
+          _selectedCustomer =
+              customer;
+
+          _selectedAllocation =
+              null;
+
+          _saleProducts.clear();
+
+          _cart.clear();
+
+          _customerController.text =
+              customer['name']
+                      ?.toString() ??
+                  '';
+        });
+
+      await _loadCustomerProducts();
+      },
+
+  validator: (value) {
+    if (value == null) {
+      return 'Please select a customer';
+    }
+
+    return null;
+  },
+),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _paymentMode,
@@ -2173,11 +2936,11 @@ class _SalesScreenState extends State<SalesScreen> {
     setState(() => line.quantity = quantity);
   }
 
-  Widget _buildSaleSummaryPanel() {
-    final todayQuantity = SalesStore.sales.fold<int>(
-      0,
-      (sum, sale) => sum + sale.quantity,
-    );
+Widget _buildSaleSummaryPanel() {
+  final todayQuantity = _serverSales.fold<int>(
+    0,
+    (sum, sale) => sum + sale.quantity,
+  );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _cardDecoration(),
@@ -2245,7 +3008,10 @@ class _SalesScreenState extends State<SalesScreen> {
                 '₹${_formatMoney(_monthlySalesTotal)}',
               ),
               const SizedBox(width: 7),
-              _recentSaleMetric('Transactions', '${SalesStore.sales.length}'),
+            _recentSaleMetric(
+  'Transactions',
+  '${_serverSales.length}',
+),
               const SizedBox(width: 7),
               _recentSaleMetric('Quantity', '$todayQuantity Units'),
             ],
@@ -2263,10 +3029,28 @@ class _SalesScreenState extends State<SalesScreen> {
               const SizedBox(width: 9),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _cart.isEmpty ? null : _completeSale,
-                  icon: const Icon(Icons.check_circle_outline_rounded),
-                  label: const Text('Complete Sale'),
-                ),
+  onPressed:
+      _cart.isEmpty || _savingSale
+          ? null
+          : _completeSale,
+  icon: _savingSale
+      ? const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Colors.white,
+          ),
+        )
+      : const Icon(
+          Icons.check_circle_outline_rounded,
+        ),
+  label: Text(
+    _savingSale
+        ? 'Saving...'
+        : 'Complete Sale',
+  ),
+),
               ),
             ],
           ),
@@ -2697,15 +3481,15 @@ class _SalesScreenState extends State<SalesScreen> {
                       '₹${_formatMoney(_monthlySalesTotal)}',
                     ),
                     const SizedBox(width: 7),
-                    _recentSaleMetric(
-                      'Transactions',
-                      '${SalesStore.sales.length}',
-                    ),
+                   _recentSaleMetric(
+  'Transactions',
+  '${_serverSales.length}',
+),
                     const SizedBox(width: 7),
-                    _recentSaleMetric(
-                      'Total Quantity',
-                      '${SalesStore.sales.fold<int>(0, (sum, sale) => sum + sale.quantity)} Units',
-                    ),
+                 _recentSaleMetric(
+  'Total Quantity',
+  '${_serverSales.fold<int>(0, (sum, sale) => sum + sale.quantity)} Units',
+),
                   ],
                 ),
               ],
@@ -3089,8 +3873,8 @@ class _SalesScreenState extends State<SalesScreen> {
   }
 
   // ignore: unused_element
-  Widget _buildRecentSales() {
-    final sales = SalesStore.sales.take(5).toList();
+Widget _buildRecentSales() {
+  final sales = _serverSales.take(5).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[

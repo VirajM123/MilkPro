@@ -1,13 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
+import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../models/customer_model.dart';
 import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/customer_provider.dart';
-import '../../providers/customer_rate_provider.dart';
-import '../../providers/product_provider.dart';
 import '../../theme/app_colors.dart';
 import '../common/access_denied_screen.dart';
 
@@ -19,20 +20,182 @@ class CustomerRatesScreen extends StatefulWidget {
 }
 
 class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  Map<String, TextEditingController> _rateControllers = {};
-  final Set<String> _dirtyProductKeys = {};
-  CustomerModel? _selectedCustomer;
+final GlobalKey<FormState> _formKey =
+    GlobalKey<FormState>();
 
-  @override
-  void initState() {
-    super.initState();
-    CustomerRateStore.syncCatalogue();
-    if (CustomerStore.customers.isNotEmpty) {
-      _selectedCustomer = CustomerStore.customers.first;
-      _loadRateControllers();
-    }
+Map<String, TextEditingController>
+    _rateControllers = {};
+
+final Set<String>
+    _dirtyProductKeys = {};
+
+CustomerModel? _selectedCustomer;
+
+// Real MongoDB data
+final List<CustomerModel> _customers = [];
+final List<ProductModel> _products = [];
+
+// CustomerModel -> MongoDB customerId
+final Map<CustomerModel, String>
+    _customerIds = {};
+
+// Loading / saving
+bool _loading = true;
+bool _loadingRates = false;
+bool _savingRates = false;
+@override
+void initState() {
+  super.initState();
+
+  _loadCustomers();
+}
+
+
+
+Future<void> _loadCustomers() async {
+  if (mounted) {
+    setState(() {
+      _loading = true;
+    });
   }
+
+  try {
+    final response = await http.get(
+      Uri.parse(
+        ApiConfig.customers,
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+
+      final records =
+          data['data']
+              as List<dynamic>? ??
+          [];
+
+      final loadedCustomers =
+          <CustomerModel>[];
+
+      final loadedCustomerIds =
+          <CustomerModel, String>{};
+
+      for (final item in records) {
+        final map =
+            item as Map<String, dynamic>;
+
+        final customer =
+            CustomerModel(
+          name:
+              map['name']
+                      ?.toString() ??
+                  '',
+
+          mobile:
+              map['mobile']
+                      ?.toString() ??
+                  '',
+
+          route:
+              map['route']
+                      ?.toString() ??
+                  '',
+
+          balance:
+              double.tryParse(
+                    map['balance']
+                            ?.toString() ??
+                        '0',
+                  ) ??
+                  0,
+
+          isActive:
+              map['isActive'] !=
+                  false,
+        );
+
+        loadedCustomers.add(
+          customer,
+        );
+
+        loadedCustomerIds[
+                customer] =
+            map['customerId']
+                    ?.toString() ??
+                '';
+      }
+
+      _customers
+        ..clear()
+        ..addAll(
+          loadedCustomers,
+        );
+
+      _customerIds
+        ..clear()
+        ..addAll(
+          loadedCustomerIds,
+        );
+
+      if (_customers.isNotEmpty) {
+
+        _selectedCustomer =
+            _customers.first;
+
+        setState(() {
+          _loading = false;
+        });
+
+        await _loadCustomerRates();
+
+      } else {
+
+        setState(() {
+          _loading = false;
+          _selectedCustomer =
+              null;
+          _products.clear();
+        });
+      }
+
+    } else {
+
+      setState(() {
+        _loading = false;
+      });
+
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Unable to load customers.',
+      );
+    }
+
+  } catch (error) {
+
+    if (!mounted) return;
+
+    setState(() {
+      _loading = false;
+    });
+
+    _showMessage(
+      'Unable to load customers from server.',
+    );
+  }
+}
 
   @override
   void dispose() {
@@ -47,67 +210,421 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
     _rateControllers.clear();
   }
 
-  void _loadRateControllers() {
-    _dirtyProductKeys.clear();
-    final customer = _selectedCustomer;
-    if (customer == null) return;
+Future<void> _loadCustomerRates() async {
+  final customer =
+      _selectedCustomer;
 
-    final previousControllers = _rateControllers;
-    final nextControllers = <String, TextEditingController>{};
-    for (final product in ProductStore.products) {
-      final rate = CustomerRateStore.rateFor(customer, product);
-      nextControllers[CustomerRateStore.productKey(
-        product,
-      )] = TextEditingController(
-        text: rate.effectiveRate(product.price).toStringAsFixed(2),
+  if (customer == null) {
+    return;
+  }
+
+  final customerId =
+      _customerIds[customer] ?? '';
+
+  if (customerId.isEmpty) {
+    _showMessage(
+      'Customer ID not found.',
+    );
+
+    return;
+  }
+
+  setState(() {
+    _loadingRates = true;
+  });
+
+  try {
+    final response =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.customerRates}/$customerId',
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+
+      final records =
+          data['data']
+              as List<dynamic>? ??
+          [];
+
+      final loadedProducts =
+          <ProductModel>[];
+
+      final nextControllers =
+          <String,
+              TextEditingController>{};
+
+      for (final item in records) {
+
+        final map =
+            item as Map<String, dynamic>;
+
+        final productId =
+            map['productId']
+                    ?.toString() ??
+                '';
+
+        final defaultRate =
+            double.tryParse(
+                  map['defaultRate']
+                          ?.toString() ??
+                      '0',
+                ) ??
+                0;
+
+        final specialRate =
+            double.tryParse(
+                  map['specialRate']
+                          ?.toString() ??
+                      defaultRate
+                          .toString(),
+                ) ??
+                defaultRate;
+
+        final product =
+            ProductModel(
+          id:
+              map['productMongoId']
+                      ?.toString() ??
+                  '',
+
+          productId:
+              productId,
+
+          name:
+              map['productName']
+                      ?.toString() ??
+                  '',
+
+          variant:
+              map['variant']
+                      ?.toString() ??
+                  '',
+
+          category:
+              map['category']
+                      ?.toString() ??
+                  'Dairy',
+
+          unit:
+              map['unit']
+                      ?.toString() ??
+                  'Pcs',
+
+          stock:
+              double.tryParse(
+                    map['stock']
+                            ?.toString() ??
+                        '0',
+                  ) ??
+                  0,
+
+          price:
+              defaultRate,
+
+          lowStockLevel:
+              20,
+
+          assetPath:
+              '',
+
+          isActive:
+              true,
+        );
+
+        loadedProducts.add(
+          product,
+        );
+
+        nextControllers[
+                productId] =
+            TextEditingController(
+          text:
+              specialRate
+                  .toStringAsFixed(
+                    2,
+                  ),
+        );
+      }
+
+      final previousControllers =
+          _rateControllers;
+
+      setState(() {
+        _products
+          ..clear()
+          ..addAll(
+            loadedProducts,
+          );
+
+        _rateControllers =
+            nextControllers;
+
+        _dirtyProductKeys
+            .clear();
+
+        _loadingRates = false;
+      });
+
+      WidgetsBinding.instance
+          .addPostFrameCallback(
+        (_) {
+          for (
+            final controller
+                in previousControllers
+                    .values
+          ) {
+            controller.dispose();
+          }
+        },
+      );
+
+    } else {
+
+      setState(() {
+        _loadingRates = false;
+      });
+
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Unable to load customer rates.',
       );
     }
-    _rateControllers = nextControllers;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final controller in previousControllers.values) {
-        controller.dispose();
-      }
-    });
-  }
 
-  void _selectCustomer(CustomerModel? customer) {
-    if (customer == null || identical(customer, _selectedCustomer)) return;
+  } catch (error) {
+
+    if (!mounted) return;
+
     setState(() {
-      _selectedCustomer = customer;
-      _loadRateControllers();
+      _loadingRates = false;
     });
-  }
 
-  void _markChanged(ProductModel product) {
-    _dirtyProductKeys.add(CustomerRateStore.productKey(product));
-  }
-
-  void _saveRates() {
-    final customer = _selectedCustomer;
-    if (customer == null) return;
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    if (_dirtyProductKeys.isEmpty) {
-      _showMessage('No rate changes to save.');
-      return;
-    }
-
-    var savedCount = 0;
-    for (final product in ProductStore.products) {
-      final key = CustomerRateStore.productKey(product);
-      if (!_dirtyProductKeys.contains(key)) continue;
-      final rate = double.parse(_rateControllers[key]!.text.trim());
-      CustomerRateStore.setCustomRate(customer, product, rate);
-      savedCount++;
-    }
-
-    setState(_dirtyProductKeys.clear);
     _showMessage(
-      '$savedCount custom rate${savedCount == 1 ? '' : 's'} saved for '
-      '${customer.name}.',
-      success: true,
+      'Unable to load customer rates from server.',
     );
   }
+}
+
+Future<void> _selectCustomer(
+  CustomerModel? customer,
+) async {
+
+  if (customer == null) {
+    return;
+  }
+
+  if (identical(
+    customer,
+    _selectedCustomer,
+  )) {
+    return;
+  }
+
+  setState(() {
+    _selectedCustomer =
+        customer;
+
+    _products.clear();
+
+    _dirtyProductKeys
+        .clear();
+  });
+
+  await _loadCustomerRates();
+}
+
+void _markChanged(
+  ProductModel product,
+) {
+  _dirtyProductKeys.add(
+    product.productId,
+  );
+}
+
+Future<void> _saveRates() async {
+  final customer =
+      _selectedCustomer;
+
+  if (customer == null) {
+    return;
+  }
+
+  if (_savingRates) {
+    return;
+  }
+
+  if (!(_formKey
+          .currentState
+          ?.validate() ??
+      false)) {
+    return;
+  }
+
+  if (_dirtyProductKeys.isEmpty) {
+    _showMessage(
+      'No rate changes to save.',
+    );
+
+    return;
+  }
+
+  final customerId =
+      _customerIds[customer] ?? '';
+
+  if (customerId.isEmpty) {
+    _showMessage(
+      'Customer ID not found.',
+    );
+
+    return;
+  }
+
+  final rates =
+      <Map<String, dynamic>>[];
+
+  for (final product in _products) {
+
+    final key =
+        product.productId;
+
+    if (!_dirtyProductKeys
+        .contains(key)) {
+      continue;
+    }
+
+    final controller =
+        _rateControllers[key];
+
+    if (controller == null) {
+      continue;
+    }
+
+    final rate =
+        double.tryParse(
+      controller.text.trim(),
+    );
+
+    if (rate == null ||
+        rate <= 0) {
+      continue;
+    }
+
+    rates.add({
+      'productId':
+          product.productId,
+
+      'specialRate':
+          rate,
+    });
+  }
+
+  if (rates.isEmpty) {
+    _showMessage(
+      'No valid rate changes found.',
+    );
+
+    return;
+  }
+
+  setState(() {
+    _savingRates = true;
+  });
+
+  try {
+    final response =
+        await http.post(
+      Uri.parse(
+        ApiConfig.customerRates,
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'customerId':
+            customerId,
+
+        'rates':
+            rates,
+      }),
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (
+      (response.statusCode == 200 ||
+          response.statusCode == 201) &&
+      data['success'] == true
+    ) {
+
+      final savedCount =
+          data['count'] ??
+          rates.length;
+
+      setState(() {
+        _dirtyProductKeys
+            .clear();
+      });
+
+      _showMessage(
+        '$savedCount custom rate${savedCount == 1 ? '' : 's'} saved for ${customer.name}.',
+        success: true,
+      );
+
+      // Reload from MongoDB to verify saved values
+      await _loadCustomerRates();
+
+    } else {
+
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Unable to save customer rates.',
+      );
+    }
+
+  } catch (error) {
+
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to save customer rates to server.',
+    );
+
+  } finally {
+
+    if (mounted) {
+      setState(() {
+        _savingRates = false;
+      });
+    }
+  }
+}
 
   void _showMessage(String message, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -209,7 +726,12 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
             const SizedBox(width: 10),
             ElevatedButton.icon(
               key: const ValueKey('save-customer-rates'),
-              onPressed: _selectedCustomer == null ? null : _saveRates,
+             onPressed:
+    _selectedCustomer == null ||
+            _savingRates ||
+            _loadingRates
+        ? null
+        : _saveRates,
               icon: const Icon(Icons.save_outlined, size: 20),
               label: compact
                   ? const SizedBox.shrink()
@@ -228,7 +750,13 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
   );
 
   Widget _body() {
-    if (CustomerStore.customers.isEmpty) {
+    if (_loading) {
+  return const Center(
+    child:
+        CircularProgressIndicator(),
+  );
+}
+   if (_customers.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -260,6 +788,12 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
         ),
       );
     }
+    if (_loadingRates) {
+  return const Center(
+    child:
+        CircularProgressIndicator(),
+  );
+}
 
     final customer = _selectedCustomer!;
     return LayoutBuilder(
@@ -300,7 +834,7 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
       ),
     ),
     isExpanded: true,
-    items: CustomerStore.customers
+items: _customers
         .map(
           (customer) => DropdownMenuItem<CustomerModel>(
             value: customer,
@@ -446,8 +980,15 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
               ),
             ],
           ),
-          for (var index = 0; index < ProductStore.products.length; index++)
-            _productTableRow(ProductStore.products[index], index),
+      for (
+  var index = 0;
+  index < _products.length;
+  index++
+)
+  _productTableRow(
+    _products[index],
+    index,
+  ),
         ],
       ),
     );
@@ -585,7 +1126,8 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
   );
 
   Widget _rateField(ProductModel product) {
-    final key = CustomerRateStore.productKey(product);
+   final key =
+    product.productId;
     return TextFormField(
       key: ValueKey('customer-rate-$key'),
       controller: _rateControllers[key],
@@ -613,11 +1155,24 @@ class _CustomerRatesScreenState extends State<CustomerRatesScreen> {
 
   Widget _mobileRateList() => Column(
     children: [
-      for (var index = 0; index < ProductStore.products.length; index++) ...[
-        _mobileRateCard(ProductStore.products[index], index),
-        if (index != ProductStore.products.length - 1)
-          const SizedBox(height: 10),
-      ],
+for (
+  var index = 0;
+  index < _products.length;
+  index++
+) ...[
+  _mobileRateCard(
+    _products[index],
+    index,
+  ),
+
+  if (
+    index !=
+        _products.length - 1
+  )
+    const SizedBox(
+      height: 10,
+    ),
+],
     ],
   );
 

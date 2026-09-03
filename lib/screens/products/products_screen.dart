@@ -1,9 +1,12 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/product_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
 
@@ -20,35 +23,382 @@ class _ProductsScreenState extends State<ProductsScreen> {
   String _query = '';
   String _category = 'All';
   _StockFilter _stockFilter = _StockFilter.all;
+  final List<ProductModel> _productList = [];
+
+bool _loadingProducts = true;
 
   bool get _canManageProducts => UiSession.instance.role == UserRole.admin;
 
-  List<ProductModel> get _products {
-    final query = _query.trim().toLowerCase();
-    return ProductStore.products
-        .where((product) {
-          final matchesQuery =
-              query.isEmpty ||
-              product.name.toLowerCase().contains(query) ||
-              product.variant.toLowerCase().contains(query);
-          final matchesCategory =
-              _category == 'All' || product.category == _category;
-          final matchesStock = switch (_stockFilter) {
-            _StockFilter.all => true,
-            _StockFilter.available => product.stock > 0,
-            _StockFilter.low => product.isLowStock,
-          };
-          return matchesQuery && matchesCategory && matchesStock;
-        })
-        .toList(growable: false);
+List<ProductModel> get _products {
+  final query =
+      _query.trim().toLowerCase();
+
+  return _productList
+      .where((product) {
+        final matchesQuery =
+            query.isEmpty ||
+            product.name
+                .toLowerCase()
+                .contains(query) ||
+            product.variant
+                .toLowerCase()
+                .contains(query);
+
+        final matchesCategory =
+            _category == 'All' ||
+            product.category ==
+                _category;
+
+        final matchesStock =
+            switch (_stockFilter) {
+          _StockFilter.all => true,
+
+          _StockFilter.available =>
+            product.stock > 0,
+
+          _StockFilter.low =>
+            product.isLowStock,
+        };
+
+        return matchesQuery &&
+            matchesCategory &&
+            matchesStock;
+      })
+      .toList(
+        growable: false,
+      );
+}
+
+@override
+void initState() {
+  super.initState();
+
+  _loadProducts();
+}
+Future<void> _saveProduct(
+  ProductModel product,
+) async {
+  try {
+    final response =
+        await http.post(
+      Uri.parse(
+        ApiConfig.products,
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'productName':
+            product.name,
+
+        'variant':
+            product.variant,
+
+        'category':
+            product.category,
+
+        'unit':
+            product.unit,
+
+        'stock':
+            product.stock,
+
+        'price':
+            product.price,
+
+        'lowStockLevel':
+            product.lowStockLevel,
+
+        'assetPath':
+            product.assetPath,
+
+        'isActive':
+            product.isActive,
+      }),
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if ((response.statusCode == 200 ||
+            response.statusCode == 201) &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']?.toString() ??
+            'Product added successfully.',
+      );
+
+      setState(() {
+        _category = 'All';
+        _stockFilter =
+            _StockFilter.all;
+      });
+
+      await _loadProducts();
+
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to add product.',
+      );
+    }
+
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to connect to backend.',
+    );
+  }
+}
+Future<void> _updateProduct(
+  ProductModel oldProduct,
+  ProductModel newProduct,
+) async {
+  if (oldProduct.id.isEmpty) {
+    _showMessage(
+      'Product database ID is missing.',
+    );
+    return;
   }
 
+  try {
+    final response =
+        await http.put(
+      Uri.parse(
+        '${ApiConfig.products}/${oldProduct.id}',
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'productName':
+            newProduct.name,
+
+        'variant':
+            newProduct.variant,
+
+        'category':
+            newProduct.category,
+
+        'unit':
+            newProduct.unit,
+
+        'stock':
+            newProduct.stock,
+
+        'price':
+            newProduct.price,
+
+        'lowStockLevel':
+            newProduct.lowStockLevel,
+
+        'assetPath':
+            newProduct.assetPath,
+
+        'isActive':
+            newProduct.isActive,
+      }),
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      _showMessage(
+        'Product updated successfully.',
+      );
+
+      await _loadProducts();
+
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to update product.',
+      );
+    }
+
+  } catch (_) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to update product.',
+    );
+  }
+}
+
+void _showMessage(String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+      ),
+    );
+}
+
+Future<void> _loadProducts() async {
+  if (mounted) {
+    setState(() {
+      _loadingProducts = true;
+    });
+  }
+
+  try {
+    final response =
+        await http.get(
+      Uri.parse(
+        ApiConfig.products,
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      final records =
+          data['data']
+              as List<dynamic>? ??
+          [];
+
+      final products =
+          records.map((item) {
+        final map =
+            item as Map<String, dynamic>;
+
+        return ProductModel(
+          id:
+              map['_id']?.toString() ??
+                  '',
+
+          productId:
+              map['productId']
+                      ?.toString() ??
+                  '',
+
+          name:
+              map['productName']
+                      ?.toString() ??
+                  '',
+
+          variant:
+              map['variant']
+                      ?.toString() ??
+                  '',
+
+          category:
+              map['category']
+                      ?.toString() ??
+                  'Dairy',
+
+          unit:
+              map['unit']
+                      ?.toString() ??
+                  'Pcs',
+
+          stock:
+              double.tryParse(
+                    map['stock']
+                            ?.toString() ??
+                        '0',
+                  ) ??
+                  0,
+
+          price:
+              double.tryParse(
+                    map['price']
+                            ?.toString() ??
+                        '0',
+                  ) ??
+                  0,
+
+          lowStockLevel:
+              double.tryParse(
+                    map['lowStockLevel']
+                            ?.toString() ??
+                        '20',
+                  ) ??
+                  20,
+
+          assetPath:
+              map['assetPath']
+                      ?.toString() ??
+                  '',
+
+          isActive:
+              map['isActive'] !=
+                  false,
+        );
+      }).toList();
+
+      setState(() {
+        _productList
+          ..clear()
+          ..addAll(products);
+      });
+
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to load products.',
+      );
+    }
+
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to load products from server.',
+    );
+
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingProducts = false;
+      });
+    }
+  }
+}
   @override
   Widget build(BuildContext context) {
-    final categories = <String>{
-      'All',
-      ...ProductStore.products.map((item) => item.category),
-    };
+  final categories = <String>{
+  'All',
+  ..._productList
+      .map(
+        (item) =>
+            item.category,
+      ),
+};
     return Scaffold(
       appBar: PremiumAppBar(
         title: 'Products',
@@ -103,26 +453,49 @@ class _ProductsScreenState extends State<ProductsScreen> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
               child: AppSectionTitle(
                 title: '${_products.length} products',
-                subtitle: _stockFilter == _StockFilter.low
-                    ? 'Showing low-stock products'
-                    : 'Live data connection is not configured',
+             subtitle:
+    _stockFilter == _StockFilter.low
+        ? 'Showing low-stock products'
+        : 'Products synced with database',
               ),
             ),
-            Expanded(
-              child: _products.isEmpty
-                  ? const AppEmptyState(
-                      icon: Icons.inventory_2_outlined,
-                      title: 'No products found',
-                      message: 'Try changing the search or stock filter.',
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemCount: _products.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: 10),
-                      itemBuilder: (_, index) => _productCard(_products[index]),
-                    ),
+       Expanded(
+  child: _loadingProducts
+      ? const Center(
+          child:
+              CircularProgressIndicator(),
+        )
+      : _products.isEmpty
+          ? const AppEmptyState(
+              icon:
+                  Icons.inventory_2_outlined,
+              title:
+                  'No products found',
+              message:
+                  'Try changing the search or stock filter.',
+            )
+          : ListView.separated(
+              padding:
+                  const EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                24,
+              ),
+              itemCount:
+                  _products.length,
+              separatorBuilder:
+                  (context, index) =>
+                      const SizedBox(
+                height: 10,
+              ),
+              itemBuilder:
+                  (_, index) =>
+                      _productCard(
+                _products[index],
+              ),
             ),
+),
           ],
         ),
       ),
@@ -325,17 +698,36 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 if (!(formKey.currentState?.validate() ?? false)) return;
                 Navigator.pop(
                   dialogContext,
-                  ProductModel(
-                    name: nameController.text.trim(),
-                    variant: variantController.text.trim(),
-                    unit: unit,
-                    stock: double.parse(stockController.text.trim()),
-                    price: double.parse(priceController.text.trim()),
-                    assetPath: product?.assetPath ?? '',
-                    category: categoryController.text.trim(),
-                    lowStockLevel: product?.lowStockLevel ?? 20,
-                    isActive: product?.isActive ?? true,
-                  ),
+              ProductModel(
+  id: product?.id ?? '',
+  productId: product?.productId ?? '',
+
+  name: nameController.text.trim(),
+  variant: variantController.text.trim(),
+  unit: unit,
+
+  stock:
+      double.parse(
+        stockController.text.trim(),
+      ),
+
+  price:
+      double.parse(
+        priceController.text.trim(),
+      ),
+
+  assetPath:
+      product?.assetPath ?? '',
+
+  category:
+      categoryController.text.trim(),
+
+  lowStockLevel:
+      product?.lowStockLevel ?? 20,
+
+  isActive:
+      product?.isActive ?? true,
+),
                 );
               },
               child: Text(isEditing ? 'Save Changes' : 'Add Product'),
@@ -355,16 +747,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
     categoryController.dispose();
     if (!mounted || saved == null) return;
 
-    setState(() {
-      if (isEditing) {
-        final index = ProductStore.products.indexOf(product);
-        if (index != -1) ProductStore.products[index] = saved;
-      } else {
-        ProductStore.products.add(saved);
-      }
-      _category = 'All';
-      _stockFilter = _StockFilter.all;
-    });
+if (isEditing) {
+  await _updateProduct(
+    product,
+    saved,
+  );
+} else {
+  await _saveProduct(saved);
+}
   }
 
   Widget _productField({

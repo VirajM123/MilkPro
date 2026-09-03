@@ -1,11 +1,15 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
+import '../../config/api_config.dart';
 import '../../models/customer_model.dart';
-import '../../providers/customer_provider.dart';
 import '../../theme/app_colors.dart';
 import '../common/simple_screen_widgets.dart';
 import 'customer_detail_screen.dart';
+
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -16,9 +20,19 @@ class CustomersScreen extends StatefulWidget {
 
 class _CustomersScreenState extends State<CustomersScreen> {
   final TextEditingController _searchController = TextEditingController();
+
   final FocusNode _searchFocusNode = FocusNode();
+
   String _query = '';
+
   bool? _activeOnly;
+
+  bool _loadingCustomers = true;
+
+  List<CustomerModel> _customerList = [];
+  List<String> _routeList = [];
+
+bool _loadingRoutes = false;
 
   static const _avatarColors = <Color>[
     Color(0xFFE8F1FF),
@@ -35,22 +49,31 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   List<CustomerModel> get _customers {
     final query = _query.toLowerCase().trim();
-    return CustomerStore.customers.where((customer) {
+
+    return _customerList.where((customer) {
       final matchesStatus =
           _activeOnly == null || customer.isActive == _activeOnly;
+
       final matchesQuery =
           query.isEmpty ||
           customer.name.toLowerCase().contains(query) ||
           customer.mobile.contains(query) ||
           customer.route.toLowerCase().contains(query);
+
       return matchesStatus && matchesQuery;
     }).toList();
   }
 
-  double get _totalDue => CustomerStore.customers.fold(
-    0,
-    (sum, customer) => sum + customer.balance,
-  );
+  double get _totalDue =>
+      _customerList.fold(0, (sum, customer) => sum + customer.balance);
+
+ @override
+void initState() {
+  super.initState();
+
+  _loadCustomers();
+  _loadRoutes();
+}
 
   @override
   void dispose() {
@@ -59,24 +82,147 @@ class _CustomersScreenState extends State<CustomersScreen> {
     super.dispose();
   }
 
+  Future<void> _loadCustomers() async {
+    setState(() {
+      _loadingCustomers = true;
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConfig.customers),
+        headers: {
+          'Content-Type': 'application/json',
+
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
+      );
+
+      final Map<String, dynamic> data =
+          jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        final List<dynamic> records = data['data'] as List<dynamic>? ?? [];
+
+        final customers = records.map((item) {
+          final map = item as Map<String, dynamic>;
+
+          return CustomerModel(
+            name: map['name']?.toString() ?? '',
+
+            mobile: map['mobile']?.toString() ?? '',
+
+            route: map['route']?.toString() ?? '',
+
+            balance: double.tryParse(map['balance']?.toString() ?? '0') ?? 0,
+
+            isActive: map['isActive'] != false,
+          );
+        }).toList();
+
+        setState(() {
+          _customerList = customers;
+        });
+      } else {
+        _message(data['message']?.toString() ?? 'Unable to load customers.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      _message('Unable to load customers from server.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingCustomers = false;
+        });
+      }
+    }
+  }
+  Future<void> _loadRoutes() async {
+  if (mounted) {
+    setState(() {
+      _loadingRoutes = true;
+    });
+  }
+
+  try {
+    final response = await http.get(
+      Uri.parse(ApiConfig.routes),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final Map<String, dynamic> data =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      final List<dynamic> records =
+          data['data'] as List<dynamic>? ?? [];
+
+      final routes = records
+          .where((item) {
+            final map = item as Map<String, dynamic>;
+            return map['isActive'] != false;
+          })
+          .map((item) {
+            final map = item as Map<String, dynamic>;
+            return map['routeName']?.toString() ?? '';
+          })
+          .where((name) => name.trim().isNotEmpty)
+          .toList();
+
+      setState(() {
+        _routeList = routes;
+      });
+    } else {
+      _message(
+        data['message']?.toString() ??
+            'Unable to load routes.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _message(
+      'Unable to load routes from server.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingRoutes = false;
+      });
+    }
+  }
+}
+
   Future<void> _addCustomer() async {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController();
     final mobileController = TextEditingController();
     final balanceController = TextEditingController(text: '0');
-    String route = 'Route A';
+    String? route =
+    _routeList.isNotEmpty
+        ? _routeList.first
+        : null;
 
     final customer = await showModalBottomSheet<CustomerModel>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          18,
-          2,
-          18,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 22,
-        ),
-        child: Form(
+   builder: (sheetContext) => SafeArea(
+  child: SingleChildScrollView(
+    padding: EdgeInsets.fromLTRB(
+      18,
+      12,
+      18,
+      MediaQuery.viewInsetsOf(sheetContext).bottom + 22,
+    ),
+    child: Form(
           key: formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -114,20 +260,58 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     : 'Enter a 10-digit mobile number',
               ),
               const SizedBox(height: 11),
-              DropdownButtonFormField<String>(
-                initialValue: route,
-                decoration: const InputDecoration(
-                  labelText: 'Route',
-                  prefixIcon: Icon(Icons.route_outlined),
+          DropdownButtonFormField<String>(
+  value: route,
+  isExpanded: true,
+
+  decoration: InputDecoration(
+    labelText: 'Route',
+    prefixIcon:
+        const Icon(Icons.route_outlined),
+    suffixIcon:
+        _loadingRoutes
+            ? const Padding(
+                padding: EdgeInsets.all(14),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child:
+                      CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
                 ),
-                items: const ['Route A', 'Route B', 'Route C']
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
-                onChanged: (value) => route = value ?? route,
-              ),
+              )
+            : null,
+  ),
+
+  items: _routeList
+      .map(
+        (item) =>
+            DropdownMenuItem<String>(
+          value: item,
+          child: Text(
+            item,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      )
+      .toList(),
+
+  onChanged: _routeList.isEmpty
+      ? null
+      : (value) {
+          route = value;
+        },
+
+  validator: (value) {
+    if (value == null ||
+        value.trim().isEmpty) {
+      return 'Please select route';
+    }
+
+    return null;
+  },
+),
               const SizedBox(height: 11),
               TextFormField(
                 controller: balanceController,
@@ -144,13 +328,19 @@ class _CustomersScreenState extends State<CustomersScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    if (!(formKey.currentState?.validate() ?? false)) return;
+                    if (!(formKey.currentState?.validate() ?? false)) {
+                      return;
+                    }
+
                     Navigator.pop(
                       sheetContext,
                       CustomerModel(
                         name: nameController.text.trim(),
-                        mobile: mobileController.text,
-                        route: route,
+
+                        mobile: mobileController.text.trim(),
+
+                        route: route ?? '',
+
                         balance: double.tryParse(balanceController.text) ?? 0,
                       ),
                     );
@@ -158,19 +348,94 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   child: const Text('Save Customer'),
                 ),
               ),
-            ],
-          ),
+           ],
         ),
       ),
+    ),
+  ),
+);
+
+if (customer == null || !mounted) {
+  return;
+}
+
+await _saveCustomer(customer);
+  }
+  Future<void> _saveCustomer(
+  CustomerModel customer,
+) async {
+
+  try {
+
+    final response =
+        await http.post(
+      Uri.parse(
+        ApiConfig.customers,
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+
+      body: jsonEncode({
+        'name':
+            customer.name,
+
+        'mobile':
+            customer.mobile,
+
+        'route':
+            customer.route,
+
+        'balance':
+            customer.balance,
+      }),
     );
 
-    nameController.dispose();
-    mobileController.dispose();
-    balanceController.dispose();
-    if (customer == null || !mounted) return;
-    setState(() => CustomerStore.add(customer));
-    showSavedMessage(context, 'Customer added successfully.');
+
+    final Map<String, dynamic> data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+
+    if (!mounted) return;
+
+
+    if (
+        response.statusCode == 200 ||
+        response.statusCode == 201
+    ) {
+
+      showSavedMessage(
+        context,
+        data['message']?.toString() ??
+            'Customer added successfully.',
+      );
+
+
+      await _loadCustomers();
+
+    } else {
+
+      _message(
+        data['message']?.toString() ??
+            'Unable to add customer.',
+      );
+    }
+
+  } catch (error) {
+
+    if (!mounted) return;
+
+    _message(
+      'Unable to connect to backend.',
+    );
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -199,13 +464,28 @@ class _CustomersScreenState extends State<CustomersScreen> {
                       const SizedBox(height: 18),
                       _buildSearchAndFilter(),
                       const SizedBox(height: 18),
-                      if (_customers.isEmpty)
-                        _buildEmptyState()
-                      else
-                        ...List.generate(
-                          _customers.length,
-                          (index) => _customerCard(_customers[index], index),
-                        ),
+                   if (_loadingCustomers)
+  const Padding(
+    padding:
+        EdgeInsets.symmetric(
+          vertical: 40,
+        ),
+    child: Center(
+      child:
+          CircularProgressIndicator(),
+    ),
+  )
+else if (_customers.isEmpty)
+  _buildEmptyState()
+else
+  ...List.generate(
+    _customers.length,
+    (index) =>
+        _customerCard(
+          _customers[index],
+          index,
+        ),
+  ),
                       const SizedBox(height: 8),
                       _buildAddCustomerBanner(),
                     ],
@@ -329,7 +609,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
         Expanded(
           child: _summaryCard(
             label: 'Total Customers',
-            value: '${CustomerStore.customers.length}',
+           value: '${_customerList.length}',
             icon: Icons.groups_rounded,
             color: AppColors.primary,
             background: const Color(0xFFF3F7FF),

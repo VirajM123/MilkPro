@@ -22,6 +22,7 @@ import '../returns/return_settlement_screen.dart';
 import '../routes/routes_screen.dart';
 import '../sales/sales_screen.dart';
 import '../salesmen/salesman_management_screen.dart';
+import '../suppliers/supplier_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -673,32 +674,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ),
   );
+Widget _bottomNavigation() {
+  final admin = user.role == UserRole.admin;
 
-  Widget _bottomNavigation() {
-    final admin = user.role == UserRole.admin;
-    final items = admin
-        ? const <(IconData, String)>[
-            (Icons.home_outlined, 'Home'),
-            (Icons.people_outline_rounded, 'Customers'),
-            (Icons.inventory_2_outlined, 'Allocation'),
-            (Icons.analytics_outlined, 'Reports'),
-            (Icons.more_horiz_rounded, 'More'),
-          ]
-        : const <(IconData, String)>[
-            (Icons.home_outlined, 'Home'),
-            (Icons.route_outlined, 'Route'),
-            (Icons.receipt_long_outlined, 'Sales'),
-            (Icons.payments_outlined, 'Collection'),
-            (Icons.more_horiz_rounded, 'More'),
-          ];
+  // ============================================================
+  // ADMIN BOTTOM NAVIGATION
+  // ============================================================
+  if (admin) {
+    const items = <(IconData, String)>[
+      (Icons.home_outlined, 'Home'),
+      (Icons.people_outline_rounded, 'Customers'),
+      (Icons.inventory_2_outlined, 'Allocation'),
+      (Icons.analytics_outlined, 'Reports'),
+      (Icons.more_horiz_rounded, 'More'),
+    ];
+
     return NavigationBar(
       selectedIndex: 0,
-      onDestinationSelected: (index) => _navTap(index, admin),
+      onDestinationSelected: (index) => _navTap(index, true),
       destinations: items
           .map(
             (item) => NavigationDestination(
               icon: Icon(item.$1),
-              selectedIcon: Icon(item.$1, color: AppColors.primary),
+              selectedIcon: Icon(
+                item.$1,
+                color: AppColors.primary,
+              ),
               label: item.$2,
             ),
           )
@@ -706,22 +707,110 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _navTap(int index, bool admin) {
-    if (index == 0) return;
-    if (index == 4) {
-      _scaffoldKey.currentState?.openDrawer();
-      return;
-    }
-    if (admin) {
-      if (index == 1) _openFeature(AppFeatures.customers);
-      if (index == 2) _openFeature(AppFeatures.allocation);
-      if (index == 3) _openFeature(AppFeatures.reports);
-    } else {
-      if (index == 1) _openFeature(AppFeatures.routes);
-      if (index == 2) _openFeature(AppFeatures.sales);
-      if (index == 3) _openFeature(AppFeatures.collection);
-    }
+  // ============================================================
+  // SALESMAN BOTTOM NAVIGATION
+  // ONLY SHOW FEATURES THAT THE SALESMAN HAS PERMISSION FOR
+  // ============================================================
+
+  final List<(IconData, String, AppFeature?)> items = [
+    (Icons.home_outlined, 'Home', null),
+  ];
+
+  if (user.can(AppPermission.routesView)) {
+    items.add(
+      (
+        Icons.route_outlined,
+        'Route',
+        AppFeatures.routes,
+      ),
+    );
   }
+
+  if (user.can(AppPermission.salesView)) {
+    items.add(
+      (
+        Icons.receipt_long_outlined,
+        'Sales',
+        AppFeatures.sales,
+      ),
+    );
+  }
+
+  if (user.can(AppPermission.collectionView)) {
+    items.add(
+      (
+        Icons.payments_outlined,
+        'Collection',
+        AppFeatures.collection,
+      ),
+    );
+  }
+
+  items.add(
+    (
+      Icons.more_horiz_rounded,
+      'More',
+      null,
+    ),
+  );
+
+  return NavigationBar(
+    selectedIndex: 0,
+    onDestinationSelected: (index) {
+      if (index == 0) {
+        return;
+      }
+
+      final item = items[index];
+
+      // MORE
+      if (item.$3 == null) {
+        _scaffoldKey.currentState?.openDrawer();
+        return;
+      }
+
+      // Extra safety check before navigation.
+      _openFeature(item.$3!);
+    },
+    destinations: items
+        .map(
+          (item) => NavigationDestination(
+            icon: Icon(item.$1),
+            selectedIcon: Icon(
+              item.$1,
+              color: AppColors.primary,
+            ),
+            label: item.$2,
+          ),
+        )
+        .toList(),
+  );
+}
+
+void _navTap(int index, bool admin) {
+  if (index == 0) return;
+
+  if (!admin) {
+    return;
+  }
+
+  if (index == 4) {
+    _scaffoldKey.currentState?.openDrawer();
+    return;
+  }
+
+  if (index == 1) {
+    _openFeature(AppFeatures.customers);
+  }
+
+  if (index == 2) {
+    _openFeature(AppFeatures.allocation);
+  }
+
+  if (index == 3) {
+    _openFeature(AppFeatures.reports);
+  }
+}
 
   Widget _buildDrawer() {
     final admin = user.role == UserRole.admin;
@@ -963,23 +1052,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _screenFor(AppFeature feature) {
-    if (feature == AppFeatures.customers) return const CustomersScreen();
-    if (feature == AppFeatures.customerRates) {
-      return const CustomerRatesScreen();
-    }
-    if (feature == AppFeatures.products) return const ProductsScreen();
-    if (feature == AppFeatures.allocation) return const AllocationScreen();
-    if (feature == AppFeatures.sales) return const SalesScreen();
-    if (feature == AppFeatures.returns) return const ReturnSettlementScreen();
-    if (feature == AppFeatures.collection) return const CollectionScreen();
-    if (feature == AppFeatures.routes) return const RoutesScreen();
-    if (feature == AppFeatures.purchase) return const PurchaseScreen();
-    if (feature == AppFeatures.reports) return const ReportsScreen();
-    if (feature == AppFeatures.payments) return const PaymentsScreen();
-    if (feature == AppFeatures.ledger) return const LedgerScreen();
+Widget _screenFor(AppFeature feature) {
+  if (feature == AppFeatures.customers) {
+    return const CustomersScreen();
+  }
+
+  if (feature == AppFeatures.customerRates) {
+    return const CustomerRatesScreen();
+  }
+
+  if (feature == AppFeatures.products) {
+    return const ProductsScreen();
+  }
+
+  // ============================================================
+  // SUPPLIERS
+  // ============================================================
+  if (feature == AppFeatures.suppliers) {
+    return const SupplierScreen();
+  }
+
+  if (feature == AppFeatures.allocation) {
+    return const AllocationScreen();
+  }
+
+  if (feature == AppFeatures.sales) {
+    return const SalesScreen();
+  }
+
+  if (feature == AppFeatures.returns) {
+    return const ReturnSettlementScreen();
+  }
+
+  if (feature == AppFeatures.collection) {
+    return const CollectionScreen();
+  }
+
+  if (feature == AppFeatures.routes) {
+    return const RoutesScreen();
+  }
+
+  if (feature == AppFeatures.purchase) {
+    return const PurchaseScreen();
+  }
+
+  if (feature == AppFeatures.reports) {
+    return const ReportsScreen();
+  }
+
+  if (feature == AppFeatures.payments) {
+    return const PaymentsScreen();
+  }
+
+  if (feature == AppFeatures.ledger) {
+    return const LedgerScreen();
+  }
+
+  if (feature == AppFeatures.expenses) {
     return const ExpensesScreen();
   }
+
+  return const DashboardScreen();
+}
 
   Future<void> _logout() async {
     _scaffoldKey.currentState?.closeDrawer();

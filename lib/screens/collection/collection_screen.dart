@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
 import '../allocation/allocation_screen.dart';
@@ -15,76 +20,400 @@ class CollectionScreen extends StatefulWidget {
 
 class _CollectionScreenState extends State<CollectionScreen> {
   final _searchController = TextEditingController();
-  String _selectedRoute = 'Route A';
-  String _selectedSalesman = 'Mahesh';
-  DateTime _selectedDate = DateTime(2025, 8, 20);
+String _selectedRoute = 'All Routes';
+String _selectedSalesman = 'All Salesmen';
 
-  final List<_CustomerCollection> _customers = const [
-    _CustomerCollection(
-      name: 'Ramesh Patil',
-      code: 'CUST001',
-      amount: 2450,
-      paymentMode: 'Cash',
-      status: PaymentStatus.paid,
-      avatarColor: Color(0xFFE1F7E9),
-      avatarIconColor: Color(0xFF18A85B),
-    ),
-    _CustomerCollection(
-      name: 'Suresh Jadhav',
-      code: 'CUST002',
-      amount: 1800,
-      paymentMode: 'UPI',
-      status: PaymentStatus.paid,
-      avatarColor: Color(0xFFFFF2D9),
-      avatarIconColor: Color(0xFFFFA000),
-    ),
-    _CustomerCollection(
-      name: 'Anil Shinde',
-      code: 'CUST003',
-      amount: 0,
-      paymentMode: 'Pending',
-      status: PaymentStatus.due,
-      avatarColor: Color(0xFFFFE4E8),
-      avatarIconColor: Color(0xFFFF3547),
-    ),
-    _CustomerCollection(
-      name: 'Vijay Kadam',
-      code: 'CUST004',
-      amount: 3150,
-      paymentMode: 'PhonePe',
-      status: PaymentStatus.paid,
-      avatarColor: Color(0xFFF0E3FF),
-      avatarIconColor: Color(0xFF8A31E8),
-    ),
-    _CustomerCollection(
-      name: 'Maruti More',
-      code: 'CUST005',
-      amount: 2200,
-      paymentMode: 'Online',
-      status: PaymentStatus.partial,
-      avatarColor: Color(0xFFE6F2FF),
-      avatarIconColor: Color(0xFF1767D9),
-    ),
-  ];
+DateTime _selectedDate =
+    DateTime.now();
 
-  List<_CustomerCollection> get _filteredCustomers {
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) return _customers;
-    return _customers
-        .where(
-          (customer) =>
-              customer.name.toLowerCase().contains(query) ||
-              customer.code.toLowerCase().contains(query),
-        )
-        .toList(growable: false);
+final List<_CustomerCollection>
+    _customers = [];
+
+final List<Map<String, dynamic>>
+    _collections = [];
+
+bool _isLoading = false;
+bool _isSaving = false;
+
+String _loadError = '';
+ List<_CustomerCollection> get _filteredCustomers {
+  final query =
+      _searchController.text.trim().toLowerCase();
+
+  return _customers.where((customer) {
+    final matchesSearch =
+        query.isEmpty ||
+        customer.name.toLowerCase().contains(query) ||
+        customer.code.toLowerCase().contains(query) ||
+        customer.mobile.contains(query);
+
+    final matchesRoute =
+        _selectedRoute == 'All Routes' ||
+        customer.route == _selectedRoute;
+
+    final matchesSalesman =
+        _selectedSalesman == 'All Salesmen' ||
+        customer.salesmanName == _selectedSalesman;
+
+    return matchesSearch &&
+        matchesRoute &&
+        matchesSalesman;
+  }).toList(growable: false);
+}
+
+
+double get _totalCollected {
+  double total = 0;
+
+  for (final collection in _collections) {
+    final status =
+        (collection['status'] ?? '')
+            .toString()
+            .toUpperCase();
+
+    if (status != 'POSTED') {
+      continue;
+    }
+
+    total +=
+        _asDouble(
+          collection['amount'],
+        );
   }
 
-  double get _totalCollected =>
-      _customers.fold(0, (sum, customer) => sum + customer.amount);
+  return total;
+}
 
   int get _pendingCount => _customers
       .where((customer) => customer.status != PaymentStatus.paid)
       .length;
+
+List<String> get _routeOptions {
+  final routes =
+      _customers
+          .map(
+            (customer) =>
+                customer.route.trim(),
+          )
+          .where(
+            (route) =>
+                route.isNotEmpty,
+          )
+          .toSet()
+          .toList();
+
+  routes.sort();
+
+  return [
+    'All Routes',
+    ...routes,
+  ];
+}
+
+
+List<String> get _salesmanOptions {
+  final salesmen =
+      _customers
+          .map(
+            (customer) =>
+                customer.salesmanName.trim(),
+          )
+          .where(
+            (name) =>
+                name.isNotEmpty,
+          )
+          .toSet()
+          .toList();
+
+  salesmen.sort();
+
+  return [
+    'All Salesmen',
+    ...salesmen,
+  ];
+}
+
+@override
+void initState() {
+  super.initState();
+
+  _loadCollectionData();
+}
+Future<void> _loadCollectionData() async {
+  if (_isLoading) {
+    return;
+  }
+
+  setState(() {
+    _isLoading = true;
+    _loadError = '';
+  });
+
+  try {
+    final headers = {
+      'Content-Type':
+          'application/json',
+
+      if (ApiConfig.token != null &&
+          ApiConfig.token!.isNotEmpty)
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+    };
+
+    // ==========================================
+    // OUTSTANDING CUSTOMERS
+    // ==========================================
+
+    final outstandingResponse =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/api/collections/outstanding',
+      ),
+      headers: headers,
+    );
+
+    final outstandingDecoded =
+        jsonDecode(
+      outstandingResponse.body,
+    );
+
+    if (outstandingResponse.statusCode < 200 ||
+        outstandingResponse.statusCode >= 300 ||
+        outstandingDecoded is! Map ||
+        outstandingDecoded['success'] != true) {
+      throw Exception(
+        outstandingDecoded is Map
+            ? (outstandingDecoded['message'] ??
+                    'Unable to load outstanding.')
+                .toString()
+            : 'Unable to load outstanding.',
+      );
+    }
+
+    // ==========================================
+    // COLLECTION HISTORY FOR SELECTED DATE
+    // ==========================================
+
+    final historyResponse =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/api/collections'
+        '?date=${_apiDate(_selectedDate)}',
+      ),
+      headers: headers,
+    );
+
+    final historyDecoded =
+        jsonDecode(
+      historyResponse.body,
+    );
+
+    if (historyResponse.statusCode < 200 ||
+        historyResponse.statusCode >= 300 ||
+        historyDecoded is! Map ||
+        historyDecoded['success'] != true) {
+      throw Exception(
+        historyDecoded is Map
+            ? (historyDecoded['message'] ??
+                    'Unable to load collections.')
+                .toString()
+            : 'Unable to load collections.',
+      );
+    }
+
+    // ==========================================
+    // BUILD CUSTOMER LIST
+    // ==========================================
+
+    final List<_CustomerCollection>
+        loadedCustomers = [];
+
+    final rawOutstanding =
+        outstandingDecoded['data'];
+
+    if (rawOutstanding is List) {
+      for (final raw in rawOutstanding) {
+        if (raw is! Map) {
+          continue;
+        }
+
+        final item =
+            Map<String, dynamic>.from(
+          raw,
+        );
+
+        final statusText =
+            (item['status'] ?? 'DUE')
+                .toString()
+                .toUpperCase();
+
+        PaymentStatus status =
+            PaymentStatus.due;
+
+        if (statusText == 'PAID') {
+          status =
+              PaymentStatus.paid;
+        } else if (
+            statusText == 'PARTIAL') {
+          status =
+              PaymentStatus.partial;
+        }
+
+        loadedCustomers.add(
+          _CustomerCollection(
+            customerId:
+                (item['customerId'] ?? '')
+                    .toString(),
+
+            name:
+                (item['customerName'] ?? '')
+                    .toString(),
+
+            code:
+                (item['customerId'] ?? '')
+                    .toString(),
+
+            mobile:
+                (item['customerMobile'] ?? '')
+                    .toString(),
+
+            route:
+                (item['route'] ?? '')
+                    .toString(),
+
+            salesmanId:
+                (item['salesmanId'] ?? '')
+                    .toString(),
+
+            salesmanName:
+                (item['salesmanName'] ?? '')
+                    .toString(),
+
+            amount:
+                _asDouble(
+                  item['outstanding'],
+                ),
+
+            totalCreditSales:
+                _asDouble(
+                  item[
+                    'totalCreditSales'
+                  ],
+                ),
+
+            totalCollected:
+                _asDouble(
+                  item[
+                    'totalCollected'
+                  ],
+                ),
+
+            paymentMode:
+                (item['lastPaymentMode'] ?? '')
+                        .toString()
+                        .trim()
+                        .isNotEmpty
+                    ? item[
+                        'lastPaymentMode'
+                      ].toString()
+                    : 'Pending',
+
+            status:
+                status,
+
+            avatarColor:
+                const Color(
+                  0xFFE6F2FF,
+                ),
+
+            avatarIconColor:
+                const Color(
+                  0xFF1767D9,
+                ),
+          ),
+        );
+      }
+    }
+
+    // ==========================================
+    // COLLECTION HISTORY
+    // ==========================================
+
+    final List<Map<String, dynamic>>
+        loadedCollections = [];
+
+    final rawHistory =
+        historyDecoded['data'];
+
+    if (rawHistory is List) {
+      for (final raw in rawHistory) {
+        if (raw is Map) {
+          loadedCollections.add(
+            Map<String, dynamic>.from(
+              raw,
+            ),
+          );
+        }
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _customers
+        ..clear()
+        ..addAll(
+          loadedCustomers,
+        );
+
+      _collections
+        ..clear()
+        ..addAll(
+          loadedCollections,
+        );
+
+      _isLoading = false;
+    });
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+
+      _loadError =
+          error
+              .toString()
+              .replaceFirst(
+                'Exception: ',
+                '',
+              );
+    });
+  }
+}
+
+double _asDouble(
+  dynamic value,
+) {
+  if (value == null) {
+    return 0;
+  }
+
+  if (value is num) {
+    return value.toDouble();
+  }
+
+  return double.tryParse(
+        value.toString(),
+      ) ??
+      0;
+}
+
 
   @override
   void dispose() {
@@ -164,14 +493,37 @@ class _CollectionScreenState extends State<CollectionScreen> {
               subtitle: '${_filteredCustomers.length} customers shown',
             ),
             const SizedBox(height: 10),
-            if (_filteredCustomers.isEmpty)
-              const AppEmptyState(
-                icon: Icons.person_search_outlined,
-                title: 'No customers found',
-                message: 'Try another customer name or code.',
-              )
-            else
-              ..._filteredCustomers.map(_customerCard),
+       if (_isLoading)
+  const Padding(
+    padding:
+        EdgeInsets.all(30),
+    child: Center(
+      child:
+          CircularProgressIndicator(),
+    ),
+  )
+else if (_loadError.isNotEmpty)
+  AppEmptyState(
+    icon:
+        Icons.cloud_off_outlined,
+    title:
+        'Unable to load collection',
+    message:
+        _loadError,
+  )
+else if (_filteredCustomers.isEmpty)
+  const AppEmptyState(
+    icon:
+        Icons.person_search_outlined,
+    title:
+        'No outstanding found',
+    message:
+        'No pending customer collection found.',
+  )
+else
+  ..._filteredCustomers.map(
+    _customerCard,
+  ),
           ],
         ),
       ),
@@ -246,18 +598,26 @@ class _CollectionScreenState extends State<CollectionScreen> {
         ),
       );
 
+
   Widget _customerCard(_CustomerCollection customer) {
+
     final pending = customer.status != PaymentStatus.paid;
     final statusColor = switch (customer.status) {
       PaymentStatus.paid => AppColors.success,
       PaymentStatus.partial => AppColors.warning,
       PaymentStatus.due => AppColors.error,
     };
-    final status = switch (customer.status) {
-      PaymentStatus.paid => 'Paid',
-      PaymentStatus.partial => 'Partly Paid',
-      PaymentStatus.due => 'Payment Due',
-    };
+final status =
+    switch (customer.status) {
+  PaymentStatus.paid =>
+    'Paid',
+
+  PaymentStatus.partial =>
+    '₹${customer.amount.toStringAsFixed(0)} Due',
+
+  PaymentStatus.due =>
+    '₹${customer.amount.toStringAsFixed(0)} Due',
+};
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
@@ -335,15 +695,606 @@ class _CollectionScreenState extends State<CollectionScreen> {
     );
   }
 
-  void _customerAction(_CustomerCollection customer) {
-    if (customer.status == PaymentStatus.paid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Receipt opened for ${customer.name}')),
+ Future<void> _customerAction(
+  _CustomerCollection customer,
+) async {
+  if (
+    customer.status ==
+    PaymentStatus.paid
+  ) {
+    await _openLatestReceipt(
+      customer,
+    );
+
+    return;
+  }
+
+  _showCollectionEntry(
+    customer,
+  );
+}
+Future<void> _openLatestReceipt(
+  _CustomerCollection customer,
+) async {
+  try {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          const Center(
+        child:
+            CircularProgressIndicator(),
+      ),
+    );
+
+    final response =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/api/collections'
+        '?customerId=${Uri.encodeQueryComponent(customer.customerId)}',
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        if (
+          ApiConfig.token != null &&
+          ApiConfig.token!.isNotEmpty
+        )
+          'Authorization':
+              'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final decoded =
+        jsonDecode(
+      response.body,
+    );
+
+    if (mounted) {
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pop();
+    }
+
+    if (
+      response.statusCode < 200 ||
+      response.statusCode >= 300 ||
+      decoded is! Map ||
+      decoded['success'] != true
+    ) {
+      throw Exception(
+        decoded is Map
+            ? (
+                decoded[
+                      'message'
+                    ] ??
+                    'Unable to load receipt.'
+              ).toString()
+            : 'Unable to load receipt.',
       );
+    }
+
+    final rawData =
+        decoded['data'];
+
+    if (
+      rawData is! List ||
+      rawData.isEmpty
+    ) {
+      throw Exception(
+        'No receipt found for this customer.',
+      );
+    }
+
+    Map<String, dynamic>?
+        latestReceipt;
+
+    for (final item in rawData) {
+      if (item is! Map) {
+        continue;
+      }
+
+      final receipt =
+          Map<String, dynamic>.from(
+        item,
+      );
+
+      final status =
+          (
+            receipt['status'] ??
+            ''
+          )
+              .toString()
+              .toUpperCase();
+
+      if (
+        status != 'POSTED'
+      ) {
+        continue;
+      }
+
+      latestReceipt =
+          receipt;
+
+      // API already returns newest first.
+      break;
+    }
+
+    if (
+      latestReceipt == null
+    ) {
+      throw Exception(
+        'No active receipt found for this customer.',
+      );
+    }
+
+    if (!mounted) {
       return;
     }
-    _showCollectionEntry(customer);
+
+    _showReceiptSheet(
+      latestReceipt,
+    );
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    // Close loader if still open.
+    if (
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).canPop()
+    ) {
+      // Do not force-pop the screen itself.
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(
+      SnackBar(
+        content: Text(
+          error
+              .toString()
+              .replaceFirst(
+                'Exception: ',
+                '',
+              ),
+        ),
+      ),
+    );
   }
+}
+void _showReceiptSheet(
+  Map<String, dynamic> receipt,
+) {
+  final receiptNo =
+      (
+        receipt['receiptNo'] ??
+        ''
+      ).toString();
+
+  final customerName =
+      (
+        receipt['customerName'] ??
+        ''
+      ).toString();
+
+  final customerId =
+      (
+        receipt['customerId'] ??
+        ''
+      ).toString();
+
+  final paymentMode =
+      (
+        receipt['paymentMode'] ??
+        ''
+      ).toString();
+
+  final route =
+      (
+        receipt['route'] ??
+        ''
+      ).toString();
+
+  final salesmanName =
+      (
+        receipt['salesmanName'] ??
+        ''
+      ).toString();
+
+  final referenceNo =
+      (
+        receipt['referenceNo'] ??
+        ''
+      ).toString();
+
+  final remarks =
+      (
+        receipt['remarks'] ??
+        ''
+      ).toString();
+
+  final amount =
+      _asDouble(
+        receipt['amount'],
+      );
+
+  final date =
+      DateTime.tryParse(
+        (
+          receipt[
+                'collectionDate'
+              ] ??
+              ''
+        ).toString(),
+      );
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (
+      sheetContext,
+    ) {
+      return SafeArea(
+        child: Padding(
+          padding:
+              const EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            24,
+          ),
+          child: Column(
+            mainAxisSize:
+                MainAxisSize.min,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration:
+                      BoxDecoration(
+                    color:
+                        AppColors.border,
+                    borderRadius:
+                        BorderRadius.circular(
+                      10,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(
+                height: 18,
+              ),
+
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration:
+                        BoxDecoration(
+                      color:
+                          AppColors.success
+                              .withValues(
+                        alpha: .10,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(
+                        13,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons
+                          .receipt_long_outlined,
+                      color:
+                          AppColors.success,
+                    ),
+                  ),
+
+                  const SizedBox(
+                    width: 12,
+                  ),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment
+                              .start,
+                      children: [
+                        const Text(
+                          'Payment Receipt',
+                          style:
+                              TextStyle(
+                            fontSize: 18,
+                            fontWeight:
+                                FontWeight
+                                    .w900,
+                            color:
+                                AppColors
+                                    .textPrimary,
+                          ),
+                        ),
+
+                        Text(
+                          receiptNo,
+                          style:
+                              const TextStyle(
+                            fontSize: 11,
+                            color:
+                                AppColors
+                                    .textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Container(
+                    padding:
+                        const EdgeInsets
+                            .symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration:
+                        BoxDecoration(
+                      color:
+                          AppColors.success
+                              .withValues(
+                        alpha: .10,
+                      ),
+                      borderRadius:
+                          BorderRadius.circular(
+                        20,
+                      ),
+                    ),
+                    child: const Text(
+                      'PAID',
+                      style:
+                          TextStyle(
+                        color:
+                            AppColors.success,
+                        fontSize: 10,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(
+                height: 18,
+              ),
+
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(
+                  18,
+                ),
+                decoration:
+                    BoxDecoration(
+                  color:
+                      AppColors.success
+                          .withValues(
+                    alpha: .07,
+                  ),
+                  borderRadius:
+                      BorderRadius.circular(
+                    15,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Amount Received',
+                      style:
+                          TextStyle(
+                        color:
+                            AppColors
+                                .textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 4,
+                    ),
+
+                    Text(
+                      '₹${amount.toStringAsFixed(2)}',
+                      style:
+                          const TextStyle(
+                        color:
+                            AppColors.success,
+                        fontSize: 25,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 4,
+                    ),
+
+                    Text(
+                      paymentMode,
+                      style:
+                          const TextStyle(
+                        color:
+                            AppColors
+                                .textSecondary,
+                        fontWeight:
+                            FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(
+                height: 18,
+              ),
+
+              _receiptRow(
+                'Customer',
+                customerName,
+              ),
+
+              _receiptRow(
+                'Customer Code',
+                customerId,
+              ),
+
+              _receiptRow(
+                'Receipt No.',
+                receiptNo,
+              ),
+
+              _receiptRow(
+                'Date',
+                date == null
+                    ? '-'
+                    : _formatDate(
+                        date.toLocal(),
+                      ),
+              ),
+
+              _receiptRow(
+                'Payment Mode',
+                paymentMode,
+              ),
+
+              if (
+                route.trim().isNotEmpty
+              )
+                _receiptRow(
+                  'Route',
+                  route,
+                ),
+
+              if (
+                salesmanName
+                    .trim()
+                    .isNotEmpty
+              )
+                _receiptRow(
+                  'Collected By',
+                  salesmanName,
+                ),
+
+              if (
+                referenceNo
+                    .trim()
+                    .isNotEmpty
+              )
+                _receiptRow(
+                  'Reference No.',
+                  referenceNo,
+                ),
+
+              if (
+                remarks
+                    .trim()
+                    .isNotEmpty
+              )
+                _receiptRow(
+                  'Remarks',
+                  remarks,
+                ),
+
+              const SizedBox(
+                height: 16,
+              ),
+
+              SizedBox(
+                width:
+                    double.infinity,
+                child:
+                    ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(
+                      sheetContext,
+                    );
+                  },
+                  icon:
+                      const Icon(
+                    Icons
+                        .check_circle_outline,
+                  ),
+                  label:
+                      const Text(
+                    'DONE',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+Widget _receiptRow(
+  String label,
+  String value,
+) {
+  return Padding(
+    padding:
+        const EdgeInsets.symmetric(
+      vertical: 7,
+    ),
+    child: Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 115,
+          child: Text(
+            label,
+            style:
+                const TextStyle(
+              color:
+                  AppColors
+                      .textSecondary,
+              fontSize: 11,
+            ),
+          ),
+        ),
+
+        Expanded(
+          child: Text(
+            value.isEmpty
+                ? '-'
+                : value,
+            textAlign:
+                TextAlign.right,
+            style:
+                const TextStyle(
+              color:
+                  AppColors
+                      .textPrimary,
+              fontSize: 12,
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   void _showCollectionEntry(_CustomerCollection customer) {
     final amountController = TextEditingController();
@@ -368,11 +1319,54 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 4),
-              Text(
-                '${customer.name} • ${customer.code}',
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 16),
+Text(
+  '${customer.name} • ${customer.code}',
+  style: const TextStyle(
+    color:
+        AppColors.textSecondary,
+  ),
+),
+
+const SizedBox(height: 10),
+
+Container(
+  width: double.infinity,
+  padding:
+      const EdgeInsets.all(12),
+  decoration: BoxDecoration(
+    color:
+        const Color(
+          0xFFFFF7E8,
+        ),
+    borderRadius:
+        BorderRadius.circular(
+          12,
+        ),
+  ),
+  child: Row(
+    children: [
+      const Expanded(
+        child: Text(
+          'Outstanding',
+          style: TextStyle(
+            fontWeight:
+                FontWeight.w700,
+          ),
+        ),
+      ),
+      Text(
+        '₹${customer.amount.toStringAsFixed(2)}',
+        style: const TextStyle(
+          fontWeight:
+              FontWeight.w900,
+          fontSize: 16,
+        ),
+      ),
+    ],
+  ),
+),
+
+const SizedBox(height: 16),
               TextField(
                 controller: amountController,
                 autofocus: true,
@@ -416,14 +1410,174 @@ class _CollectionScreenState extends State<CollectionScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text('Collection saved for ${customer.name}'),
-                      ),
-                    );
-                  },
+                onPressed: _isSaving
+    ? null
+    : () async {
+        final amount =
+            double.tryParse(
+              amountController
+                  .text
+                  .trim(),
+            ) ??
+            0;
+
+        if (amount <= 0) {
+          ScaffoldMessenger.of(
+            sheetContext,
+          ).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Enter collection amount.',
+              ),
+            ),
+          );
+
+          return;
+        }
+
+        if (amount > customer.amount) {
+          ScaffoldMessenger.of(
+            sheetContext,
+          ).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Amount cannot exceed outstanding '
+                '₹${customer.amount.toStringAsFixed(2)}.',
+              ),
+            ),
+          );
+
+          return;
+        }
+
+        setState(() {
+          _isSaving = true;
+        });
+
+        try {
+          final response =
+              await http.post(
+            Uri.parse(
+              '${ApiConfig.baseUrl}'
+              '/api/collections',
+            ),
+            headers: {
+              'Content-Type':
+                  'application/json',
+
+              if (ApiConfig.token !=
+                      null &&
+                  ApiConfig.token!
+                      .isNotEmpty)
+                'Authorization':
+                    'Bearer ${ApiConfig.token}',
+            },
+            body: jsonEncode({
+              'customerId':
+                  customer.customerId,
+
+              'amount':
+                  amount,
+
+              'paymentMode':
+                  paymentMode,
+
+              'collectionDate':
+                  DateTime.now()
+                      .toIso8601String(),
+
+              'referenceNo':
+                  '',
+
+              'remarks':
+                  '',
+            }),
+          );
+
+          final decoded =
+              jsonDecode(
+            response.body,
+          );
+
+          if (response.statusCode <
+                  200 ||
+              response.statusCode >=
+                  300 ||
+              decoded is! Map ||
+              decoded['success'] !=
+                  true) {
+            throw Exception(
+              decoded is Map
+                  ? (decoded[
+                            'message'
+                          ] ??
+                          'Unable to save collection.')
+                      .toString()
+                  : 'Unable to save collection.',
+            );
+          }
+
+          if (!mounted) {
+            return;
+          }
+
+       Navigator.pop(
+  sheetContext,
+);
+
+
+          final data =
+              decoded['data'];
+
+          final receiptNo =
+              data is Map
+                  ? (data[
+                            'receiptNo'
+                          ] ??
+                          '')
+                      .toString()
+                  : '';
+
+          ScaffoldMessenger.of(
+            this.context,
+          ).showSnackBar(
+            SnackBar(
+              content: Text(
+                receiptNo.isEmpty
+                    ? 'Collection saved successfully.'
+                    : 'Collection saved • $receiptNo',
+              ),
+            ),
+          );
+
+          await _loadCollectionData();
+        } catch (error) {
+          if (!mounted) {
+            return;
+          }
+
+          ScaffoldMessenger.of(
+            this.context,
+          ).showSnackBar(
+            SnackBar(
+              content: Text(
+                error
+                    .toString()
+                    .replaceFirst(
+                      'Exception: ',
+                      '',
+                    ),
+              ),
+            ),
+          );
+        } finally {
+          if (mounted) {
+            setState(() {
+              _isSaving = false;
+            });
+          }
+        }
+      },
                   child: const Text('SAVE COLLECTION'),
                 ),
               ),
@@ -478,12 +1632,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   labelText: 'Route',
                   prefixIcon: Icon(Icons.route_outlined),
                 ),
-                items: const ['Route A', 'Route B', 'Route C']
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
+             items:
+    _routeOptions
+        .map(
+          (item) =>
+              DropdownMenuItem<String>(
+            value: item,
+            child: Text(item),
+          ),
+        )
+        .toList(),
                 onChanged: (value) => updateSheet(() => route = value ?? route),
               ),
               const SizedBox(height: 11),
@@ -493,12 +1651,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   labelText: 'Salesman',
                   prefixIcon: Icon(Icons.badge_outlined),
                 ),
-                items: const ['Mahesh', 'Ramesh', 'Suresh']
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item)),
-                    )
-                    .toList(),
+         items:
+    _salesmanOptions
+        .map(
+          (item) =>
+              DropdownMenuItem<String>(
+            value: item,
+            child: Text(item),
+          ),
+        )
+        .toList(),
                 onChanged: (value) =>
                     updateSheet(() => salesman = value ?? salesman),
               ),
@@ -513,6 +1675,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
                       _selectedSalesman = salesman;
                     });
                     Navigator.pop(sheetContext);
+                    _loadCollectionData();
+
                   },
                   child: const Text('APPLY FILTER'),
                 ),
@@ -542,6 +1706,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
+String _apiDate(
+  DateTime date,
+) {
+  return '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+}
+
   String _formatDate(DateTime date) =>
       '${date.day.toString().padLeft(2, '0')}/'
       '${date.month.toString().padLeft(2, '0')}/${date.year}';
@@ -551,20 +1723,48 @@ enum PaymentStatus { paid, due, partial }
 
 class _CustomerCollection {
   const _CustomerCollection({
+    required this.customerId,
     required this.name,
     required this.code,
+    required this.mobile,
+    required this.route,
+    required this.salesmanId,
+    required this.salesmanName,
     required this.amount,
+    required this.totalCreditSales,
+    required this.totalCollected,
     required this.paymentMode,
     required this.status,
     required this.avatarColor,
     required this.avatarIconColor,
   });
 
+  final String customerId;
+
   final String name;
+
   final String code;
+
+  final String mobile;
+
+  final String route;
+
+  final String salesmanId;
+
+  final String salesmanName;
+
+  // CURRENT OUTSTANDING
   final double amount;
+
+  final double totalCreditSales;
+
+  final double totalCollected;
+
   final String paymentMode;
+
   final PaymentStatus status;
+
   final Color avatarColor;
+
   final Color avatarIconColor;
 }
