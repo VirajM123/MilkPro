@@ -213,9 +213,15 @@ UiSession.instance.signInFromBackend(
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight - 52,
-                  ),
+  constraints: BoxConstraints(
+    minHeight:
+        (constraints.maxHeight - 52)
+            .clamp(
+              0.0,
+              double.infinity,
+            )
+            .toDouble(),
+  ),
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 440),
