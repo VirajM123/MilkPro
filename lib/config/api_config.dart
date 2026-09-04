@@ -1,5 +1,5 @@
 class ApiConfig {
-  static const String baseUrl = 'http://localhost:5000';
+  static const String baseUrl = 'https://milkpro.onrender.com';
 
   // Authentication
   static const String register = '$baseUrl/api/auth/register';
@@ -24,7 +24,7 @@ static const String stock =
     '$baseUrl/api/stock';
     // Customer Rate Master
 static const String customerRates =
-    '$baseUrl/api/customer-rates';
+    '$baseUrl/api/customer-rates';      
     // Sales
 static const String sales =
     '$baseUrl/api/sales';
