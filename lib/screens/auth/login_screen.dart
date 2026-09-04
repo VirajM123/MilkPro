@@ -418,15 +418,62 @@ hintText: _role == UserRole.admin
                               ),
                             ),
                           ),
-                          const SizedBox(height: 18),
-                          const Text(
-                            'Secure Distribution Management  •  Version 1.0.0',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 10.5,
-                            ),
-                          ),
+                     const SizedBox(height: 16),
+
+// ============================================================
+// SOFTWARE DEVELOPER BRANDING
+// ============================================================
+
+Container(
+  padding: const EdgeInsets.symmetric(
+    horizontal: 14,
+    vertical: 8,
+  ),
+  decoration: BoxDecoration(
+    color: Colors.white.withValues(alpha: 0.90),
+    borderRadius: BorderRadius.circular(10),
+  ),
+  child: const Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(
+        Icons.code_rounded,
+        size: 14,
+        color: AppColors.primary,
+      ),
+      SizedBox(width: 6),
+      Text(
+        'Developed & Powered by ',
+        style: TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      Text(
+        'TOTAL SOLUTION PVT. LTD.',
+        style: TextStyle(
+          color: AppColors.primary,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          letterSpacing: .2,
+        ),
+      ),
+    ],
+  ),
+),
+
+const SizedBox(height: 7),
+
+const Text(
+  'Secure Distribution Management  •  Version 1.0.0',
+  textAlign: TextAlign.center,
+  style: TextStyle(
+    color: AppColors.textMuted,
+    fontSize: 9.5,
+    fontWeight: FontWeight.w500,
+  ),
+),
                         ],
                       ),
                     ),

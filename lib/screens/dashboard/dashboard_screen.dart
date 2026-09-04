@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../config/api_config.dart';
 
 import '../../config/app_features.dart';
 import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/customer_provider.dart';
 import '../../services/app_navigation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
@@ -33,8 +37,101 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  _DashboardData _dashboard = const _DashboardData();
+
+  bool _dashboardLoading = true;
+
+  String _dashboardError = '';
+
+  @override
+  void initState() {
+    super.initState();
+
+    _loadDashboard();
+  }
 
   AppUser get user => UiSession.instance.currentUser;
+
+  Future<void> _loadDashboard() async {
+    try {
+      if (mounted) {
+        setState(() {
+          _dashboardLoading = true;
+
+          _dashboardError = '';
+        });
+      }
+
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/api/dashboard/summary'),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
+      );
+
+      final dynamic decoded = jsonDecode(response.body);
+
+      if (response.statusCode != 200 ||
+          decoded is! Map ||
+          decoded['success'] != true) {
+        String message = 'Unable to load dashboard.';
+
+        if (decoded is Map && decoded['message'] != null) {
+          message = decoded['message'].toString();
+        }
+
+        throw Exception(message);
+      }
+
+      final data = decoded['data'];
+
+      if (data is! Map) {
+        throw Exception('Dashboard data not found.');
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _dashboard = _DashboardData.fromJson(Map<String, dynamic>.from(data));
+
+        _dashboardLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _dashboardLoading = false;
+
+        _dashboardError = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  String _money(double value) {
+    if (value >= 10000000) {
+      return '₹${(value / 10000000).toStringAsFixed(2)}Cr';
+    }
+
+    if (value >= 100000) {
+      return '₹${(value / 100000).toStringAsFixed(2)}L';
+    }
+
+    return '₹${value.toStringAsFixed(0)}';
+  }
+
+  String _qty(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toInt().toString();
+    }
+
+    return value.toStringAsFixed(2);
+  }
+
+  String _percent(double value) {
+    return '${(value * 100).clamp(0, 100).toStringAsFixed(0)}%';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,52 +161,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 subtitle: 'Live business overview',
               ),
               const SizedBox(height: 11),
-              const Row(
+              Row(
                 children: [
                   Expanded(
                     child: SummaryCard(
                       label: "Today's Sales",
-                      value: '₹48,250',
+
+                      value: _money(_dashboard.todaySalesAmount),
+
                       icon: Icons.receipt_long_outlined,
+
                       color: AppColors.success,
-                      caption: '+8.2%',
+
+                      caption: '${_dashboard.todayBills} bills',
+
                       imagePath: 'assets/img/TotalSales.png',
                     ),
                   ),
-                  SizedBox(width: 10),
+
+                  const SizedBox(width: 10),
+
                   Expanded(
                     child: SummaryCard(
                       label: "Today's Collection",
-                      value: '₹35,800',
+
+                      value: _money(_dashboard.todayCollectionAmount),
+
                       icon: Icons.payments_outlined,
+
                       color: AppColors.primary,
-                      caption: '74%',
+
+                      caption: '${_dashboard.collectionReceipts} receipts',
+
                       imagePath: 'assets/img/TotalCollection.png',
                     ),
                   ),
                 ],
               ),
+
               const SizedBox(height: 10),
-              const Row(
+
+              Row(
                 children: [
                   Expanded(
                     child: SummaryCard(
                       label: 'Pending Collection',
-                      value: '₹1.25L',
+
+                      value: _money(_dashboard.pendingCollection),
+
                       icon: Icons.schedule_rounded,
+
                       color: AppColors.warning,
-                      caption: '12 accounts',
+
+                      caption: '${_dashboard.pendingAccounts} accounts',
+
                       imagePath: 'assets/img/DueAmt.png',
                     ),
                   ),
-                  SizedBox(width: 10),
+
+                  const SizedBox(width: 10),
+
                   Expanded(
                     child: SummaryCard(
-                      label: 'Orders Today',
-                      value: '28',
+                      label: 'Sales Bills Today',
+
+                      value: _dashboard.todayBills.toString(),
+
                       icon: Icons.shopping_bag_outlined,
+
                       color: AppColors.purple,
-                      caption: '21 fulfilled',
+
+                      caption: '${_qty(_dashboard.todaySalesQuantity)} qty',
+
                       imagePath: 'assets/img/SalesOverview.png',
                     ),
                   ),
@@ -159,52 +282,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 subtitle: 'Your field activity',
               ),
               const SizedBox(height: 11),
-              const Row(
+              Row(
                 children: [
                   Expanded(
                     child: SummaryCard(
-                      label: 'Orders',
-                      value: '12',
+                      label: 'Sales Bills',
+
+                      value: _dashboard.todayBills.toString(),
+
                       icon: Icons.shopping_bag_outlined,
+
                       color: AppColors.primary,
-                      caption: '6 done',
+
+                      caption: 'Today',
+
                       imagePath: 'assets/img/TotalQuantityAllocation.png',
                     ),
                   ),
-                  SizedBox(width: 10),
+
+                  const SizedBox(width: 10),
+
                   Expanded(
                     child: SummaryCard(
                       label: 'Sales',
-                      value: '₹18,420',
+
+                      value: _money(_dashboard.todaySalesAmount),
+
                       icon: Icons.receipt_long_outlined,
+
                       color: AppColors.success,
-                      caption: '+6%',
+
+                      caption: '${_qty(_dashboard.todaySalesQuantity)} qty',
+
                       imagePath: 'assets/img/TotalSales.png',
                     ),
                   ),
                 ],
               ),
+
               const SizedBox(height: 10),
-              const Row(
+
+              Row(
                 children: [
                   Expanded(
                     child: SummaryCard(
                       label: 'Collection',
-                      value: '₹12,300',
+
+                      value: _money(_dashboard.todayCollectionAmount),
+
                       icon: Icons.payments_outlined,
+
                       color: AppColors.purple,
-                      caption: '62%',
+
+                      caption: '${_dashboard.collectionReceipts} receipts',
+
                       imagePath: 'assets/img/TotalCollection.png',
                     ),
                   ),
-                  SizedBox(width: 10),
+
+                  const SizedBox(width: 10),
+
                   Expanded(
                     child: SummaryCard(
                       label: 'Pending Delivery',
-                      value: '7',
+
+                      value: _qty(_dashboard.pendingDeliveryQuantity),
+
                       icon: Icons.local_shipping_outlined,
+
                       color: AppColors.warning,
-                      caption: 'Today',
+
+                      caption: 'Qty remaining',
+
                       imagePath: 'assets/img/TotalAllocationVehicle.png',
                     ),
                   ),
@@ -425,40 +574,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _operationsCard() => Card(
     child: Padding(
       padding: const EdgeInsets.all(15),
+
       child: Column(
         children: [
           _progressRow(
             'Allocation dispatched',
-            '1,256 / 1,400 L',
-            .90,
+
+            '${_qty(_dashboard.todayAllocatedQuantity)} qty',
+
+            _dashboard.todayAllocatedQuantity > 0 ? 1 : 0,
+
             AppColors.primary,
           ),
+
           const SizedBox(height: 15),
+
           _progressRow(
             'Sales completed',
-            '1,120 / 1,400 L',
-            .80,
+
+            '${_qty(_dashboard.todaySalesQuantity)} / '
+                '${_qty(_dashboard.todayAllocatedQuantity)} qty',
+
+            _dashboard.salesProgress,
+
             AppColors.success,
           ),
+
           const SizedBox(height: 15),
+
           _progressRow(
             'Collections received',
-            '₹35,800 / ₹48,250',
-            .74,
+
+            '${_money(_dashboard.todayCollectionAmount)} / '
+                '${_money(_dashboard.todaySalesAmount)}',
+
+            _dashboard.collectionProgress,
+
             AppColors.purple,
           ),
+
           const SizedBox(height: 15),
+
           _progressRow(
-            'Returns settled',
-            '18 / 24 routes',
-            .75,
+            'Good returns received',
+
+            '${_qty(_dashboard.todayReturnQuantity)} qty',
+
+            _dashboard.returnProgress,
+
             AppColors.warning,
           ),
         ],
       ),
     ),
   );
-
   Widget _progressRow(
     String label,
     String value,
@@ -612,47 +781,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _customerPreview() {
-    final customers = CustomerStore.customers.take(3).toList();
-    return Card(
-      child: Column(
-        children: List.generate(customers.length, (index) {
-          final customer = customers[index];
-          return Column(
-            children: [
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 3,
-                ),
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primarySoft,
-                  foregroundColor: AppColors.primary,
-                  child: Text(customer.name[0]),
-                ),
-                title: Text(
-                  customer.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
-                ),
-                subtitle: Text(
-                  '${customer.route} · Outstanding ₹${customer.balance.toStringAsFixed(0)}',
-                ),
-                trailing: OutlinedButton(
-                  onPressed: () => _openFeature(AppFeatures.customers),
-                  child: const Text('Visit'),
-                ),
-              ),
-              if (index < customers.length - 1) const Divider(indent: 66),
-            ],
-          );
-        }),
+Widget _customerPreview() {
+  final customers = _dashboard.todayCustomers.take(3).toList();
+
+  if (customers.isEmpty) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 24,
+        ),
+        child: AppEmptyState(
+          icon: Icons.people_outline_rounded,
+          title: 'No Customers',
+          message: 'No customers are assigned to your route.',
+        ),
       ),
     );
   }
 
+  return Card(
+    child: Column(
+      children: List.generate(
+        customers.length,
+        (index) {
+          final customer =
+              customers[index];
+
+          final firstLetter =
+              customer.customerName
+                      .trim()
+                      .isNotEmpty
+                  ? customer
+                      .customerName
+                      .trim()[0]
+                      .toUpperCase()
+                  : '?';
+
+          return Column(
+            children: [
+              ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 3,
+                ),
+
+                leading: CircleAvatar(
+                  backgroundColor:
+                      AppColors.primarySoft,
+                  foregroundColor:
+                      AppColors.primary,
+                  child: Text(firstLetter),
+                ),
+
+                title: Text(
+                  customer.customerName,
+                  style: const TextStyle(
+                    fontWeight:
+                        FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+
+                subtitle: Text(
+                  '${customer.route} · '
+                  'Outstanding ${_money(customer.outstanding)}',
+                ),
+
+                trailing: customer.status ==
+                        'Visited'
+                    ? const StatusChip(
+                        label: 'Visited',
+                        color:
+                            AppColors.success,
+                      )
+                    : OutlinedButton(
+                        onPressed: () =>
+                            _openFeature(
+                          AppFeatures
+                              .customers,
+                        ),
+                        child:
+                            const Text(
+                          'Visit',
+                        ),
+                      ),
+              ),
+
+              if (index <
+                  customers.length - 1)
+                const Divider(
+                  indent: 66,
+                ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
   Widget _salesmanProgress() => Card(
     child: Padding(
       padding: const EdgeInsets.all(15),
@@ -674,32 +902,86 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     ),
   );
-Widget _bottomNavigation() {
-  final admin = user.role == UserRole.admin;
+  Widget _bottomNavigation() {
+    final admin = user.role == UserRole.admin;
 
-  // ============================================================
-  // ADMIN BOTTOM NAVIGATION
-  // ============================================================
-  if (admin) {
-    const items = <(IconData, String)>[
-      (Icons.home_outlined, 'Home'),
-      (Icons.people_outline_rounded, 'Customers'),
-      (Icons.inventory_2_outlined, 'Allocation'),
-      (Icons.analytics_outlined, 'Reports'),
-      (Icons.more_horiz_rounded, 'More'),
+    // ============================================================
+    // ADMIN BOTTOM NAVIGATION
+    // ============================================================
+    if (admin) {
+      const items = <(IconData, String)>[
+        (Icons.home_outlined, 'Home'),
+        (Icons.people_outline_rounded, 'Customers'),
+        (Icons.inventory_2_outlined, 'Allocation'),
+        (Icons.analytics_outlined, 'Reports'),
+        (Icons.more_horiz_rounded, 'More'),
+      ];
+
+      return NavigationBar(
+        selectedIndex: 0,
+        onDestinationSelected: (index) => _navTap(index, true),
+        destinations: items
+            .map(
+              (item) => NavigationDestination(
+                icon: Icon(item.$1),
+                selectedIcon: Icon(item.$1, color: AppColors.primary),
+                label: item.$2,
+              ),
+            )
+            .toList(),
+      );
+    }
+
+    // ============================================================
+    // SALESMAN BOTTOM NAVIGATION
+    // ONLY SHOW FEATURES THAT THE SALESMAN HAS PERMISSION FOR
+    // ============================================================
+
+    final List<(IconData, String, AppFeature?)> items = [
+      (Icons.home_outlined, 'Home', null),
     ];
+
+    if (user.can(AppPermission.routesView)) {
+      items.add((Icons.route_outlined, 'Route', AppFeatures.routes));
+    }
+
+    if (user.can(AppPermission.salesView)) {
+      items.add((Icons.receipt_long_outlined, 'Sales', AppFeatures.sales));
+    }
+
+    if (user.can(AppPermission.collectionView)) {
+      items.add((
+        Icons.payments_outlined,
+        'Collection',
+        AppFeatures.collection,
+      ));
+    }
+
+    items.add((Icons.more_horiz_rounded, 'More', null));
 
     return NavigationBar(
       selectedIndex: 0,
-      onDestinationSelected: (index) => _navTap(index, true),
+      onDestinationSelected: (index) {
+        if (index == 0) {
+          return;
+        }
+
+        final item = items[index];
+
+        // MORE
+        if (item.$3 == null) {
+          _scaffoldKey.currentState?.openDrawer();
+          return;
+        }
+
+        // Extra safety check before navigation.
+        _openFeature(item.$3!);
+      },
       destinations: items
           .map(
             (item) => NavigationDestination(
               icon: Icon(item.$1),
-              selectedIcon: Icon(
-                item.$1,
-                color: AppColors.primary,
-              ),
+              selectedIcon: Icon(item.$1, color: AppColors.primary),
               label: item.$2,
             ),
           )
@@ -707,110 +989,30 @@ Widget _bottomNavigation() {
     );
   }
 
-  // ============================================================
-  // SALESMAN BOTTOM NAVIGATION
-  // ONLY SHOW FEATURES THAT THE SALESMAN HAS PERMISSION FOR
-  // ============================================================
+  void _navTap(int index, bool admin) {
+    if (index == 0) return;
 
-  final List<(IconData, String, AppFeature?)> items = [
-    (Icons.home_outlined, 'Home', null),
-  ];
+    if (!admin) {
+      return;
+    }
 
-  if (user.can(AppPermission.routesView)) {
-    items.add(
-      (
-        Icons.route_outlined,
-        'Route',
-        AppFeatures.routes,
-      ),
-    );
+    if (index == 4) {
+      _scaffoldKey.currentState?.openDrawer();
+      return;
+    }
+
+    if (index == 1) {
+      _openFeature(AppFeatures.customers);
+    }
+
+    if (index == 2) {
+      _openFeature(AppFeatures.allocation);
+    }
+
+    if (index == 3) {
+      _openFeature(AppFeatures.reports);
+    }
   }
-
-  if (user.can(AppPermission.salesView)) {
-    items.add(
-      (
-        Icons.receipt_long_outlined,
-        'Sales',
-        AppFeatures.sales,
-      ),
-    );
-  }
-
-  if (user.can(AppPermission.collectionView)) {
-    items.add(
-      (
-        Icons.payments_outlined,
-        'Collection',
-        AppFeatures.collection,
-      ),
-    );
-  }
-
-  items.add(
-    (
-      Icons.more_horiz_rounded,
-      'More',
-      null,
-    ),
-  );
-
-  return NavigationBar(
-    selectedIndex: 0,
-    onDestinationSelected: (index) {
-      if (index == 0) {
-        return;
-      }
-
-      final item = items[index];
-
-      // MORE
-      if (item.$3 == null) {
-        _scaffoldKey.currentState?.openDrawer();
-        return;
-      }
-
-      // Extra safety check before navigation.
-      _openFeature(item.$3!);
-    },
-    destinations: items
-        .map(
-          (item) => NavigationDestination(
-            icon: Icon(item.$1),
-            selectedIcon: Icon(
-              item.$1,
-              color: AppColors.primary,
-            ),
-            label: item.$2,
-          ),
-        )
-        .toList(),
-  );
-}
-
-void _navTap(int index, bool admin) {
-  if (index == 0) return;
-
-  if (!admin) {
-    return;
-  }
-
-  if (index == 4) {
-    _scaffoldKey.currentState?.openDrawer();
-    return;
-  }
-
-  if (index == 1) {
-    _openFeature(AppFeatures.customers);
-  }
-
-  if (index == 2) {
-    _openFeature(AppFeatures.allocation);
-  }
-
-  if (index == 3) {
-    _openFeature(AppFeatures.reports);
-  }
-}
 
   Widget _buildDrawer() {
     final admin = user.role == UserRole.admin;
@@ -1052,68 +1254,68 @@ void _navTap(int index, bool admin) {
     );
   }
 
-Widget _screenFor(AppFeature feature) {
-  if (feature == AppFeatures.customers) {
-    return const CustomersScreen();
-  }
+  Widget _screenFor(AppFeature feature) {
+    if (feature == AppFeatures.customers) {
+      return const CustomersScreen();
+    }
 
-  if (feature == AppFeatures.customerRates) {
-    return const CustomerRatesScreen();
-  }
+    if (feature == AppFeatures.customerRates) {
+      return const CustomerRatesScreen();
+    }
 
-  if (feature == AppFeatures.products) {
-    return const ProductsScreen();
-  }
+    if (feature == AppFeatures.products) {
+      return const ProductsScreen();
+    }
 
-  // ============================================================
-  // SUPPLIERS
-  // ============================================================
-  if (feature == AppFeatures.suppliers) {
-    return const SupplierScreen();
-  }
+    // ============================================================
+    // SUPPLIERS
+    // ============================================================
+    if (feature == AppFeatures.suppliers) {
+      return const SupplierScreen();
+    }
 
-  if (feature == AppFeatures.allocation) {
-    return const AllocationScreen();
-  }
+    if (feature == AppFeatures.allocation) {
+      return const AllocationScreen();
+    }
 
-  if (feature == AppFeatures.sales) {
-    return const SalesScreen();
-  }
+    if (feature == AppFeatures.sales) {
+      return const SalesScreen();
+    }
 
-  if (feature == AppFeatures.returns) {
-    return const ReturnSettlementScreen();
-  }
+    if (feature == AppFeatures.returns) {
+      return const ReturnSettlementScreen();
+    }
 
-  if (feature == AppFeatures.collection) {
-    return const CollectionScreen();
-  }
+    if (feature == AppFeatures.collection) {
+      return const CollectionScreen();
+    }
 
-  if (feature == AppFeatures.routes) {
-    return const RoutesScreen();
-  }
+    if (feature == AppFeatures.routes) {
+      return const RoutesScreen();
+    }
 
-  if (feature == AppFeatures.purchase) {
-    return const PurchaseScreen();
-  }
+    if (feature == AppFeatures.purchase) {
+      return const PurchaseScreen();
+    }
 
-  if (feature == AppFeatures.reports) {
-    return const ReportsScreen();
-  }
+    if (feature == AppFeatures.reports) {
+      return const ReportsScreen();
+    }
 
-  if (feature == AppFeatures.payments) {
-    return const PaymentsScreen();
-  }
+    if (feature == AppFeatures.payments) {
+      return const PaymentsScreen();
+    }
 
-  if (feature == AppFeatures.ledger) {
-    return const LedgerScreen();
-  }
+    if (feature == AppFeatures.ledger) {
+      return const LedgerScreen();
+    }
 
-  if (feature == AppFeatures.expenses) {
-    return const ExpensesScreen();
-  }
+    if (feature == AppFeatures.expenses) {
+      return const ExpensesScreen();
+    }
 
-  return const DashboardScreen();
-}
+    return const DashboardScreen();
+  }
 
   Future<void> _logout() async {
     _scaffoldKey.currentState?.closeDrawer();
@@ -1147,4 +1349,245 @@ Widget _screenFor(AppFeature feature) {
       .take(2)
       .map((part) => part[0])
       .join();
+}
+class _DashboardData {
+  const _DashboardData({
+    this.todaySalesAmount = 0,
+    this.todaySalesQuantity = 0,
+    this.todayBills = 0,
+    this.todayCollectionAmount = 0,
+    this.collectionReceipts = 0,
+    this.pendingCollection = 0,
+    this.pendingAccounts = 0,
+    this.todayAllocations = 0,
+    this.todayAllocatedQuantity = 0,
+    this.todayReturnQuantity = 0,
+    this.pendingDeliveryQuantity = 0,
+    this.salesProgress = 0,
+    this.collectionProgress = 0,
+    this.returnProgress = 0,
+    this.todayCustomers = const [],
+  });
+
+  final double
+      todaySalesAmount;
+
+  final double
+      todaySalesQuantity;
+
+  final int
+      todayBills;
+
+  final double
+      todayCollectionAmount;
+
+  final int
+      collectionReceipts;
+
+  final double
+      pendingCollection;
+
+  final int
+      pendingAccounts;
+
+  final int
+      todayAllocations;
+
+  final double
+      todayAllocatedQuantity;
+
+  final double
+      todayReturnQuantity;
+
+  final double
+      pendingDeliveryQuantity;
+
+  final double
+      salesProgress;
+
+  final double
+      collectionProgress;
+
+  final double
+      returnProgress;
+      final List<_DashboardCustomer>
+    todayCustomers;
+
+
+  factory _DashboardData.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    double number(
+      String key,
+    ) {
+      return double.tryParse(
+            json[key]
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+    }
+
+    int integer(
+      String key,
+    ) {
+      return int.tryParse(
+            json[key]
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+    }
+    final todayCustomers =
+    (json['todayCustomers']
+                as List? ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              _DashboardCustomer
+                  .fromJson(
+            Map<String, dynamic>.from(
+              item,
+            ),
+          ),
+        )
+        .toList(
+          growable: false,
+        );
+
+    return _DashboardData(
+      todaySalesAmount:
+          number(
+        'todaySalesAmount',
+      ),
+
+      todaySalesQuantity:
+          number(
+        'todaySalesQuantity',
+      ),
+
+      todayBills:
+          integer(
+        'todayBills',
+      ),
+
+      todayCollectionAmount:
+          number(
+        'todayCollectionAmount',
+      ),
+
+      collectionReceipts:
+          integer(
+        'collectionReceipts',
+      ),
+
+      pendingCollection:
+          number(
+        'pendingCollection',
+      ),
+
+      pendingAccounts:
+          integer(
+        'pendingAccounts',
+      ),
+
+      todayAllocations:
+          integer(
+        'todayAllocations',
+      ),
+
+      todayAllocatedQuantity:
+          number(
+        'todayAllocatedQuantity',
+      ),
+
+      todayReturnQuantity:
+          number(
+        'todayReturnQuantity',
+      ),
+
+      pendingDeliveryQuantity:
+          number(
+        'pendingDeliveryQuantity',
+      ),
+
+      salesProgress:
+          number(
+        'salesProgress',
+      ),
+
+      collectionProgress:
+          number(
+        'collectionProgress',
+      ),
+
+      returnProgress:
+          number(
+        'returnProgress',
+      ),
+      todayCustomers:
+    todayCustomers,
+    );
+  }
+}
+class _DashboardCustomer {
+  const _DashboardCustomer({
+    required this.customerId,
+    required this.customerName,
+    required this.mobile,
+    required this.route,
+    required this.outstanding,
+    required this.todaySale,
+    required this.todayCollection,
+    required this.status,
+  });
+
+  final String customerId;
+  final String customerName;
+  final String mobile;
+  final String route;
+
+  final double outstanding;
+  final double todaySale;
+  final double todayCollection;
+
+  final String status;
+
+  factory _DashboardCustomer.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    double number(String key) {
+      return double.tryParse(
+            json[key]?.toString() ?? '0',
+          ) ??
+          0;
+    }
+
+    return _DashboardCustomer(
+      customerId:
+          json['customerId']?.toString() ?? '',
+
+      customerName:
+          json['customerName']?.toString() ?? '',
+
+      mobile:
+          json['mobile']?.toString() ?? '',
+
+      route:
+          json['route']?.toString() ?? '',
+
+      outstanding:
+          number('outstanding'),
+
+      todaySale:
+          number('todaySale'),
+
+      todayCollection:
+          number('todayCollection'),
+
+      status:
+          json['status']?.toString() ?? 'Pending',
+    );
+  }
 }

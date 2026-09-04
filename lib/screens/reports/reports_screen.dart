@@ -321,61 +321,119 @@ class _ReportsScreenState extends State<ReportsScreen> {
         return null;
     }
   }
+
   bool _isStockReport(String title) {
+    return const <String>[
+      'Current Stock',
+      'Low Stock',
+      'Stock Movement',
+      'Product-wise Stock',
+    ].contains(title);
+  }
+
+  String? _stockReportType(String title) {
+    switch (title) {
+      case 'Current Stock':
+        return 'current-stock';
+
+      case 'Low Stock':
+        return 'low-stock';
+
+      case 'Stock Movement':
+        return 'stock-movement';
+
+      case 'Product-wise Stock':
+        return 'product-wise-stock';
+
+      default:
+        return null;
+    }
+  }
+
+  bool _isOutstandingReport(String title) {
+    return const <String>[
+      'Salesman-wise Outstanding',
+      'Customer / Outlet-wise Outstanding',
+      'Route-wise Outstanding',
+      'Outstanding Ageing',
+    ].contains(title);
+  }
+
+  String? _outstandingReportType(String title) {
+    switch (title) {
+      case 'Salesman-wise Outstanding':
+        return 'salesman-wise-outstanding';
+
+      case 'Customer / Outlet-wise Outstanding':
+        return 'customer-wise-outstanding';
+
+      case 'Route-wise Outstanding':
+        return 'route-wise-outstanding';
+
+      case 'Outstanding Ageing':
+        return 'outstanding-ageing';
+
+      default:
+        return null;
+    }
+  }
+
+  bool _isTrendReport(String title) {
+    return const <String>[
+      'Sales Trend',
+      'Purchase Trend',
+      'Sales vs Purchase',
+      'Product Trend',
+    ].contains(title);
+  }
+
+  String? _trendReportType(String title) {
+    switch (title) {
+      case 'Sales Trend':
+        return 'sales-trend';
+
+      case 'Purchase Trend':
+        return 'purchase-trend';
+
+      case 'Sales vs Purchase':
+        return 'sales-vs-purchase';
+
+      case 'Product Trend':
+        return 'product-trend';
+
+      default:
+        return null;
+    }
+  }
+  bool _isOperationsReport(String title) {
   return const <String>[
-    'Current Stock',
-    'Low Stock',
-    'Stock Movement',
-    'Product-wise Stock',
+    'Collection Report',
+    'Allocation Report',
+    'Return Report',
+    'Expense Report',
   ].contains(title);
 }
 
-String? _stockReportType(String title) {
+String? _operationsReportType(String title) {
   switch (title) {
-    case 'Current Stock':
-      return 'current-stock';
+    case 'Collection Report':
+      return 'collection-report';
 
-    case 'Low Stock':
-      return 'low-stock';
+    case 'Allocation Report':
+      return 'allocation-report';
 
-    case 'Stock Movement':
-      return 'stock-movement';
+    case 'Return Report':
+      return 'return-report';
 
-    case 'Product-wise Stock':
-      return 'product-wise-stock';
+    case 'Expense Report':
+      return 'expense-report';
 
     default:
       return null;
   }
 }
 
-bool _isOutstandingReport(String title) {
-  return const <String>[
-    'Salesman-wise Outstanding',
-    'Customer / Outlet-wise Outstanding',
-    'Route-wise Outstanding',
-    'Outstanding Ageing',
-  ].contains(title);
-}
 
-String? _outstandingReportType(String title) {
-  switch (title) {
-    case 'Salesman-wise Outstanding':
-      return 'salesman-wise-outstanding';
-
-    case 'Customer / Outlet-wise Outstanding':
-      return 'customer-wise-outstanding';
-
-    case 'Route-wise Outstanding':
-      return 'route-wise-outstanding';
-
-    case 'Outstanding Ageing':
-      return 'outstanding-ageing';
-
-    default:
-      return null;
-  }
-}
   String _apiDate(DateTime date) {
     final year = date.year.toString();
 
@@ -477,187 +535,374 @@ String? _outstandingReportType(String title) {
       metrics: metrics,
     );
   }
+
   Future<ReportData> _loadPurchaseReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final type = _purchaseReportType(title);
+
+    if (type == null) {
+      throw Exception('Invalid purchase report type.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/purchase').replace(
+      queryParameters: <String, String>{
+        'type': type,
+        'from': _apiDate(from),
+        'to': _apiDate(to),
+      },
+    );
+
+    final response = await http.get(uri, headers: _reportHeaders);
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      throw Exception('Invalid response from server.');
+    }
+
+    if (response.statusCode != 200) {
+      String message = 'Unable to load purchase report.';
+
+      if (decoded is Map && decoded['message'] != null) {
+        message = decoded['message'].toString();
+      }
+
+      throw Exception(message);
+    }
+
+    if (decoded is! Map) {
+      throw Exception('Invalid purchase report response.');
+    }
+
+    final reportJson = decoded['report'];
+
+    if (reportJson is! Map) {
+      throw Exception('Purchase report data not found.');
+    }
+
+    final columns = (reportJson['columns'] as List? ?? const [])
+        .map((item) => item.toString())
+        .toList(growable: false);
+
+    final rows = (reportJson['rows'] as List? ?? const [])
+        .map<List<Object>>(
+          (row) => row is List
+              ? row.map<Object>((value) => value ?? '').toList(growable: false)
+              : <Object>[],
+        )
+        .toList(growable: false);
+
+    final metrics = (reportJson['metrics'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (metric) => ReportMetric(
+            metric['label']?.toString() ?? '',
+            metric['value']?.toString() ?? '',
+          ),
+        )
+        .toList(growable: false);
+
+    return ReportData(
+      title: reportJson['title']?.toString() ?? title,
+
+      description: reportJson['description']?.toString() ?? description,
+
+      columns: columns,
+
+      rows: rows,
+
+      metrics: metrics,
+    );
+  }
+
+  Future<ReportData> _loadStockReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final type = _stockReportType(title);
+
+    if (type == null) {
+      throw Exception('Invalid stock report type.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/stock').replace(
+      queryParameters: <String, String>{
+        'type': type,
+        'from': _apiDate(from),
+        'to': _apiDate(to),
+      },
+    );
+
+    final response = await http.get(uri, headers: _reportHeaders);
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      throw Exception('Invalid response from server.');
+    }
+
+    if (response.statusCode != 200) {
+      String message = 'Unable to load stock report.';
+
+      if (decoded is Map && decoded['message'] != null) {
+        message = decoded['message'].toString();
+      }
+
+      throw Exception(message);
+    }
+
+    if (decoded is! Map) {
+      throw Exception('Invalid stock report response.');
+    }
+
+    final reportJson = decoded['report'];
+
+    if (reportJson is! Map) {
+      throw Exception('Stock report data not found.');
+    }
+
+    final columns = (reportJson['columns'] as List? ?? const [])
+        .map((item) => item.toString())
+        .toList(growable: false);
+
+    final rows = (reportJson['rows'] as List? ?? const [])
+        .map<List<Object>>(
+          (row) => row is List
+              ? row.map<Object>((value) => value ?? '').toList(growable: false)
+              : <Object>[],
+        )
+        .toList(growable: false);
+
+    final metrics = (reportJson['metrics'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (metric) => ReportMetric(
+            metric['label']?.toString() ?? '',
+            metric['value']?.toString() ?? '',
+          ),
+        )
+        .toList(growable: false);
+
+    return ReportData(
+      title: reportJson['title']?.toString() ?? title,
+
+      description: reportJson['description']?.toString() ?? description,
+
+      columns: columns,
+
+      rows: rows,
+
+      metrics: metrics,
+    );
+  }
+
+  Future<ReportData> _loadOutstandingReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final type = _outstandingReportType(title);
+
+    if (type == null) {
+      throw Exception('Invalid outstanding report type.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/outstanding')
+        .replace(
+          queryParameters: <String, String>{
+            'type': type,
+            'from': _apiDate(from),
+            'to': _apiDate(to),
+          },
+        );
+
+    final response = await http.get(uri, headers: _reportHeaders);
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      throw Exception('Invalid response from server.');
+    }
+
+    if (response.statusCode != 200) {
+      String message = 'Unable to load outstanding report.';
+
+      if (decoded is Map && decoded['message'] != null) {
+        message = decoded['message'].toString();
+      }
+
+      throw Exception(message);
+    }
+
+    if (decoded is! Map) {
+      throw Exception('Invalid outstanding report response.');
+    }
+
+    final reportJson = decoded['report'];
+
+    if (reportJson is! Map) {
+      throw Exception('Outstanding report data not found.');
+    }
+
+    final columns = (reportJson['columns'] as List? ?? const [])
+        .map((item) => item.toString())
+        .toList(growable: false);
+
+    final rows = (reportJson['rows'] as List? ?? const [])
+        .map<List<Object>>(
+          (row) => row is List
+              ? row.map<Object>((value) => value ?? '').toList(growable: false)
+              : <Object>[],
+        )
+        .toList(growable: false);
+
+    final metrics = (reportJson['metrics'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (metric) => ReportMetric(
+            metric['label']?.toString() ?? '',
+            metric['value']?.toString() ?? '',
+          ),
+        )
+        .toList(growable: false);
+
+    return ReportData(
+      title: reportJson['title']?.toString() ?? title,
+
+      description: reportJson['description']?.toString() ?? description,
+
+      columns: columns,
+
+      rows: rows,
+
+      metrics: metrics,
+    );
+  }
+
+  Future<ReportData> _loadTrendReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final type = _trendReportType(title);
+
+    if (type == null) {
+      throw Exception('Invalid trend report type.');
+    }
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/trends').replace(
+      queryParameters: <String, String>{
+        'type': type,
+
+        'from': _apiDate(from),
+
+        'to': _apiDate(to),
+      },
+    );
+
+    final response = await http.get(uri, headers: _reportHeaders);
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      throw Exception('Invalid response from server.');
+    }
+
+    if (response.statusCode != 200) {
+      String message = 'Unable to load trend report.';
+
+      if (decoded is Map && decoded['message'] != null) {
+        message = decoded['message'].toString();
+      }
+
+      throw Exception(message);
+    }
+
+    if (decoded is! Map) {
+      throw Exception('Invalid trend report response.');
+    }
+
+    final reportJson = decoded['report'];
+
+    if (reportJson is! Map) {
+      throw Exception('Trend report data not found.');
+    }
+
+    final columns = (reportJson['columns'] as List? ?? const [])
+        .map((item) => item.toString())
+        .toList(growable: false);
+
+    final rows = (reportJson['rows'] as List? ?? const [])
+        .map<List<Object>>(
+          (row) => row is List
+              ? row.map<Object>((value) => value ?? '').toList(growable: false)
+              : <Object>[],
+        )
+        .toList(growable: false);
+
+    final metrics = (reportJson['metrics'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (metric) => ReportMetric(
+            metric['label']?.toString() ?? '',
+            metric['value']?.toString() ?? '',
+          ),
+        )
+        .toList(growable: false);
+
+    return ReportData(
+      title: reportJson['title']?.toString() ?? title,
+
+      description: reportJson['description']?.toString() ?? description,
+
+      columns: columns,
+
+      rows: rows,
+
+      metrics: metrics,
+    );
+  }
+
+Future<ReportData> _loadOperationsReport({
   required String title,
   required String description,
   required DateTime from,
   required DateTime to,
 }) async {
   final type =
-      _purchaseReportType(title);
+      _operationsReportType(title);
 
   if (type == null) {
     throw Exception(
-      'Invalid purchase report type.',
+      'Invalid operations report type.',
     );
   }
 
-  final uri =
-      Uri.parse(
-        '${ApiConfig.baseUrl}/api/reports/purchase',
-      ).replace(
-        queryParameters:
-            <String, String>{
-          'type':
-              type,
-          'from':
-              _apiDate(from),
-          'to':
-              _apiDate(to),
-        },
-      );
-
-  final response =
-      await http.get(
-    uri,
-    headers:
-        _reportHeaders,
+  final uri = Uri.parse(
+    '${ApiConfig.baseUrl}/api/reports/operations',
+  ).replace(
+    queryParameters: <String, String>{
+      'type': type,
+      'from': _apiDate(from),
+      'to': _apiDate(to),
+    },
   );
-
-  dynamic decoded;
-
-  try {
-    decoded =
-        jsonDecode(
-      response.body,
-    );
-  } catch (_) {
-    throw Exception(
-      'Invalid response from server.',
-    );
-  }
-
-  if (response.statusCode != 200) {
-    String message =
-        'Unable to load purchase report.';
-
-    if (decoded is Map &&
-        decoded['message'] != null) {
-      message =
-          decoded['message']
-              .toString();
-    }
-
-    throw Exception(message);
-  }
-
-  if (decoded is! Map) {
-    throw Exception(
-      'Invalid purchase report response.',
-    );
-  }
-
-  final reportJson =
-      decoded['report'];
-
-  if (reportJson is! Map) {
-    throw Exception(
-      'Purchase report data not found.',
-    );
-  }
-
-  final columns =
-      (reportJson['columns']
-                  as List? ??
-              const [])
-          .map(
-            (item) =>
-                item.toString(),
-          )
-          .toList(
-            growable: false,
-          );
-
-  final rows =
-      (reportJson['rows']
-                  as List? ??
-              const [])
-          .map<List<Object>>(
-            (row) =>
-                row is List
-                    ? row
-                        .map<Object>(
-                          (value) =>
-                              value ??
-                              '',
-                        )
-                        .toList(
-                          growable:
-                              false,
-                        )
-                    : <Object>[],
-          )
-          .toList(
-            growable: false,
-          );
-
-  final metrics =
-      (reportJson['metrics']
-                  as List? ??
-              const [])
-          .whereType<Map>()
-          .map(
-            (metric) =>
-                ReportMetric(
-              metric['label']
-                      ?.toString() ??
-                  '',
-              metric['value']
-                      ?.toString() ??
-                  '',
-            ),
-          )
-          .toList(
-            growable: false,
-          );
-
-  return ReportData(
-    title:
-        reportJson['title']
-                ?.toString() ??
-            title,
-
-    description:
-        reportJson['description']
-                ?.toString() ??
-            description,
-
-    columns:
-        columns,
-
-    rows:
-        rows,
-
-    metrics:
-        metrics,
-  );
-}
-
-Future<ReportData> _loadStockReport({
-  required String title,
-  required String description,
-  required DateTime from,
-  required DateTime to,
-}) async {
-  final type = _stockReportType(title);
-
-  if (type == null) {
-    throw Exception(
-      'Invalid stock report type.',
-    );
-  }
-
-  final uri =
-      Uri.parse(
-        '${ApiConfig.baseUrl}/api/reports/stock',
-      ).replace(
-        queryParameters:
-            <String, String>{
-          'type': type,
-          'from': _apiDate(from),
-          'to': _apiDate(to),
-        },
-      );
 
   final response =
       await http.get(
@@ -669,9 +914,7 @@ Future<ReportData> _loadStockReport({
 
   try {
     decoded =
-        jsonDecode(
-      response.body,
-    );
+        jsonDecode(response.body);
   } catch (_) {
     throw Exception(
       'Invalid response from server.',
@@ -680,13 +923,12 @@ Future<ReportData> _loadStockReport({
 
   if (response.statusCode != 200) {
     String message =
-        'Unable to load stock report.';
+        'Unable to load operations report.';
 
     if (decoded is Map &&
         decoded['message'] != null) {
       message =
-          decoded['message']
-              .toString();
+          decoded['message'].toString();
     }
 
     throw Exception(message);
@@ -694,7 +936,7 @@ Future<ReportData> _loadStockReport({
 
   if (decoded is! Map) {
     throw Exception(
-      'Invalid stock report response.',
+      'Invalid operations report response.',
     );
   }
 
@@ -703,7 +945,7 @@ Future<ReportData> _loadStockReport({
 
   if (reportJson is! Map) {
     throw Exception(
-      'Stock report data not found.',
+      'Operations report data not found.',
     );
   }
 
@@ -724,18 +966,17 @@ Future<ReportData> _loadStockReport({
                   as List? ??
               const [])
           .map<List<Object>>(
-            (row) =>
-                row is List
-                    ? row
-                        .map<Object>(
-                          (value) =>
-                              value ?? '',
-                        )
-                        .toList(
-                          growable:
-                              false,
-                        )
-                    : <Object>[],
+            (row) => row is List
+                ? row
+                    .map<Object>(
+                      (value) =>
+                          value ?? '',
+                    )
+                    .toList(
+                      growable:
+                          false,
+                    )
+                : <Object>[],
           )
           .toList(
             growable: false,
@@ -766,209 +1007,30 @@ Future<ReportData> _loadStockReport({
         reportJson['title']
                 ?.toString() ??
             title,
-
     description:
         reportJson['description']
                 ?.toString() ??
             description,
-
-    columns:
-        columns,
-
-    rows:
-        rows,
-
-    metrics:
-        metrics,
+    columns: columns,
+    rows: rows,
+    metrics: metrics,
   );
 }
-Future<ReportData> _loadOutstandingReport({
-  required String title,
-  required String description,
-  required DateTime from,
-  required DateTime to,
-}) async {
-  final type =
-      _outstandingReportType(
-    title,
-  );
-
-  if (type == null) {
-    throw Exception(
-      'Invalid outstanding report type.',
-    );
-  }
-
-  final uri =
-      Uri.parse(
-        '${ApiConfig.baseUrl}/api/reports/outstanding',
-      ).replace(
-        queryParameters:
-            <String, String>{
-          'type':
-              type,
-          'from':
-              _apiDate(from),
-          'to':
-              _apiDate(to),
-        },
-      );
-
-  final response =
-      await http.get(
-    uri,
-    headers:
-        _reportHeaders,
-  );
-
-  dynamic decoded;
-
-  try {
-    decoded =
-        jsonDecode(
-      response.body,
-    );
-  } catch (_) {
-    throw Exception(
-      'Invalid response from server.',
-    );
-  }
-
-  if (response.statusCode != 200) {
-    String message =
-        'Unable to load outstanding report.';
-
-    if (
-      decoded is Map &&
-      decoded['message'] != null
-    ) {
-      message =
-          decoded['message']
-              .toString();
-    }
-
-    throw Exception(
-      message,
-    );
-  }
-
-  if (decoded is! Map) {
-    throw Exception(
-      'Invalid outstanding report response.',
-    );
-  }
-
-  final reportJson =
-      decoded['report'];
-
-  if (reportJson is! Map) {
-    throw Exception(
-      'Outstanding report data not found.',
-    );
-  }
-
-  final columns =
-      (
-        reportJson['columns']
-                as List? ??
-            const []
-      )
-          .map(
-            (item) =>
-                item.toString(),
-          )
-          .toList(
-            growable:
-                false,
-          );
-
-  final rows =
-      (
-        reportJson['rows']
-                as List? ??
-            const []
-      )
-          .map<List<Object>>(
-            (row) =>
-                row is List
-                    ? row
-                        .map<Object>(
-                          (value) =>
-                              value ??
-                              '',
-                        )
-                        .toList(
-                          growable:
-                              false,
-                        )
-                    : <Object>[],
-          )
-          .toList(
-            growable:
-                false,
-          );
-
-  final metrics =
-      (
-        reportJson['metrics']
-                as List? ??
-            const []
-      )
-          .whereType<Map>()
-          .map(
-            (metric) =>
-                ReportMetric(
-              metric['label']
-                      ?.toString() ??
-                  '',
-              metric['value']
-                      ?.toString() ??
-                  '',
-            ),
-          )
-          .toList(
-            growable:
-                false,
-          );
-
-  return ReportData(
-    title:
-        reportJson['title']
-                ?.toString() ??
-            title,
-
-    description:
-        reportJson['description']
-                ?.toString() ??
-            description,
-
-    columns:
-        columns,
-
-    rows:
-        rows,
-
-    metrics:
-        metrics,
-  );
-}
-
   void _openReport(_ReportGroup group, _ReportItem report) {
     DateTime from = DateTime.now().subtract(const Duration(days: 30));
 
     DateTime to = DateTime.now();
 
     final isSalesReport = _isSalesReport(report.title);
-    final isPurchaseReport =
-    _isPurchaseReport(
+    final isPurchaseReport = _isPurchaseReport(report.title);
+    final isStockReport = _isStockReport(report.title);
+    final isOutstandingReport = _isOutstandingReport(report.title);
+    final isTrendReport =
+    _isTrendReport(
   report.title,
 );
-final isStockReport =
-    _isStockReport(
-  report.title,
-);
-final isOutstandingReport =
-    _isOutstandingReport(
+final isOperationsReport =
+    _isOperationsReport(
   report.title,
 );
 
@@ -979,14 +1041,15 @@ final demoReport =
       isSalesReport ||
       isPurchaseReport ||
       isStockReport ||
-      isOutstandingReport
+      isOutstandingReport ||
+      isTrendReport ||
+      isOperationsReport
     )
         ? null
         : ReportDemoProvider.forReport(
             report.title,
             report.description,
           );
-
 
     showModalBottomSheet<void>(
       context: context,
@@ -1146,11 +1209,221 @@ final demoReport =
                           return;
                         }
 
-// =========================
-// REAL PURCHASE REPORT
+                        // =========================
+                        // REAL PURCHASE REPORT
+                        // =========================
+
+                        if (isPurchaseReport) {
+                          showDialog<void>(
+                            context: this.context,
+                            barrierDismissible: false,
+                            builder: (_) => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+
+                          try {
+                            final sourceReport = await _loadPurchaseReport(
+                              title: report.title,
+                              description: report.description,
+                              from: from,
+                              to: to,
+                            );
+
+                            if (!mounted) {
+                              return;
+                            }
+
+                            Navigator.of(
+                              this.context,
+                              rootNavigator: true,
+                            ).pop();
+
+                            Navigator.pop(sheetContext);
+
+                            Navigator.of(this.context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ReportDetailScreen(
+                                  report: sourceReport,
+                                  from: from,
+                                  to: to,
+                                  icon: group.icon,
+                                  color: group.color,
+                                  filterLabel: 'Period',
+                                  filterValue: 'All',
+                                ),
+                              ),
+                            );
+                          } catch (error) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            Navigator.of(
+                              this.context,
+                              rootNavigator: true,
+                            ).pop();
+
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  error.toString().replaceFirst(
+                                    'Exception: ',
+                                    '',
+                                  ),
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                          }
+
+                          return;
+                        }
+                        // =========================
+                        // REAL STOCK REPORT
+                        // =========================
+
+                        if (isStockReport) {
+                          showDialog<void>(
+                            context: this.context,
+                            barrierDismissible: false,
+                            builder: (_) => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+
+                          try {
+                            final sourceReport = await _loadStockReport(
+                              title: report.title,
+                              description: report.description,
+                              from: from,
+                              to: to,
+                            );
+
+                            if (!mounted) {
+                              return;
+                            }
+
+                            Navigator.of(
+                              this.context,
+                              rootNavigator: true,
+                            ).pop();
+
+                            Navigator.pop(sheetContext);
+
+                            Navigator.of(this.context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ReportDetailScreen(
+                                  report: sourceReport,
+                                  from: from,
+                                  to: to,
+                                  icon: group.icon,
+                                  color: group.color,
+                                  filterLabel: 'Period',
+                                  filterValue: 'All',
+                                ),
+                              ),
+                            );
+                          } catch (error) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            Navigator.of(
+                              this.context,
+                              rootNavigator: true,
+                            ).pop();
+
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  error.toString().replaceFirst(
+                                    'Exception: ',
+                                    '',
+                                  ),
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                          }
+
+                          return;
+                        }
+                        // =========================
+                        // REAL OUTSTANDING REPORT
+                        // =========================
+
+                        if (isOutstandingReport) {
+                          showDialog<void>(
+                            context: this.context,
+                            barrierDismissible: false,
+                            builder: (_) => const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+
+                          try {
+                            final sourceReport = await _loadOutstandingReport(
+                              title: report.title,
+                              description: report.description,
+                              from: from,
+                              to: to,
+                            );
+
+                            if (!mounted) {
+                              return;
+                            }
+
+                            Navigator.of(
+                              this.context,
+                              rootNavigator: true,
+                            ).pop();
+
+                            Navigator.pop(sheetContext);
+
+                            Navigator.of(this.context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ReportDetailScreen(
+                                  report: sourceReport,
+                                  from: from,
+                                  to: to,
+                                  icon: group.icon,
+                                  color: group.color,
+                                  filterLabel: 'Period',
+                                  filterValue: 'All',
+                                ),
+                              ),
+                            );
+                          } catch (error) {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            Navigator.of(
+                              this.context,
+                              rootNavigator: true,
+                            ).pop();
+
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  error.toString().replaceFirst(
+                                    'Exception: ',
+                                    '',
+                                  ),
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                          }
+
+                          return;
+                        }
+                        // =========================
+// REAL TREND REPORT
 // =========================
 
-if (isPurchaseReport) {
+if (isTrendReport) {
   showDialog<void>(
     context:
         this.context,
@@ -1166,13 +1439,16 @@ if (isPurchaseReport) {
 
   try {
     final sourceReport =
-        await _loadPurchaseReport(
+        await _loadTrendReport(
       title:
           report.title,
+
       description:
           report.description,
+
       from:
           from,
+
       to:
           to,
     );
@@ -1200,16 +1476,22 @@ if (isPurchaseReport) {
                 ReportDetailScreen(
           report:
               sourceReport,
+
           from:
               from,
+
           to:
               to,
+
           icon:
               group.icon,
+
           color:
               group.color,
+
           filterLabel:
               'Period',
+
           filterValue:
               'All',
         ),
@@ -1241,6 +1523,7 @@ if (isPurchaseReport) {
                 '',
               ),
         ),
+
         backgroundColor:
             AppColors.error,
       ),
@@ -1250,10 +1533,10 @@ if (isPurchaseReport) {
   return;
 }
 // =========================
-// REAL STOCK REPORT
+// REAL OPERATIONS REPORT
 // =========================
 
-if (isStockReport) {
+if (isOperationsReport) {
   showDialog<void>(
     context: this.context,
     barrierDismissible: false,
@@ -1266,15 +1549,12 @@ if (isStockReport) {
 
   try {
     final sourceReport =
-        await _loadStockReport(
-      title:
-          report.title,
+        await _loadOperationsReport(
+      title: report.title,
       description:
           report.description,
-      from:
-          from,
-      to:
-          to,
+      from: from,
+      to: to,
     );
 
     if (!mounted) {
@@ -1294,19 +1574,14 @@ if (isStockReport) {
       this.context,
     ).push(
       MaterialPageRoute<void>(
-        builder:
-            (_) =>
-                ReportDetailScreen(
+        builder: (_) =>
+            ReportDetailScreen(
           report:
               sourceReport,
-          from:
-              from,
-          to:
-              to,
-          icon:
-              group.icon,
-          color:
-              group.color,
+          from: from,
+          to: to,
+          icon: group.icon,
+          color: group.color,
           filterLabel:
               'Period',
           filterValue:
@@ -1328,111 +1603,7 @@ if (isStockReport) {
       this.context,
     ).showSnackBar(
       SnackBar(
-        content:
-            Text(
-          error
-              .toString()
-              .replaceFirst(
-                'Exception: ',
-                '',
-              ),
-        ),
-        backgroundColor:
-            AppColors.error,
-      ),
-    );
-  }
-
-  return;
-}
-// =========================
-// REAL OUTSTANDING REPORT
-// =========================
-
-if (isOutstandingReport) {
-  showDialog<void>(
-    context:
-        this.context,
-    barrierDismissible:
-        false,
-    builder:
-        (_) =>
-            const Center(
-      child:
-          CircularProgressIndicator(),
-    ),
-  );
-
-  try {
-    final sourceReport =
-        await _loadOutstandingReport(
-      title:
-          report.title,
-      description:
-          report.description,
-      from:
-          from,
-      to:
-          to,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(
-      this.context,
-      rootNavigator:
-          true,
-    ).pop();
-
-    Navigator.pop(
-      sheetContext,
-    );
-
-    Navigator.of(
-      this.context,
-    ).push(
-      MaterialPageRoute<void>(
-        builder:
-            (_) =>
-                ReportDetailScreen(
-          report:
-              sourceReport,
-          from:
-              from,
-          to:
-              to,
-          icon:
-              group.icon,
-          color:
-              group.color,
-          filterLabel:
-              'Period',
-          filterValue:
-              'All',
-        ),
-      ),
-    );
-  } catch (error) {
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(
-      this.context,
-      rootNavigator:
-          true,
-    ).pop();
-
-    ScaffoldMessenger
-        .of(
-          this.context,
-        )
-        .showSnackBar(
-      SnackBar(
-        content:
-            Text(
+        content: Text(
           error
               .toString()
               .replaceFirst(
@@ -1451,7 +1622,6 @@ if (isOutstandingReport) {
                         // =========================
                         // EXISTING DEMO REPORTS
                         // =========================
-
 
                         if (demoReport == null) {
                           return;
