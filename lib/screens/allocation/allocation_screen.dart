@@ -672,12 +672,11 @@ Future<void> _openAssignAllocation() async {
           .push<bool>(
     MaterialPageRoute(
       builder: (_) =>
-          AssignAllocationPage(
-        routes: _routes,
-        salesmen: _salesmen,
-        products: _products,
-        customers: _customers,
-      ),
+AssignAllocationPage(
+  routes: _routes,
+  salesmen: _salesmen,
+  products: _products,
+),
     ),
   );
 

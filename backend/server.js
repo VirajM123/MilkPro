@@ -3430,6 +3430,16 @@ app.post("/api/auth/login", async (req, res) => {
 // GET ALL CUSTOMERS
 // ======================================================
 
+// ======================================================
+// GET CUSTOMERS
+//
+// ADMIN
+//   -> ALL ACTIVE FARM CUSTOMERS
+//
+// SALESMAN
+//   -> ONLY CUSTOMERS BELONGING TO HIS ASSIGNED ROUTES
+// ======================================================
+
 app.get(
   "/api/customers",
   authenticateToken,
@@ -3440,23 +3450,182 @@ app.get(
       const farmId =
         req.user.farmId;
 
-      const customers =
-        await Customer.find({
-          farmId: farmId,
-        })
-        .sort({
-          createdAt: -1,
+      const role =
+        req.user.role;
+
+      const userId =
+        req.user.userId;
+
+
+      // ==================================================
+      // ADMIN
+      // ALL FARM CUSTOMERS
+      // ==================================================
+
+      if (role === "admin") {
+
+        const customers =
+          await Customer.find({
+            farmId:
+              farmId,
+
+            isActive:
+              true,
+          })
+            .sort({
+              name: 1,
+            });
+
+
+        return res.status(200).json({
+          success:
+            true,
+
+          count:
+            customers.length,
+
+          data:
+            customers,
         });
+      }
 
 
-      return res.status(200).json({
-        success: true,
+      // ==================================================
+      // SALESMAN
+      // ONLY HIS ROUTE CUSTOMERS
+      // ==================================================
 
-        count:
-          customers.length,
+      if (role === "salesman") {
 
-        data:
-          customers,
+        const salesman =
+          await Salesman.findOne({
+            _id:
+              userId,
+
+            farmId:
+              farmId,
+
+            isActive:
+              true,
+          }).lean();
+
+
+        if (!salesman) {
+
+          return res.status(404).json({
+            success:
+              false,
+
+            message:
+              "Salesman account not found.",
+          });
+        }
+
+
+        // ================================================
+        // FIND ROUTES ASSIGNED TO THIS SALESMAN
+        // ================================================
+
+        const routes =
+          await RouteMaster.find({
+            farmId:
+              farmId,
+
+            salesmanId:
+              salesman.salesmanId,
+
+            isActive:
+              true,
+          })
+            .select(
+              "routeId routeName"
+            )
+            .lean();
+
+
+        const routeNames =
+          routes
+            .map(
+              (route) =>
+                (
+                  route.routeName ||
+                  ""
+                )
+                  .toString()
+                  .trim()
+            )
+            .filter(
+              (routeName) =>
+                routeName.length > 0
+            );
+
+
+        // ================================================
+        // NO ROUTE ASSIGNED
+        // ================================================
+
+        if (
+          routeNames.length === 0
+        ) {
+
+          return res.status(200).json({
+            success:
+              true,
+
+            count:
+              0,
+
+            data:
+              [],
+          });
+        }
+
+
+        // ================================================
+        // CUSTOMERS BELONGING TO SALESMAN ROUTES
+        // ================================================
+
+        const customers =
+          await Customer.find({
+            farmId:
+              farmId,
+
+            isActive:
+              true,
+
+            route: {
+              $in:
+                routeNames,
+            },
+          })
+            .sort({
+              name: 1,
+            });
+
+
+        return res.status(200).json({
+          success:
+            true,
+
+          count:
+            customers.length,
+
+          data:
+            customers,
+        });
+      }
+
+
+      // ==================================================
+      // INVALID ROLE
+      // ==================================================
+
+      return res.status(403).json({
+        success:
+          false,
+
+        message:
+          "You are not allowed to access customers.",
       });
 
     } catch (error) {
@@ -3466,16 +3635,20 @@ app.get(
         error
       );
 
+
       return res.status(500).json({
-        success: false,
+        success:
+          false,
 
         message:
           "Unable to load customers.",
+
+        error:
+          error.message,
       });
     }
   }
 );
-
 
 // ======================================================
 // ADD CUSTOMER
@@ -6986,6 +7159,96 @@ app.post(
 
 
           // ==================================================
+// SALESMAN CUSTOMER ROUTE SECURITY
+//
+// A salesman can sell only to customers belonging
+// to a route assigned to him.
+// ==================================================
+
+if (role === "salesman") {
+
+  const currentSalesman =
+    await Salesman.findOne({
+      _id:
+        userId,
+
+      farmId:
+        farmId,
+
+      isActive:
+        true,
+    })
+      .session(session);
+
+
+  if (!currentSalesman) {
+
+    const error =
+      new Error(
+        "Salesman account not found."
+      );
+
+    error.statusCode =
+      404;
+
+    throw error;
+  }
+
+
+  const customerRouteName =
+    (
+      customer.route ||
+      ""
+    )
+      .toString()
+      .trim();
+
+
+  if (!customerRouteName) {
+
+    const error =
+      new Error(
+        `Customer ${customer.name} is not mapped to any route.`
+      );
+
+    error.statusCode =
+      403;
+
+    throw error;
+  }
+
+
+  const assignedRoute =
+    await RouteMaster.findOne({
+      farmId:
+        farmId,
+
+      routeName:
+        customerRouteName,
+
+      salesmanId:
+        currentSalesman.salesmanId,
+
+      isActive:
+        true,
+    })
+      .session(session);
+
+
+  if (!assignedRoute) {
+
+    const error =
+      new Error(
+        `Customer ${customer.name} does not belong to your assigned route.`
+      );
+
+    error.statusCode =
+      403;
+
+    throw error;
+  }
+}
+          // ==================================================
           // PAYMENT MODE
           // ==================================================
 
@@ -9051,14 +9314,13 @@ app.post(
             req.user.farmId;
 
 
-          const {
-            allocationDate,
-            salesmanId,
-            routeId,
-            customerId,
-            products,
-            notes,
-          } = req.body;
+       const {
+  allocationDate,
+  salesmanId,
+  routeId,
+  products,
+  notes,
+} = req.body;
 
 
           // ============================================
@@ -9140,12 +9402,7 @@ app.post(
               .toUpperCase();
 
 
-          const normalizedCustomerId =
-            customerId
-              ?.toString()
-              .trim()
-              .toUpperCase() ||
-            "";
+      
 
 
           // ============================================
@@ -9244,47 +9501,6 @@ app.post(
             throw error;
           }
 
-
-          // ============================================
-          // OPTIONAL CUSTOMER
-          // ============================================
-
-          let customer =
-            null;
-
-
-          if (
-            normalizedCustomerId
-          ) {
-
-            customer =
-              await Customer.findOne({
-                farmId:
-                  farmId,
-
-                customerId:
-                  normalizedCustomerId,
-
-                isActive:
-                  true,
-              }).session(
-                session
-              );
-
-
-            if (!customer) {
-
-              const error =
-                new Error(
-                  "Selected customer not found."
-                );
-
-              error.statusCode =
-                404;
-
-              throw error;
-            }
-          }
 
 
           // ============================================
@@ -9511,97 +9727,84 @@ app.post(
           // CREATE TRN_ALLOCATION
           // ============================================
 
-          const allocationDocs =
-            await Allocation.create(
-              [
-                {
-                  farmId:
-                    farmId,
+       const allocationDocs =
+  await Allocation.create(
+    [
+      {
+        farmId:
+          farmId,
 
-                  allocationId:
-                    allocationId,
+        allocationId:
+          allocationId,
 
-                  allocationNo:
-                    allocationNo,
+        allocationNo:
+          allocationNo,
 
-                  allocationDate:
-                    finalAllocationDate,
+        allocationDate:
+          finalAllocationDate,
 
-                  salesmanId:
-                    salesman.salesmanId,
+        salesmanId:
+          salesman.salesmanId,
 
-                  salesmanName:
-                    salesman.name,
+        salesmanName:
+          salesman.name,
 
-                  routeId:
-                    route.routeId,
+        routeId:
+          route.routeId,
 
-                  routeName:
-                    route.routeName,
+        routeName:
+          route.routeName,
 
-                  customerId:
-                    customer
-                      ? customer.customerId
-                      : "",
+        products:
+          verifiedProducts.map(
+            (line) => ({
+              productId:
+                line.productId,
 
-                  customerName:
-                    customer
-                      ? customer.name
-                      : "",
+              productName:
+                line.productName,
 
-                  products:
-                    verifiedProducts.map(
-                      (line) => ({
-                        productId:
-                          line.productId,
+              variant:
+                line.variant,
 
-                        productName:
-                          line.productName,
+              unit:
+                line.unit,
 
-                        variant:
-                          line.variant,
+              quantity:
+                line.quantity,
 
-                        unit:
-                          line.unit,
+              returnedQuantity:
+                0,
+            })
+          ),
 
-                        quantity:
-                          line.quantity,
+        totalItems:
+          verifiedProducts.length,
 
-                        returnedQuantity:
-                          0,
-                      })
-                    ),
+        totalQuantity:
+          totalQuantity,
 
-                  totalItems:
-                    verifiedProducts.length,
+        notes:
+          notes
+            ?.toString()
+            .trim() ||
+          "",
 
-                  totalQuantity:
-                    totalQuantity,
+        status:
+          "POSTED",
 
-                  notes:
-                    notes
-                      ?.toString()
-                      .trim() ||
-                    "",
+        createdBy:
+          req.user.userId || "",
+      },
+    ],
+    {
+      session:
+        session,
+    }
+  );
 
-                  status:
-                    "POSTED",
-
-                  createdBy:
-                    req.user.userId ||
-                    "",
-                },
-              ],
-
-              {
-                session:
-                  session,
-              }
-            );
-
-
-          const allocation =
-            allocationDocs[0];
+const allocation =
+  allocationDocs[0];
 
 
           // ============================================

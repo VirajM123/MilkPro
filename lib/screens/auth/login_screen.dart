@@ -457,7 +457,7 @@ Container(
         ),
       ),
       Text(
-        'TOTAL SOLUTION PVT. LTD.',
+        'TOTAL SOLUTION',
         style: TextStyle(
           color: AppColors.primary,
           fontSize: 10,

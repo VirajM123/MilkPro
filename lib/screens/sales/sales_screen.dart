@@ -396,10 +396,10 @@ Future<void> _cancelSale(
         title: const Text(
           'Cancel Sale',
         ),
-        content: Text(
-          'Are you sure you want to cancel ${sale.id}?\n\n'
-          'The sold stock will be added back to the product stock.',
-        ),
+       content: Text(
+  'Are you sure you want to cancel ${sale.id}?\n\n'
+  'The stock will be restored to the correct available stock automatically.',
+),
         actions: <Widget>[
           TextButton(
             onPressed: () {
@@ -472,7 +472,7 @@ Future<void> _cancelSale(
         data['success'] == true) {
       _showMessage(
         data['message']?.toString() ??
-            'Sale cancelled and stock restored successfully.',
+            'Sale cancelled successfully. Stock has been adjusted automatically.',
         color: _green,
       );
 
