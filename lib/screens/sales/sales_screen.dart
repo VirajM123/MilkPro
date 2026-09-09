@@ -3,11 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-
 import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 
+import '../../models/access_models.dart';
 import '../../models/sale_model.dart';
+import '../../providers/auth_provider.dart';
 import '../returns/return_settlement_screen.dart';
 import 'sales_bill_preview_screen.dart';
 
@@ -29,36 +30,58 @@ class _SalesScreenState extends State<SalesScreen> {
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
   final TextEditingController _rateController = TextEditingController();
+  // ============================================================
+  // SALE PAYMENT BREAKUP
+  // ============================================================
+
+  final TextEditingController _cashPaymentController = TextEditingController();
+
+  final TextEditingController _upiPaymentController = TextEditingController();
+
+  final TextEditingController _bankPaymentController = TextEditingController();
 
   late DateTime _selectedDate;
   Map<String, dynamic>? _selectedAllocation;
-  String _paymentMode = 'Cash';
+  String _paymentMode = 'Credit';
   final List<_SaleLineDraft> _cart = <_SaleLineDraft>[];
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _productSearchController =
       TextEditingController();
   bool _isCreatingSale = false;
+
+  // ============================================================
+  // EDIT SALE STATE
+  // ============================================================
+
+  bool _isEditingSale = false;
+
+  String? _editingSaleId;
+  String? _editingSaleNo;
+
   bool _showSearch = false;
   _SalesPeriod _selectedPeriod = _SalesPeriod.all;
-final List<Map<String, dynamic>> _customers =
-    <Map<String, dynamic>>[];
+  final List<Map<String, dynamic>> _customers = <Map<String, dynamic>>[];
 
-final List<Map<String, dynamic>> _saleProducts =
-    <Map<String, dynamic>>[];
+  final List<Map<String, dynamic>> _saleProducts = <Map<String, dynamic>>[];
 
-final List<SaleModel> _serverSales =
-    <SaleModel>[];
-    final Set<String> _cancelledSaleIds =
-    <String>{};
+  final List<SaleModel> _serverSales = <SaleModel>[];
+  final Set<String> _cancelledSaleIds = <String>{};
 
-bool _cancellingSale = false;
+  bool _cancellingSale = false;
 
-Map<String, dynamic>? _selectedCustomer;
+  Map<String, dynamic>? _selectedCustomer;
 
-bool _loadingCustomers = false;
-bool _loadingProducts = false;
-bool _loadingSales = false;
-bool _savingSale = false;
+  bool _loadingCustomers = false;
+  bool _loadingProducts = false;
+  bool _loadingSales = false;
+  bool _savingSale = false;
+  // ============================================================
+// CURRENT USER
+// ============================================================
+
+bool get _isSalesman =>
+    UiSession.instance.currentUser.role ==
+    UserRole.salesman;
 
   final List<String> _paymentModes = const <String>[
     'Cash',
@@ -67,18 +90,23 @@ bool _savingSale = false;
     'Bank Transfer',
   ];
 
-@override
-void initState() {
-  super.initState();
+  @override
+  void initState() {
+    super.initState();
 
-  _selectedDate = DateTime.now();
+    _selectedDate = DateTime.now();
 
-  _quantityController.addListener(_refreshTotal);
-  _rateController.addListener(_refreshTotal);
+    _quantityController.addListener(_refreshTotal);
+    _rateController.addListener(_refreshTotal);
+    _cashPaymentController.addListener(_refreshTotal);
 
-  _loadCustomers();
-  _loadSales();
-}
+    _upiPaymentController.addListener(_refreshTotal);
+
+    _bankPaymentController.addListener(_refreshTotal);
+
+    _loadCustomers();
+    _loadSales();
+  }
 
   @override
   void dispose() {
@@ -89,8 +117,26 @@ void initState() {
     _rateController.dispose();
     _searchController.dispose();
     _productSearchController.dispose();
+    _cashPaymentController.removeListener(_refreshTotal);
+
+    _upiPaymentController.removeListener(_refreshTotal);
+
+    _bankPaymentController.removeListener(_refreshTotal);
+
+    _cashPaymentController.dispose();
+
+    _upiPaymentController.dispose();
+
+    _bankPaymentController.dispose();
     super.dispose();
   }
+void _clearSalePayments() {
+  _cashPaymentController.clear();
+  _upiPaymentController.clear();
+  _bankPaymentController.clear();
+
+  _paymentMode = 'Credit';
+}
 
   void _refreshTotal() {
     if (mounted) setState(() {});
@@ -102,15 +148,13 @@ void initState() {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
- 
-
   bool _sameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-List<Map<String, dynamic>> get _dayAllocations {
-  return _saleProducts;
-}
+  List<Map<String, dynamic>> get _dayAllocations {
+    return _saleProducts;
+  }
 
   int _soldFor(Map<String, dynamic> allocation) =>
       _asInt(allocation['soldQty']);
@@ -144,6 +188,99 @@ List<Map<String, dynamic>> get _dayAllocations {
   }
 
   double get _cartTotal => _cart.fold(0, (sum, line) => sum + line.total);
+  double _paymentValue(TextEditingController controller) {
+    return double.tryParse(controller.text.trim()) ?? 0;
+  }
+
+  double get _cashPayment => _paymentValue(_cashPaymentController);
+
+  double get _upiPayment => _paymentValue(_upiPaymentController);
+
+  double get _bankPayment => _paymentValue(_bankPaymentController);
+
+  double get _paidAmount => _cashPayment + _upiPayment + _bankPayment;
+
+  double get _outstandingAmount {
+    final amount = _cartTotal - _paidAmount;
+
+    return amount < 0 ? 0 : amount;
+  }
+
+  bool get _isPaymentOverAmount => _paidAmount > _cartTotal;
+
+  String get _calculatedPaymentStatus {
+    if (_cartTotal <= 0) {
+      return 'PAID';
+    }
+
+    if (_paidAmount <= 0) {
+      return 'CREDIT';
+    }
+
+    if (_paidAmount < _cartTotal) {
+      return 'PARTIAL';
+    }
+
+    return 'PAID';
+  }
+
+  String get _calculatedPaymentMode {
+    if (_paidAmount <= 0) {
+      return 'Credit';
+    }
+
+    final activePaymentCount = [
+      _cashPayment,
+      _upiPayment,
+      _bankPayment,
+    ].where((amount) => amount > 0).length;
+
+    // Partial payment always has an unpaid portion,
+    // therefore display it as Split.
+    if (_paidAmount < _cartTotal) {
+      return 'Split';
+    }
+
+    if (activePaymentCount > 1) {
+      return 'Split';
+    }
+
+    if (_cashPayment > 0) {
+      return 'Cash';
+    }
+
+    if (_upiPayment > 0) {
+      return 'UPI';
+    }
+
+    if (_bankPayment > 0) {
+      return 'Bank Transfer';
+    }
+
+    return 'Credit';
+  }
+
+  List<Map<String, dynamic>> get _paymentBreakup {
+    final payments = <Map<String, dynamic>>[];
+
+    if (_cashPayment > 0) {
+      payments.add({'mode': 'Cash', 'amount': _cashPayment, 'referenceNo': ''});
+    }
+
+    if (_upiPayment > 0) {
+      payments.add({'mode': 'UPI', 'amount': _upiPayment, 'referenceNo': ''});
+    }
+
+    if (_bankPayment > 0) {
+      payments.add({
+        'mode': 'Bank Transfer',
+        'amount': _bankPayment,
+        'referenceNo': '',
+      });
+    }
+
+    return payments;
+  }
 
   int get _cartQuantity => _cart.fold(0, (sum, line) => sum + line.quantity);
 
@@ -167,17 +304,14 @@ List<Map<String, dynamic>> get _dayAllocations {
   }
 
   double _suggestedRateFor(String product) {
-  for (final item in _saleProducts) {
-    if ((item['product'] ?? '').toString() == product) {
-      return double.tryParse(
-            item['rate']?.toString() ?? '0',
-          ) ??
-          0;
+    for (final item in _saleProducts) {
+      if ((item['product'] ?? '').toString() == product) {
+        return double.tryParse(item['rate']?.toString() ?? '0') ?? 0;
+      }
     }
-  }
 
-  return 0;
-}
+    return 0;
+  }
 
   Future<void> _pickDate() async {
     final date = await showDatePicker(
@@ -187,10 +321,10 @@ List<Map<String, dynamic>> get _dayAllocations {
       lastDate: DateTime(2040),
     );
     if (date == null || !mounted) return;
-setState(() {
-  _selectedDate = date;
-  _cart.clear();
-});
+    setState(() {
+      _selectedDate = date;
+      _cart.clear();
+    });
   }
 
   void _showMessage(String message, {Color? color}) {
@@ -202,488 +336,989 @@ setState(() {
       ),
     );
   }
+
   Future<void> _loadSales() async {
-  if (!mounted) return;
-
-  setState(() {
-    _loadingSales = true;
-  });
-
-  try {
-    final response = await http.get(
-      Uri.parse(ApiConfig.sales),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${ApiConfig.token}',
-      },
-    );
-
-    final data = jsonDecode(response.body);
-
     if (!mounted) return;
 
-    if (response.statusCode == 200 &&
-        data is Map<String, dynamic> &&
-        data['success'] == true) {
-      final records =
-          data['data'] as List<dynamic>? ?? <dynamic>[];
+    setState(() {
+      _loadingSales = true;
+    });
 
-      final loadedSales = <SaleModel>[];
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConfig.sales),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
+      );
 
-      final cancelledIds = <String>{};
+      final data = jsonDecode(response.body);
 
+      if (!mounted) return;
 
-      for (final record in records) {
-        final sale =
-            Map<String, dynamic>.from(record as Map);
-            final saleIdentifier =
-    sale['saleNo']?.toString() ??
-    sale['saleId']?.toString() ??
-    sale['_id']?.toString() ??
-    '';
+      if (response.statusCode == 200 &&
+          data is Map<String, dynamic> &&
+          data['success'] == true) {
+        final records = data['data'] as List<dynamic>? ?? <dynamic>[];
 
-final status =
-    sale['status']
-        ?.toString()
-        .toUpperCase() ??
-    'POSTED';
+        final loadedSales = <SaleModel>[];
 
-if (status == 'CANCELLED' &&
-    saleIdentifier.isNotEmpty) {
-  cancelledIds.add(
-    saleIdentifier,
-  );
-}
+        final cancelledIds = <String>{};
 
-        final products =
-            sale['products'] as List<dynamic>? ??
-            <dynamic>[];
+        for (final record in records) {
+          final sale = Map<String, dynamic>.from(record as Map);
+          final saleIdentifier =
+              sale['saleNo']?.toString() ??
+              sale['saleId']?.toString() ??
+              sale['_id']?.toString() ??
+              '';
 
-        final saleDate =
-            DateTime.tryParse(
-              sale['saleDate']?.toString() ?? '',
-            ) ??
-            DateTime.now();
+          final status = sale['status']?.toString().toUpperCase() ?? 'POSTED';
 
-        // Current SaleModel is product-line based.
-        // Therefore one MongoDB sale containing multiple
-        // products is converted into multiple SaleModel lines.
-        for (int index = 0;
-            index < products.length;
-            index++) {
-          final product =
-              Map<String, dynamic>.from(
-                products[index] as Map,
-              );
+          if (status == 'CANCELLED' && saleIdentifier.isNotEmpty) {
+            cancelledIds.add(saleIdentifier);
+          }
+
+          final rawProducts = sale['products'] as List<dynamic>? ?? <dynamic>[];
+
+          final List<SaleProductModel> billProducts = <SaleProductModel>[];
+
+          for (final item in rawProducts) {
+            if (item is! Map) {
+              continue;
+            }
+
+            final product = Map<String, dynamic>.from(item);
+
+            final quantity =
+                int.tryParse(product['quantity']?.toString() ?? '0') ?? 0;
+
+            final rate =
+                double.tryParse(product['rate']?.toString() ?? '0') ?? 0;
+
+            final amount =
+                double.tryParse(product['amount']?.toString() ?? '') ??
+                (quantity * rate);
+
+            billProducts.add(
+              SaleProductModel(
+                productId: product['productId']?.toString() ?? '',
+
+                productName: product['productName']?.toString() ?? '',
+
+                variant: product['variant']?.toString() ?? '',
+
+                unit: product['unit']?.toString() ?? 'Pcs',
+
+                quantity: quantity,
+
+                defaultRate:
+                    double.tryParse(
+                      product['defaultRate']?.toString() ?? '0',
+                    ) ??
+                    0,
+
+                rate: rate,
+
+                rateSource: product['rateSource']?.toString() ?? 'PRODUCT_RATE',
+
+                amount: amount,
+              ),
+            );
+          }
+
+          final saleDate =
+              DateTime.tryParse(sale['saleDate']?.toString() ?? '') ??
+              DateTime.now();
+
+          final saleNo =
+              sale['saleNo']?.toString() ??
+              sale['saleId']?.toString() ??
+              sale['_id']?.toString() ??
+              '';
 
           loadedSales.add(
             SaleModel(
-              id:
-                  sale['saleNo']?.toString() ??
-                  sale['saleId']?.toString() ??
-                  sale['_id']?.toString() ??
-                  '',
+              id: saleNo,
+
+              saleId: sale['saleId']?.toString() ?? '',
 
               date: saleDate,
 
-              customerName:
-                  sale['customerName']
-                      ?.toString() ??
-                  '',
+              customerId: sale['customerId']?.toString() ?? '',
 
-              route:
-                  sale['route']?.toString() ??
-                  '',
+              customerName: sale['customerName']?.toString() ?? '',
 
-              salesman:
-                  sale['createdRole']
-                              ?.toString()
-                              .toLowerCase() ==
-                          'admin'
-                      ? 'Admin'
-                      : sale['createdRole']
-                              ?.toString() ??
-                          '',
+              customerMobile: sale['customerMobile']?.toString() ?? '',
 
-              product:
-                  product['productName']
-                      ?.toString() ??
-                  '',
+              route: sale['route']?.toString() ?? '',
 
-              quantity:
-                  int.tryParse(
-                    product['quantity']
-                            ?.toString() ??
-                        '0',
-                  ) ??
-                  0,
+              salesman: sale['createdRole']?.toString().toLowerCase() == 'admin'
+                  ? 'Admin'
+                  : (sale['salesmanName']?.toString().trim().isNotEmpty == true
+                        ? sale['salesmanName'].toString()
+                        : sale['createdRole']?.toString() ?? ''),
 
-              rate:
-                  double.tryParse(
-                    product['rate']
-                            ?.toString() ??
-                        '0',
-                  ) ??
-                  0,
+              products: billProducts,
 
               paymentMode:
-                  sale['paymentMode']
-                      ?.toString() ??
-                  'Cash',
+    sale['paymentMode']?.toString() ?? 'Credit',
+
+payments:
+    (sale['payments'] as List<dynamic>? ?? <dynamic>[])
+        .whereType<Map>()
+        .map(
+          (item) => Map<String, dynamic>.from(item),
+        )
+        .toList(),
+
+paidAmount:
+    double.tryParse(
+          sale['paidAmount']?.toString() ?? '0',
+        ) ??
+        0,
+
+outstandingAmount:
+    double.tryParse(
+          sale['outstandingAmount']?.toString() ?? '0',
+        ) ??
+        0,
+
+paymentStatus:
+    sale['paymentStatus']?.toString() ?? 'PAID',
+
+grandTotal:
+    double.tryParse(
+          sale['grandTotal']?.toString() ?? '',
+        ) ??
+billProducts.fold<double>(
+  0.0,
+  (double sum, SaleProductModel product) {
+    return sum + product.amount;
+  },
+),
+
+status: status,
+              godown: sale['godown']?.toString() ?? '',
             ),
           );
+
+          // CLOSE: for (final record in records)
         }
+
+        if (!mounted) return;
+        setState(() {
+          _serverSales
+            ..clear()
+            ..addAll(loadedSales);
+
+          _cancelledSaleIds
+            ..clear()
+            ..addAll(cancelledIds);
+        });
+      } else {
+        _showMessage(
+          data is Map
+              ? data['message']?.toString() ?? 'Unable to load sales.'
+              : 'Unable to load sales.',
+        );
       }
-
+    } catch (error) {
       if (!mounted) return;
-setState(() {
-  _serverSales
-    ..clear()
-    ..addAll(loadedSales);
 
-  _cancelledSaleIds
-    ..clear()
-    ..addAll(cancelledIds);
-});
-    } else {
-      _showMessage(
-        data is Map
-            ? data['message']?.toString() ??
-                'Unable to load sales.'
-            : 'Unable to load sales.',
-      );
-    }
-  } catch (error) {
-    if (!mounted) return;
-
-    _showMessage(
-      'Unable to load sales from server: $error',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _loadingSales = false;
-      });
+      _showMessage('Unable to load sales from server: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingSales = false;
+        });
+      }
     }
   }
-}
-bool _isSaleCancelled(
-  SaleModel sale,
-) {
-  return _cancelledSaleIds.contains(
-    sale.id,
-  );
-}
-Future<void> _cancelSale(
-  SaleModel sale,
-) async {
-  if (_cancellingSale) {
-    return;
+
+  bool _isSaleCancelled(SaleModel sale) {
+    return _cancelledSaleIds.contains(sale.id);
   }
 
-  if (_isSaleCancelled(sale)) {
-    _showMessage(
-      'This sale is already cancelled.',
-    );
-    return;
-  }
+  Future<void> _cancelSale(SaleModel sale) async {
+    if (_cancellingSale) {
+      return;
+    }
 
-  final confirmed =
-      await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: const Text(
-          'Cancel Sale',
-        ),
-       content: Text(
-  'Are you sure you want to cancel ${sale.id}?\n\n'
-  'The stock will be restored to the correct available stock automatically.',
-),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () {
-              Navigator.pop(
-                dialogContext,
-                false,
-              );
-            },
-            child: const Text(
-              'No',
-            ),
+    if (_isSaleCancelled(sale)) {
+      _showMessage('This sale is already cancelled.');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Cancel Sale'),
+          content: Text(
+            'Are you sure you want to cancel ${sale.id}?\n\n'
+            'The stock will be restored to the correct available stock automatically.',
           ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(
-                dialogContext,
-                true,
-              );
-            },
-            style:
-                ElevatedButton.styleFrom(
-              backgroundColor:
-                  AppColors.error,
-              foregroundColor:
-                  Colors.white,
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('No'),
             ),
-            child: const Text(
-              'Yes, Cancel Sale',
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Yes, Cancel Sale'),
             ),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (confirmed != true ||
-      !mounted) {
-    return;
-  }
-
-  setState(() {
-    _cancellingSale = true;
-  });
-
-  try {
-    final response =
-        await http.put(
-      Uri.parse(
-        '${ApiConfig.sales}/${Uri.encodeComponent(sale.id)}/cancel',
-      ),
-      headers: {
-        'Content-Type':
-            'application/json',
-        'Authorization':
-            'Bearer ${ApiConfig.token}',
+          ],
+        );
       },
     );
 
-    final data =
-        jsonDecode(
-      response.body,
-    );
-
-    if (!mounted) {
+    if (confirmed != true || !mounted) {
       return;
     }
 
-    if (response.statusCode == 200 &&
-        data is Map<String, dynamic> &&
-        data['success'] == true) {
-      _showMessage(
-        data['message']?.toString() ??
-            'Sale cancelled successfully. Stock has been adjusted automatically.',
-        color: _green,
+    setState(() {
+      _cancellingSale = true;
+    });
+
+    try {
+      final response = await http.put(
+        Uri.parse('${ApiConfig.sales}/${Uri.encodeComponent(sale.id)}/cancel'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
       );
 
-      // Refresh sales status.
-      await _loadSales();
+      final data = jsonDecode(response.body);
 
-      // If customer is currently selected,
-      // refresh stock visible in Create Sale.
-      if (_selectedCustomer != null) {
-        await _loadCustomerProducts();
+      if (!mounted) {
+        return;
       }
-    } else {
-      _showMessage(
-        data is Map
-            ? data['message']?.toString() ??
-                'Unable to cancel sale.'
-            : 'Unable to cancel sale.',
-      );
-    }
-  } catch (error) {
-    if (!mounted) {
-      return;
-    }
 
-    _showMessage(
-      'Unable to cancel sale: $error',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _cancellingSale = false;
-      });
+      if (response.statusCode == 200 &&
+          data is Map<String, dynamic> &&
+          data['success'] == true) {
+        _showMessage(
+          data['message']?.toString() ??
+              'Sale cancelled successfully. Stock has been adjusted automatically.',
+          color: _green,
+        );
+
+        // Refresh sales status.
+        await _loadSales();
+
+        // If customer is currently selected,
+        // refresh stock visible in Create Sale.
+        if (_selectedCustomer != null) {
+          await _loadCustomerProducts();
+        }
+      } else {
+        _showMessage(
+          data is Map
+              ? data['message']?.toString() ?? 'Unable to cancel sale.'
+              : 'Unable to cancel sale.',
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage('Unable to cancel sale: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _cancellingSale = false;
+        });
+      }
     }
   }
-}
 
   Future<void> _loadCustomers() async {
-  if (!mounted) return;
-
-  setState(() {
-    _loadingCustomers = true;
-  });
-
-  try {
-    final response = await http.get(
-      Uri.parse(ApiConfig.customers),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${ApiConfig.token}',
-      },
-    );
-
-    final data = jsonDecode(response.body);
-
     if (!mounted) return;
 
-    if (response.statusCode == 200 &&
-        data is Map<String, dynamic> &&
-        data['success'] == true) {
-      final records =
-          data['data'] as List<dynamic>? ?? <dynamic>[];
+    setState(() {
+      _loadingCustomers = true;
+    });
 
-      setState(() {
-        _customers
-          ..clear()
-          ..addAll(
-            records.map(
-              (item) => Map<String, dynamic>.from(item as Map),
-            ),
-          );
-      });
-    } else {
-      _showMessage(
-        data is Map
-            ? data['message']?.toString() ??
-                'Unable to load customers.'
-            : 'Unable to load customers.',
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConfig.customers),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
       );
-    }
-  } catch (error) {
-    if (!mounted) return;
 
-    _showMessage(
-      'Unable to load customers from server: $error',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _loadingCustomers = false;
-      });
+      final data = jsonDecode(response.body);
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 &&
+          data is Map<String, dynamic> &&
+          data['success'] == true) {
+        final records = data['data'] as List<dynamic>? ?? <dynamic>[];
+
+        setState(() {
+          _customers
+            ..clear()
+            ..addAll(
+              records.map((item) => Map<String, dynamic>.from(item as Map)),
+            );
+        });
+      } else {
+        _showMessage(
+          data is Map
+              ? data['message']?.toString() ?? 'Unable to load customers.'
+              : 'Unable to load customers.',
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      _showMessage('Unable to load customers from server: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingCustomers = false;
+        });
+      }
     }
   }
-}
-
 Future<void> _loadCustomerProducts() async {
-  final customer = _selectedCustomer;
+  final Map<String, dynamic>? customer =
+      _selectedCustomer;
 
-  if (customer == null) return;
+  if (customer == null) {
+    return;
+  }
 
-  final customerId =
-      customer['customerId']?.toString() ?? '';
+  final String customerId =
+      (customer['customerId'] ?? '')
+          .toString()
+          .trim();
 
   if (customerId.isEmpty) {
-    _showMessage('Customer ID not found.');
+    _showMessage(
+      'Customer ID not found.',
+    );
     return;
   }
 
   setState(() {
     _loadingProducts = true;
+
     _saleProducts.clear();
+
     _cart.clear();
+
     _selectedAllocation = null;
   });
 
   try {
-    final response = await http.get(
+    // ==========================================================
+    // CUSTOMER RATE
+    //
+    // We still need customer rate even for salesman because
+    // stock and selling rate are two different things.
+    // ==========================================================
+
+    final http.Response rateResponse =
+        await http.get(
       Uri.parse(
         '${ApiConfig.customerRates}/$customerId',
       ),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${ApiConfig.token}',
+      headers: <String, String>{
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
       },
     );
 
-    final data = jsonDecode(response.body);
+    final dynamic rateDecoded =
+        jsonDecode(
+      rateResponse.body,
+    );
 
-    if (!mounted) return;
+    if (rateResponse.statusCode != 200 ||
+        rateDecoded is! Map ||
+        rateDecoded['success'] != true) {
+      final String message =
+          rateDecoded is Map
+              ? rateDecoded['message']
+                      ?.toString() ??
+                  'Unable to load customer rates.'
+              : 'Unable to load customer rates.';
 
-    if (response.statusCode == 200 &&
-        data is Map<String, dynamic> &&
-        data['success'] == true) {
-      final records =
-          data['data'] as List<dynamic>? ?? <dynamic>[];
+      throw Exception(message);
+    }
 
-      final loadedProducts =
+    final List<dynamic> rateRecords =
+        rateDecoded['data'] is List
+            ? rateDecoded['data']
+                as List<dynamic>
+            : <dynamic>[];
+
+    // ==========================================================
+    // PRODUCT ID -> CUSTOMER RATE
+    // ==========================================================
+
+    final Map<String, Map<String, dynamic>>
+        rateMap =
+        <String, Map<String, dynamic>>{};
+
+    for (final dynamic raw
+        in rateRecords) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final Map<String, dynamic> item =
+          Map<String, dynamic>.from(
+        raw,
+      );
+
+      final String productId =
+          (item['productId'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase();
+
+      if (productId.isEmpty) {
+        continue;
+      }
+
+      rateMap[productId] = item;
+    }
+
+    // ==========================================================
+    // ADMIN
+    //
+    // Keep current warehouse/product-stock behaviour.
+    // Do not affect admin sale logic.
+    // ==========================================================
+
+    if (!_isSalesman) {
+      final List<Map<String, dynamic>>
+          loadedProducts =
           <Map<String, dynamic>>[];
 
-      for (final item in records) {
-        final map =
-            Map<String, dynamic>.from(item as Map);
+      for (final dynamic raw
+          in rateRecords) {
+        if (raw is! Map) {
+          continue;
+        }
 
-        loadedProducts.add({
-          'productId':
-              map['productId']?.toString() ?? '',
+        final Map<String, dynamic> map =
+            Map<String, dynamic>.from(
+          raw,
+        );
 
-          'product':
-              map['productName']?.toString() ?? '',
+        loadedProducts.add(
+          <String, dynamic>{
+            'productId':
+                (map['productId'] ?? '')
+                    .toString(),
 
-          'variant':
-              map['variant']?.toString() ?? '',
+            'product':
+                (map['productName'] ?? '')
+                    .toString(),
 
-          'unit':
-              map['unit']?.toString() ?? 'Pcs',
+            'variant':
+                (map['variant'] ?? '')
+                    .toString(),
 
-          'qty':
-              int.tryParse(
-                    map['stock']?.toString() ?? '0',
-                  ) ??
-                  0,
+            'unit':
+                (map['unit'] ?? 'Pcs')
+                    .toString(),
 
-          'returnedQty': 0,
-          'soldQty': 0,
+            // ADMIN = CENTRAL STOCK
+            'qty':
+                _asInt(
+              map['stock'],
+            ),
 
-          'rate':
-              double.tryParse(
-                    map['specialRate']?.toString() ?? '0',
-                  ) ??
-                  0,
+            'returnedQty': 0,
 
-          'defaultRate':
-              double.tryParse(
-                    map['defaultRate']?.toString() ?? '0',
-                  ) ??
-                  0,
+            'soldQty': 0,
 
-          'hasCustomRate':
-              map['hasCustomRate'] == true,
+            'rate':
+                double.tryParse(
+                  map['specialRate']
+                          ?.toString() ??
+                      '0',
+                ) ??
+                0,
 
-          'route':
-              customer['route']?.toString() ?? '',
+            'defaultRate':
+                double.tryParse(
+                  map['defaultRate']
+                          ?.toString() ??
+                      '0',
+                ) ??
+                0,
 
-          'salesman': 'Admin',
-        });
+            'hasCustomRate':
+                map['hasCustomRate'] ==
+                    true,
+
+            'route':
+                (customer['route'] ?? '')
+                    .toString(),
+
+            'salesman':
+                'Admin',
+          },
+        );
+      }
+
+      if (!mounted) {
+        return;
       }
 
       setState(() {
         _saleProducts
           ..clear()
-          ..addAll(loadedProducts);
+          ..addAll(
+            loadedProducts,
+          );
 
-        if (_saleProducts.isNotEmpty) {
-          _selectedAllocation =
-              _saleProducts.first;
-
-          _setSuggestedRate();
-        }
+        _selectFirstAvailableAllocation();
       });
-    } else {
-      _showMessage(
-        data is Map
-            ? data['message']?.toString() ??
-                'Unable to load products.'
-            : 'Unable to load products.',
+
+      return;
+    }
+
+    // ==========================================================
+    // SALESMAN
+    //
+    // IMPORTANT:
+    // Salesman must NEVER use warehouse stock here.
+    //
+    // Stock source:
+    // GET /api/salesman-stock/my
+    // ==========================================================
+
+    final http.Response stockResponse =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/api/salesman-stock/my',
+      ),
+      headers: <String, String>{
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final dynamic stockDecoded =
+        jsonDecode(
+      stockResponse.body,
+    );
+
+    if (stockResponse.statusCode != 200 ||
+        stockDecoded is! Map ||
+        stockDecoded['success'] != true) {
+      final String message =
+          stockDecoded is Map
+              ? stockDecoded['message']
+                      ?.toString() ??
+                  'Unable to load salesman stock.'
+              : 'Unable to load salesman stock.';
+
+      throw Exception(message);
+    }
+
+    final dynamic rawStockData =
+        stockDecoded['data'];
+
+    if (rawStockData is! Map) {
+      throw Exception(
+        'Invalid salesman stock response.',
       );
     }
+
+    final Map<String, dynamic> stockData =
+        Map<String, dynamic>.from(
+      rawStockData,
+    );
+
+    final List<dynamic> stockRecords =
+        stockData['products'] is List
+            ? stockData['products']
+                as List<dynamic>
+            : <dynamic>[];
+
+    // ==========================================================
+    // WHEN EDITING A SALE
+    //
+    // /salesman-stock/my has already deducted the existing
+    // sale quantity.
+    //
+    // We must temporarily add the quantity of the bill being
+    // edited back to the allowed quantity.
+    //
+    // Example:
+    //
+    // Allocation remaining after sale = 5
+    // Existing bill qty              = 10
+    //
+    // During edit maximum allowed    = 15
+    // ==========================================================
+
+    final Map<String, int>
+        editingOriginalQty =
+        <String, int>{};
+
+    if (_isEditingSale &&
+        _editingSaleId != null) {
+      SaleModel? editingSale;
+
+      for (final SaleModel sale
+          in _serverSales) {
+        if (sale.id ==
+                _editingSaleId ||
+            sale.saleId ==
+                _editingSaleId) {
+          editingSale = sale;
+          break;
+        }
+      }
+
+      if (editingSale != null) {
+        for (final SaleProductModel product
+            in editingSale.products) {
+          final String id =
+              product.productId
+                  .trim()
+                  .toUpperCase();
+
+          editingOriginalQty[id] =
+              (editingOriginalQty[id] ??
+                      0) +
+                  product.quantity;
+        }
+      }
+    }
+
+    // ==========================================================
+    // BUILD SALESMAN PRODUCT LIST
+    // ==========================================================
+
+    final List<Map<String, dynamic>>
+        loadedProducts =
+        <Map<String, dynamic>>[];
+
+    final Set<String> loadedIds =
+        <String>{};
+
+    for (final dynamic raw
+        in stockRecords) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final Map<String, dynamic> stock =
+          Map<String, dynamic>.from(
+        raw,
+      );
+
+      final String productId =
+          (stock['productId'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase();
+
+      if (productId.isEmpty) {
+        continue;
+      }
+
+      final int available =
+          _asInt(
+        stock['available'],
+      );
+
+      final int oldEditQuantity =
+          editingOriginalQty[productId] ??
+              0;
+
+      // Available stock salesman is allowed to use.
+      final int allowedQuantity =
+          available +
+          oldEditQuantity;
+
+      if (allowedQuantity <= 0) {
+        continue;
+      }
+
+      final Map<String, dynamic>? rate =
+          rateMap[productId];
+
+      final double defaultRate =
+          double.tryParse(
+            rate?['defaultRate']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+      double sellingRate =
+          double.tryParse(
+            rate?['specialRate']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+      if (sellingRate <= 0) {
+        sellingRate =
+            defaultRate;
+      }
+
+      loadedProducts.add(
+        <String, dynamic>{
+          'productId':
+              productId,
+
+          'product':
+              (stock['productName'] ?? '')
+                  .toString(),
+
+          'variant':
+              (stock['variant'] ?? '')
+                  .toString(),
+
+          'unit':
+              (stock['unit'] ?? 'Pcs')
+                  .toString(),
+
+          // IMPORTANT:
+          // This is NOT warehouse stock.
+          //
+          // qty = salesman remaining allocation.
+          'qty':
+              allowedQuantity,
+
+          // Already accounted by backend stock API.
+          'returnedQty':
+              0,
+
+          'soldQty':
+              0,
+
+          'rate':
+              sellingRate,
+
+          'defaultRate':
+              defaultRate,
+
+          'hasCustomRate':
+              rate?['hasCustomRate'] ==
+                  true,
+
+          'route':
+              (stockData['routeName'] ??
+                      customer['route'] ??
+                      '')
+                  .toString(),
+
+          'salesman':
+              (stockData[
+                          'salesmanName'] ??
+                      '')
+                  .toString(),
+
+          // Optional display/debug values
+          'allocatedQty':
+              _asInt(
+            stock['allocated'],
+          ),
+
+          'actualSoldQty':
+              _asInt(
+            stock['sold'],
+          ),
+
+          'actualReturnedQty':
+              _asInt(
+            stock['returned'],
+          ),
+
+          'availableQty':
+              available,
+        },
+      );
+
+      loadedIds.add(
+        productId,
+      );
+    }
+
+    // ==========================================================
+    // IMPORTANT EDIT CASE
+    //
+    // Your backend currently returns only products having
+    // available > 0.
+    //
+    // A product may have:
+    //
+    // Available now = 0
+    // Existing edited bill = 10
+    //
+    // It therefore does not come from salesman-stock API.
+    // We still need it while editing that existing bill.
+    // ==========================================================
+
+    if (_isEditingSale) {
+      for (final MapEntry<String, int> entry
+          in editingOriginalQty.entries) {
+        if (entry.value <= 0 ||
+            loadedIds.contains(
+              entry.key,
+            )) {
+          continue;
+        }
+
+        final Map<String, dynamic>? rate =
+            rateMap[entry.key];
+
+        if (rate == null) {
+          continue;
+        }
+
+        final double defaultRate =
+            double.tryParse(
+              rate['defaultRate']
+                      ?.toString() ??
+                  '0',
+            ) ??
+            0;
+
+        double sellingRate =
+            double.tryParse(
+              rate['specialRate']
+                      ?.toString() ??
+                  '0',
+            ) ??
+            0;
+
+        if (sellingRate <= 0) {
+          sellingRate =
+              defaultRate;
+        }
+
+        loadedProducts.add(
+          <String, dynamic>{
+            'productId':
+                entry.key,
+
+            'product':
+                (rate['productName'] ?? '')
+                    .toString(),
+
+            'variant':
+                (rate['variant'] ?? '')
+                    .toString(),
+
+            'unit':
+                (rate['unit'] ?? 'Pcs')
+                    .toString(),
+
+            // Existing bill quantity can at least
+            // remain unchanged.
+            'qty':
+                entry.value,
+
+            'returnedQty':
+                0,
+
+            'soldQty':
+                0,
+
+            'rate':
+                sellingRate,
+
+            'defaultRate':
+                defaultRate,
+
+            'hasCustomRate':
+                rate['hasCustomRate'] ==
+                    true,
+
+            'route':
+                (stockData['routeName'] ??
+                        customer['route'] ??
+                        '')
+                    .toString(),
+
+            'salesman':
+                (stockData[
+                            'salesmanName'] ??
+                        '')
+                    .toString(),
+
+            'allocatedQty':
+                entry.value,
+
+            'actualSoldQty':
+                entry.value,
+
+            'actualReturnedQty':
+                0,
+
+            'availableQty':
+                0,
+          },
+        );
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _saleProducts
+        ..clear()
+        ..addAll(
+          loadedProducts,
+        );
+
+      _selectFirstAvailableAllocation();
+    });
   } catch (error) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
+    String message =
+        error.toString();
+
+    if (message.startsWith(
+      'Exception: ',
+    )) {
+      message =
+          message.substring(
+        'Exception: '.length,
+      );
+    }
 
     _showMessage(
-      'Unable to load customer products: $error',
+      'Unable to load products: $message',
     );
   } finally {
     if (mounted) {
@@ -693,8 +1328,6 @@ Future<void> _loadCustomerProducts() async {
     }
   }
 }
-
-
   void _addProductToSale() {
     final allocation = _selectedAllocation;
     final quantity = int.tryParse(_quantityController.text);
@@ -725,115 +1358,225 @@ Future<void> _loadCustomerProducts() async {
     _showMessage('${allocation['product']} added to this sale.', color: _green);
   }
 
-Future<void> _completeSale() async {
-  if (_savingSale) return;
+  Future<void> _completeSale() async {
+    if (_savingSale) {
+      return;
+    }
 
-  if (!(_formKey.currentState?.validate() ?? false)) {
-    return;
-  }
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
 
-  final customer = _selectedCustomer;
+    final customer = _selectedCustomer;
 
-  if (customer == null) {
-    _showMessage('Please select a customer.');
-    return;
-  }
+    if (customer == null) {
+      _showMessage('Please select a customer.');
+      return;
+    }
 
-  if (_cart.isEmpty) {
-    _showMessage(
-      'Add at least one product before completing the sale.',
-    );
-    return;
-  }
+    if (_cart.isEmpty) {
+      _showMessage('Add at least one product before completing the sale.');
+      return;
+    }
+    if (_isPaymentOverAmount) {
+      _showMessage('Paid amount cannot be greater than bill amount.');
+      return;
+    }
 
-  final customerId =
-      customer['customerId']?.toString() ?? '';
+    final customerId = customer['customerId']?.toString() ?? '';
 
-  if (customerId.isEmpty) {
-    _showMessage('Customer ID not found.');
-    return;
-  }
+    if (customerId.isEmpty) {
+      _showMessage('Customer ID not found.');
+      return;
+    }
 
-  setState(() {
-    _savingSale = true;
-  });
+    if (_isEditingSale && (_editingSaleId == null || _editingSaleId!.isEmpty)) {
+      _showMessage('Sale ID is missing. Unable to update sale.');
+      return;
+    }
 
-  try {
-    final response = await http.post(
-      Uri.parse(ApiConfig.sales),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${ApiConfig.token}',
-      },
-      body: jsonEncode({
+    setState(() {
+      _savingSale = true;
+    });
+
+    try {
+      // ============================================================
+      // REQUEST
+      // ============================================================
+
+      final requestBody = jsonEncode({
         'saleDate': _selectedDate.toIso8601String(),
+
         'customerId': customerId,
-        'paymentMode': _paymentMode,
+
+        'paymentMode': _calculatedPaymentMode,
+
+        'payments': _paymentBreakup,
+
+        'paidAmount': _paidAmount,
+
+        'outstandingAmount': _outstandingAmount,
+
+        'paymentStatus': _calculatedPaymentStatus,
+
         'products': _cart.map((line) {
           return {
-            'productId':
-                line.allocation['productId']?.toString() ?? '',
+            'productId': line.allocation['productId']?.toString() ?? '',
+
             'quantity': line.quantity,
           };
         }).toList(),
-      }),
-    );
-
-    final data = jsonDecode(response.body);
-
-    if (!mounted) return;
-
-    if (response.statusCode == 201 &&
-        data is Map<String, dynamic> &&
-        data['success'] == true) {
-      final saleData =
-          data['data'] as Map<String, dynamic>?;
-
-      final saleNo =
-          saleData?['saleNo']?.toString() ?? '';
-
-      _showMessage(
-        saleNo.isEmpty
-            ? 'Sale saved successfully.'
-            : 'Sale $saleNo saved successfully.',
-        color: _green,
-      );
-
-      // Keep same customer selected so we can
-      // immediately reload updated stock.
-      setState(() {
-        _cart.clear();
-        _quantityController.clear();
-        _rateController.clear();
-        _selectedAllocation = null;
       });
 
-      // Reload products from server.
-      // This will show reduced stock immediately.
-     await _loadCustomerProducts();
-await _loadSales();
-    } else {
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      };
+
+      late http.Response response;
+
+      // ============================================================
+      // CREATE / UPDATE
+      // ============================================================
+
+      if (_isEditingSale) {
+        response = await http.put(
+          Uri.parse(
+            '${ApiConfig.sales}/${Uri.encodeComponent(_editingSaleId!)}',
+          ),
+          headers: headers,
+          body: requestBody,
+        );
+      } else {
+        response = await http.post(
+          Uri.parse(ApiConfig.sales),
+          headers: headers,
+          body: requestBody,
+        );
+      }
+
+      // ============================================================
+      // RESPONSE
+      // ============================================================
+
+      dynamic data;
+
+      try {
+        data = jsonDecode(response.body);
+      } catch (_) {
+        data = null;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      final successStatus = _isEditingSale
+          ? response.statusCode == 200
+          : response.statusCode == 201;
+
+      if (successStatus &&
+          data is Map<String, dynamic> &&
+          data['success'] == true) {
+        final wasEditing = _isEditingSale;
+
+        final saleData = data['data'] as Map<String, dynamic>?;
+
+        final saleNo = saleData?['saleNo']?.toString() ?? _editingSaleNo ?? '';
+
+        _showMessage(
+          data['message']?.toString() ??
+              (wasEditing
+                  ? 'Sale updated successfully.'
+                  : saleNo.isEmpty
+                  ? 'Sale saved successfully.'
+                  : 'Sale $saleNo saved successfully.'),
+          color: _green,
+        );
+
+        // ==========================================================
+        // RESET SCREEN
+        // ==========================================================
+
+        setState(() {
+          _cart.clear();
+
+          _quantityController.clear();
+
+          _rateController.clear();
+
+          _cashPaymentController.clear();
+
+          _upiPaymentController.clear();
+
+          _bankPaymentController.clear();
+
+          _productSearchController.clear();
+
+          _selectedAllocation = null;
+
+          _isEditingSale = false;
+
+          _editingSaleId = null;
+
+          _editingSaleNo = null;
+
+          // After UPDATE return to My Sales.
+          if (wasEditing) {
+            _isCreatingSale = false;
+
+            _selectedCustomer = null;
+
+            _saleProducts.clear();
+
+            _customerController.clear();
+
+            _paymentMode = 'Credit';
+          }
+        });
+
+        // ==========================================================
+        // REFRESH DATA
+        // ==========================================================
+
+        if (!wasEditing && _selectedCustomer != null) {
+          await _loadCustomerProducts();
+        }
+
+        await _loadSales();
+
+        return;
+      }
+
       _showMessage(
         data is Map
             ? data['message']?.toString() ??
-                'Unable to save sale.'
-            : 'Unable to save sale.',
+                  (_isEditingSale
+                      ? 'Unable to update sale.'
+                      : 'Unable to save sale.')
+            : (_isEditingSale
+                  ? 'Unable to update sale.'
+                  : 'Unable to save sale.'),
       );
-    }
-  } catch (error) {
-    if (!mounted) return;
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-    _showMessage(
-      'Unable to save sale: $error',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _savingSale = false;
-      });
+      _showMessage(
+        _isEditingSale
+            ? 'Unable to update sale: $error'
+            : 'Unable to save sale: $error',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingSale = false;
+        });
+      }
     }
   }
-}
   // void _completeSale() {
   //   if (!(_formKey.currentState?.validate() ?? false)) return;
   //   if (_cart.isEmpty) {
@@ -926,76 +1669,64 @@ await _loadSales();
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
-          children: <Widget>[
-  Container(
-    padding: const EdgeInsets.all(16),
-    decoration: _cardDecoration(),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _buildNumberedHeading(
-          1,
-          'Sale Information',
-        ),
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: _cardDecoration(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _buildNumberedHeading(1, 'Sale Information'),
 
-        const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: _buildDateField(),
-            ),
+                    Row(
+                      children: <Widget>[
+                        Expanded(child: _buildDateField()),
 
-            const SizedBox(width: 10),
+                        const SizedBox(width: 10),
 
-            Expanded(
-              child: _buildRouteAllocationField(),
-            ),
-          ],
-        ),
-      ],
-    ),
-  ),
+                        Expanded(child: _buildRouteAllocationField()),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
 
-  const SizedBox(height: 10),
+              const SizedBox(height: 10),
 
-  _buildCustomerInformationPanel(),
+              _buildCustomerInformationPanel(),
 
-  if (_selectedCustomer != null) ...<Widget>[
-    const SizedBox(height: 10),
+              if (_selectedCustomer != null) ...<Widget>[
+                const SizedBox(height: 10),
 
-    if (_loadingProducts)
-      const Padding(
-        padding: EdgeInsets.all(30),
-        child: Center(
-          child: CircularProgressIndicator(),
-        ),
-      )
-    else if (_saleProducts.isEmpty)
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(24),
-        decoration: _cardDecoration(),
-        child: const Text(
-          'No products available.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: _muted,
-          ),
-        ),
-      )
-    else
-      _buildSmartProductInformationPanel(),
+                if (_loadingProducts)
+                  const Padding(
+                    padding: EdgeInsets.all(30),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_saleProducts.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: _cardDecoration(),
+                    child: const Text(
+                      'No products available.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: _muted),
+                    ),
+                  )
+                else
+                  _buildSmartProductInformationPanel(),
 
-    if (!_loadingProducts &&
-        _saleProducts.isNotEmpty) ...<Widget>[
-      const SizedBox(height: 10),
-      _buildSaleSummaryPanel(),
-    ],
+                if (!_loadingProducts && _saleProducts.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 10),
+                  _buildSaleSummaryPanel(),
+                ],
 
-    const SizedBox(height: 48),
-  ],
-],
+                const SizedBox(height: 48),
+              ],
+            ],
           ),
         ),
       ),
@@ -1021,7 +1752,46 @@ await _loadSales();
               children: <Widget>[
                 IconButton(
                   tooltip: 'Back to sales',
-                  onPressed: () => setState(() => _isCreatingSale = false),
+                  onPressed: () {
+                    setState(() {
+                      _isCreatingSale = false;
+
+                      _isEditingSale = false;
+
+                      _editingSaleId = null;
+
+                      _editingSaleNo = null;
+
+                      _selectedCustomer = null;
+
+                      _selectedAllocation = null;
+
+                      _saleProducts.clear();
+
+                      _cart.clear();
+
+                      _customerController.clear();
+
+                      _quantityController.clear();
+
+                      _rateController.clear();
+
+                     _productSearchController
+    .clear();
+
+_cashPaymentController
+    .clear();
+
+_upiPaymentController
+    .clear();
+
+_bankPaymentController
+    .clear();
+
+_paymentMode =
+    'Credit';
+                    });
+                  },
                   icon: const Icon(
                     Icons.arrow_back_rounded,
                     color: Colors.white,
@@ -1029,23 +1799,36 @@ await _loadSales();
                   ),
                 ),
                 const SizedBox(width: 6),
-                const Expanded(
+                Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        'Create New Sale',
-                        style: TextStyle(
+                        _isEditingSale ? 'Edit Sale' : 'Create New Sale',
+
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 25,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      SizedBox(height: 4),
+
+                      const SizedBox(height: 4),
+
                       Text(
-                        'Milk Distribution',
-                        style: TextStyle(
+                        _isEditingSale
+                            ? (_editingSaleNo != null &&
+                                      _editingSaleNo!.isNotEmpty
+                                  ? 'Update ${_editingSaleNo!}'
+                                  : 'Update existing sale')
+                            : 'Milk Distribution',
+
+                        maxLines: 1,
+
+                        overflow: TextOverflow.ellipsis,
+
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -1205,19 +1988,21 @@ await _loadSales();
     );
   }
 
-List<SaleModel> get _salesSource => _serverSales;
+  List<SaleModel> get _salesSource => _serverSales;
 
-
-
-List<SaleModel> get _filteredSales {
-  final query = _searchController.text.trim().toLowerCase();
-  final now = DateTime.now();
+  List<SaleModel> get _filteredSales {
+    final query = _searchController.text.trim().toLowerCase();
+    final now = DateTime.now();
     return _salesSource.where((sale) {
+      final matchesProduct = sale.products.any(
+        (product) => product.productName.toLowerCase().contains(query),
+      );
+
       final matchesQuery =
           query.isEmpty ||
           sale.id.toLowerCase().contains(query) ||
           sale.customerName.toLowerCase().contains(query) ||
-          sale.product.toLowerCase().contains(query);
+          matchesProduct;
       if (!matchesQuery) return false;
       return switch (_selectedPeriod) {
         _SalesPeriod.all => true,
@@ -1231,25 +2016,18 @@ List<SaleModel> get _filteredSales {
     }).toList();
   }
 
-double get _monthlySalesTotal {
-  final now =
-      DateTime.now();
+  double get _monthlySalesTotal {
+    final now = DateTime.now();
 
-  return _salesSource
-      .where(
-        (sale) =>
-            !_isSaleCancelled(sale) &&
-            sale.date.year ==
-                now.year &&
-            sale.date.month ==
-                now.month,
-      )
-      .fold<double>(
-        0,
-        (total, sale) =>
-            total + sale.total,
-      );
-}
+    return _salesSource
+        .where(
+          (sale) =>
+              !_isSaleCancelled(sale) &&
+              sale.date.year == now.year &&
+              sale.date.month == now.month,
+        )
+        .fold<double>(0, (total, sale) => total + sale.total);
+  }
 
   Widget _buildMonthlySummary() {
     return Container(
@@ -1430,8 +2208,7 @@ double get _monthlySalesTotal {
     ];
     final index = _salesSource.indexOf(sale);
     final accent = accents[index.abs() % accents.length];
-    final isCancelled =
-    _isSaleCancelled(sale);
+    final isCancelled = _isSaleCancelled(sale);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.fromLTRB(16, 18, 13, 18),
@@ -1461,9 +2238,12 @@ double get _monthlySalesTotal {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Sale #${_displaySaleId(sale.id)}',
+                  sale.customerName.isEmpty ? 'Customer' : sale.customerName,
+
                   maxLines: 1,
+
                   overflow: TextOverflow.ellipsis,
+
                   style: const TextStyle(
                     color: _dark,
                     fontSize: 15.5,
@@ -1477,10 +2257,29 @@ double get _monthlySalesTotal {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Customer: ${sale.customerName}',
+                  sale.productSummary,
+
                   maxLines: 1,
+
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _muted, fontSize: 12.5),
+
+                  style: const TextStyle(
+                    color: _muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  sale.id,
+
+                  maxLines: 1,
+
+                  overflow: TextOverflow.ellipsis,
+
+                  style: const TextStyle(color: _muted, fontSize: 9.5),
                 ),
               ],
             ),
@@ -1489,33 +2288,28 @@ double get _monthlySalesTotal {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-      Container(
-  padding:
-      const EdgeInsets.symmetric(
-    horizontal: 11,
-    vertical: 6,
-  ),
-  decoration: BoxDecoration(
-    color: isCancelled
-        ? const Color(0xFFFFE5E5)
-        : const Color(0xFFDDF8E8),
-    borderRadius:
-        BorderRadius.circular(20),
-  ),
-  child: Text(
-    isCancelled
-        ? 'Cancelled'
-        : 'Completed',
-    style: TextStyle(
-      color: isCancelled
-          ? AppColors.error
-          : const Color(0xFF21884B),
-      fontSize: 10.5,
-      fontWeight:
-          FontWeight.w800,
-    ),
-  ),
-),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: isCancelled
+                      ? const Color(0xFFFFE5E5)
+                      : const Color(0xFFDDF8E8),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  isCancelled ? 'Cancelled' : 'Completed',
+                  style: TextStyle(
+                    color: isCancelled
+                        ? AppColors.error
+                        : const Color(0xFF21884B),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
               const SizedBox(height: 9),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1533,96 +2327,122 @@ double get _monthlySalesTotal {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        '${sale.quantity} Item${sale.quantity == 1 ? '' : 's'}',
-                        style: const TextStyle(color: _muted, fontSize: 11.5),
+                        '${sale.itemCount} '
+                        '${sale.itemCount == 1 ? 'Product' : 'Products'}'
+                        ' • ${sale.totalQuantity} Units',
+
+                        style: const TextStyle(color: _muted, fontSize: 10.5),
                       ),
                     ],
                   ),
                   const SizedBox(width: 6),
-                PopupMenuButton<String>(
-  tooltip: 'Sale actions',
+                  PopupMenuButton<String>(
+                    tooltip: 'Sale actions',
 
-  onSelected: (action) async {
-    if (action == 'pdf') {
-      _openBill(sale);
-      return;
-    }
+                    onSelected: (action) async {
+                      if (action == 'view') {
+                        await _viewSaleDetails(sale);
+                        return;
+                      }
 
-    if (action == 'whatsapp') {
-      _openBill(
-        sale,
-        openWhatsApp: true,
-      );
-      return;
-    }
+                      if (action == 'pdf') {
+                        _openBill(sale);
+                        return;
+                      }
 
-    if (action == 'cancel') {
-      await _cancelSale(sale);
-    }
-  },
+                      if (action == 'whatsapp') {
+                        _openBill(sale, openWhatsApp: true);
+                        return;
+                      }
 
-  itemBuilder: (_) {
-    return <PopupMenuEntry<String>>[
-      const PopupMenuItem<String>(
-        value: 'pdf',
-        child: ListTile(
-          leading: Icon(
-            Icons.picture_as_pdf_outlined,
-          ),
-          title: Text(
-            'View PDF Bill',
-          ),
-          contentPadding:
-              EdgeInsets.zero,
-        ),
-      ),
+                      if (action == 'edit') {
+                        await _editSale(sale);
+                        return;
+                      }
+                      if (action == 'cancel') {
+                        await _cancelSale(sale);
+                      }
+                    },
 
-      const PopupMenuItem<String>(
-        value: 'whatsapp',
-        child: ListTile(
-          leading: Icon(
-            Icons.chat_outlined,
-          ),
-          title: Text(
-            'Send on WhatsApp',
-          ),
-          contentPadding:
-              EdgeInsets.zero,
-        ),
-      ),
+                    itemBuilder: (_) {
+                      return <PopupMenuEntry<String>>[
+                        const PopupMenuItem<String>(
+                          value: 'view',
+                          child: ListTile(
+                            leading: Icon(Icons.visibility_outlined),
+                            title: Text('View Details'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
 
-      if (!isCancelled)
-        const PopupMenuDivider(),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem<String>(
+                          value: 'pdf',
+                          child: ListTile(
+                            leading: Icon(Icons.picture_as_pdf_outlined),
+                            title: Text('View PDF Bill'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
 
-      if (!isCancelled)
-        PopupMenuItem<String>(
-          value: 'cancel',
-          child: ListTile(
-            leading: Icon(
-              Icons.cancel_outlined,
-              color: AppColors.error,
-            ),
-            title: Text(
-              'Cancel Sale',
-              style: TextStyle(
-                color: AppColors.error,
-                fontWeight:
-                    FontWeight.w700,
-              ),
-            ),
-            contentPadding:
-                EdgeInsets.zero,
-          ),
-        ),
-    ];
-  },
+                        const PopupMenuItem<String>(
+                          value: 'whatsapp',
+                          child: ListTile(
+                            leading: Icon(Icons.chat_outlined),
+                            title: Text('Send on WhatsApp'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
 
-  icon: const Icon(
-    Icons.more_vert_rounded,
-    color: _muted,
-    size: 24,
-  ),
-),
+                        if (!isCancelled) const PopupMenuDivider(),
+
+                        if (!isCancelled)
+                          const PopupMenuItem<String>(
+                            value: 'edit',
+                            child: ListTile(
+                              leading: Icon(
+                                Icons.edit_outlined,
+                                color: _primary,
+                              ),
+                              title: Text(
+                                'Edit Sale',
+                                style: TextStyle(
+                                  color: _dark,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        if (!isCancelled) const PopupMenuDivider(),
+
+                        if (!isCancelled)
+                          PopupMenuItem<String>(
+                            value: 'cancel',
+                            child: ListTile(
+                              leading: Icon(
+                                Icons.cancel_outlined,
+                                color: AppColors.error,
+                              ),
+                              title: Text(
+                                'Cancel Sale',
+                                style: TextStyle(
+                                  color: AppColors.error,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                      ];
+                    },
+
+                    icon: const Icon(
+                      Icons.more_vert_rounded,
+                      color: _muted,
+                      size: 24,
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -1630,6 +2450,579 @@ double get _monthlySalesTotal {
         ],
       ),
     );
+  }
+
+  Future<void> _viewSaleDetails(SaleModel sale) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 700),
+            child: Column(
+              children: [
+                // ==================================================
+                // HEADER
+                // ==================================================
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 18, 10, 16),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF123E9E), Color(0xFF0876DF)],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      topRight: Radius.circular(18),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .14),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.receipt_long_outlined,
+                          color: Colors.white,
+                          size: 25,
+                        ),
+                      ),
+
+                      const SizedBox(width: 12),
+
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              sale.customerName.trim().isEmpty
+                                  ? 'Sale Details'
+                                  : sale.customerName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+
+                            const SizedBox(height: 3),
+
+                            Text(
+                              sale.id,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: .85),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                        },
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ==================================================
+                // SCROLLABLE DETAILS
+                // ==================================================
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ==========================================
+                        // SALE INFO
+                        // ==========================================
+                        const Text(
+                          'Sale Information',
+                          style: TextStyle(
+                            color: _dark,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceMuted,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Column(
+                            children: [
+                              _saleDetailRow('Bill No.', sale.id),
+
+                              _saleDetailDivider(),
+
+                              _saleDetailRow(
+                                'Date',
+                                '${_formatDate(sale.date)} • ${_formatTime(sale.date)}',
+                              ),
+
+                              _saleDetailDivider(),
+
+                              _saleDetailRow(
+                                'Customer',
+                                sale.customerName.trim().isEmpty
+                                    ? '-'
+                                    : sale.customerName,
+                              ),
+
+                              _saleDetailDivider(),
+
+                              _saleDetailRow(
+                                'Customer ID',
+                                sale.customerId.trim().isEmpty
+                                    ? '-'
+                                    : sale.customerId,
+                              ),
+
+                              if (sale.customerMobile.trim().isNotEmpty) ...[
+                                _saleDetailDivider(),
+
+                                _saleDetailRow('Mobile', sale.customerMobile),
+                              ],
+
+                              if (sale.route.trim().isNotEmpty) ...[
+                                _saleDetailDivider(),
+
+                                _saleDetailRow('Route', sale.route),
+                              ],
+
+                              if (sale.salesman.trim().isNotEmpty) ...[
+                                _saleDetailDivider(),
+
+                                _saleDetailRow('Created By', sale.salesman),
+                              ],
+
+                              _saleDetailDivider(),
+
+                              _saleDetailRow('Payment', sale.paymentMode),
+
+                              _saleDetailDivider(),
+
+                              _saleDetailRow(
+                                'Status',
+                                sale.isCancelled ? 'Cancelled' : 'Posted',
+                                valueColor: sale.isCancelled
+                                    ? AppColors.error
+                                    : AppColors.success,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        // ==========================================
+                        // PRODUCTS
+                        // ==========================================
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Products',
+                                style: TextStyle(
+                                  color: _dark,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+
+                            Text(
+                              '${sale.itemCount} ${sale.itemCount == 1 ? 'Product' : 'Products'}',
+                              style: const TextStyle(
+                                color: _primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Column(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 10,
+                                ),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFF0F5FD),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: Radius.circular(11),
+                                    topRight: Radius.circular(11),
+                                  ),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 4,
+                                      child: Text(
+                                        'Product',
+                                        style: TextStyle(
+                                          color: _dark,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        'Qty',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: _dark,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        'Rate',
+                                        textAlign: TextAlign.right,
+                                        style: TextStyle(
+                                          color: _dark,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text(
+                                        'Amount',
+                                        textAlign: TextAlign.right,
+                                        style: TextStyle(
+                                          color: _dark,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              if (sale.products.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(20),
+                                  child: Text(
+                                    'No products found.',
+                                    style: TextStyle(color: _muted),
+                                  ),
+                                )
+                              else
+                                ...sale.products.asMap().entries.map((entry) {
+                                  final index = entry.key;
+
+                                  final product = entry.value;
+
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 11,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border(
+                                        bottom: BorderSide(
+                                          color:
+                                              index == sale.products.length - 1
+                                              ? Colors.transparent
+                                              : AppColors.border,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          flex: 4,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                product.productName,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: _dark,
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+
+                                              if (product.variant
+                                                  .trim()
+                                                  .isNotEmpty)
+                                                Text(
+                                                  product.variant,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: _muted,
+                                                    fontSize: 8.5,
+                                                  ),
+                                                ),
+
+                                              if (product.hasSpecialRate)
+                                                const Text(
+                                                  'Special Rate',
+                                                  style: TextStyle(
+                                                    color: AppColors.success,
+                                                    fontSize: 8,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            '${product.quantity} ${product.unit}',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: _dark,
+                                              fontSize: 9.5,
+                                            ),
+                                          ),
+                                        ),
+
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            '₹${_formatMoney(product.rate)}',
+                                            textAlign: TextAlign.right,
+                                            style: const TextStyle(
+                                              color: _dark,
+                                              fontSize: 9.5,
+                                            ),
+                                          ),
+                                        ),
+
+                                        Expanded(
+                                          flex: 2,
+                                          child: Text(
+                                            '₹${_formatMoney(product.amount)}',
+                                            textAlign: TextAlign.right,
+                                            style: const TextStyle(
+                                              color: _dark,
+                                              fontSize: 9.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // ==========================================
+                        // TOTAL
+                        // ==========================================
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF3F7FE), Color(0xFFDCEAFF)],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            children: [
+                              _saleDetailRow(
+                                'Total Products',
+                                '${sale.itemCount}',
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              _saleDetailRow(
+                                'Total Quantity',
+                                '${sale.totalQuantity} Units',
+                              ),
+
+                              const Divider(height: 22),
+
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Grand Total',
+                                      style: TextStyle(
+                                        color: _dark,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+
+                                  Text(
+                                    '₹${_formatMoney(sale.total)}',
+                                    style: const TextStyle(
+                                      color: _primary,
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        if (sale.godown.trim().isNotEmpty) ...[
+                          const SizedBox(height: 12),
+
+                          Text(
+                            'Godown: ${sale.godown}',
+                            style: const TextStyle(color: _muted, fontSize: 10),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ==================================================
+                // BOTTOM BUTTONS
+                // ==================================================
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: AppColors.border)),
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(18),
+                      bottomRight: Radius.circular(18),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+
+                            _openBill(sale);
+                          },
+                          icon: const Icon(Icons.picture_as_pdf_outlined),
+                          label: const Text('PDF Bill'),
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                          },
+                          icon: const Icon(Icons.check_rounded),
+                          label: const Text('Close'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _saleDetailRow(String label, String value, {Color? valueColor}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 4,
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _muted,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 10),
+
+        Expanded(
+          flex: 6,
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: valueColor ?? _dark,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _saleDetailDivider() {
+    return const Divider(height: 18, color: AppColors.border);
   }
 
   void _openBill(SaleModel sale, {bool openWhatsApp = false}) {
@@ -1683,26 +3076,204 @@ double get _monthlySalesTotal {
     );
   }
 
-void _openCreateSale() {
-  setState(() {
-    _isCreatingSale = true;
+  Future<void> _editSale(SaleModel sale) async {
+    if (sale.isCancelled) {
+      _showMessage('Cancelled sale cannot be edited.');
+      return;
+    }
 
-    _selectedDate = DateTime.now();
+    // ============================================================
+    // FIND CUSTOMER FROM CURRENT CUSTOMER MASTER
+    // ============================================================
 
-    _selectedCustomer = null;
-    _selectedAllocation = null;
+    Map<String, dynamic>? customer;
 
-    _customerController.clear();
-    _quantityController.clear();
-    _rateController.clear();
-    _productSearchController.clear();
+    for (final item in _customers) {
+      final customerId =
+          item['customerId']?.toString().trim().toUpperCase() ?? '';
 
-    _saleProducts.clear();
-    _cart.clear();
+      if (customerId == sale.customerId.trim().toUpperCase()) {
+        customer = item;
+        break;
+      }
+    }
 
-    _paymentMode = 'Cash';
-  });
-}
+    if (customer == null) {
+      _showMessage(
+        'Customer ${sale.customerName} was not found in customer master.',
+      );
+      return;
+    }
+
+    // ============================================================
+    // ENTER EDIT MODE
+    // ============================================================
+
+    setState(() {
+      _isEditingSale = true;
+
+      _editingSaleId = sale.id;
+
+      _editingSaleNo = sale.id;
+
+      _isCreatingSale = true;
+
+      _selectedDate = sale.date;
+
+      _selectedCustomer = customer;
+
+      _selectedAllocation = null;
+
+      _customerController.text = sale.customerName;
+
+      _quantityController.clear();
+
+      _rateController.clear();
+    _cashPaymentController.text =
+    sale.cashAmount > 0
+        ? sale.cashAmount.toStringAsFixed(2)
+        : '';
+
+_upiPaymentController.text =
+    sale.upiAmount > 0
+        ? sale.upiAmount.toStringAsFixed(2)
+        : '';
+
+_bankPaymentController.text =
+    sale.bankTransferAmount > 0
+        ? sale.bankTransferAmount.toStringAsFixed(2)
+        : '';
+
+_productSearchController.clear();
+
+_paymentMode =
+    sale.paymentMode;
+
+      _saleProducts.clear();
+
+      _cart.clear();
+    });
+
+    // ============================================================
+    // LOAD CURRENT PRODUCTS / CURRENT CUSTOMER RATES
+    // ============================================================
+
+    await _loadCustomerProducts();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (_saleProducts.isEmpty) {
+      _showMessage('No products are available for this customer.');
+      return;
+    }
+
+    // ============================================================
+    // RESTORE BILL PRODUCTS INTO CART
+    // ============================================================
+
+    final restoredLines = <_SaleLineDraft>[];
+
+    for (final saleProduct in sale.products) {
+      Map<String, dynamic>? matchedProduct;
+
+      for (final availableProduct in _saleProducts) {
+        final productId =
+            availableProduct['productId']?.toString().trim().toUpperCase() ??
+            '';
+
+        if (productId == saleProduct.productId.trim().toUpperCase()) {
+          matchedProduct = availableProduct;
+          break;
+        }
+      }
+
+      if (matchedProduct == null) {
+        _showMessage(
+          '${saleProduct.productName} is no longer available in product master.',
+        );
+        continue;
+      }
+
+      // Use current customer-specific rate.
+      final currentRate =
+          double.tryParse(matchedProduct['rate']?.toString() ?? '0') ??
+          saleProduct.rate;
+
+      restoredLines.add(
+        _SaleLineDraft(
+          allocation: matchedProduct,
+
+          quantity: saleProduct.quantity,
+
+          rate: currentRate > 0 ? currentRate : saleProduct.rate,
+        ),
+      );
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _cart
+        ..clear()
+        ..addAll(restoredLines);
+
+      if (_saleProducts.isNotEmpty) {
+        _selectedAllocation = _saleProducts.first;
+
+        _setSuggestedRate();
+      }
+    });
+
+    if (restoredLines.isEmpty) {
+      _showMessage('Unable to restore products for this sale.');
+    }
+  }
+
+  void _openCreateSale() {
+    setState(() {
+      // ==========================================================
+      // NEW SALE MODE
+      // ==========================================================
+
+      _isEditingSale = false;
+
+      _editingSaleId = null;
+
+      _editingSaleNo = null;
+
+      _isCreatingSale = true;
+
+      _selectedDate = DateTime.now();
+
+      _selectedCustomer = null;
+
+      _selectedAllocation = null;
+
+      _customerController.clear();
+
+      _quantityController.clear();
+
+      _rateController.clear();
+
+      _productSearchController.clear();
+
+      _saleProducts.clear();
+
+      _cart.clear();
+
+      _cashPaymentController.clear();
+
+      _upiPaymentController.clear();
+
+      _bankPaymentController.clear();
+
+      _paymentMode = 'Credit';
+    });
+  }
 
   Widget _buildBottomNavigation() {
     return BottomNavigationBar(
@@ -1973,90 +3544,64 @@ void _openCreateSale() {
     );
   }
 
- Widget _buildRouteAllocationField() {
-  final customer = _selectedCustomer;
+  Widget _buildRouteAllocationField() {
+    final customer = _selectedCustomer;
 
-  final route =
-      customer?['route']
-          ?.toString()
-          .trim() ??
-      '';
+    final route = customer?['route']?.toString().trim() ?? '';
 
-  return Container(
-    height: 72,
-    padding: const EdgeInsets.symmetric(
-      horizontal: 14,
-    ),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius:
-          BorderRadius.circular(12),
-      border:
-          Border.all(
-        color: AppColors.border,
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
       ),
-    ),
-    child: Row(
-      children: <Widget>[
-        const Icon(
-          Icons.route_outlined,
-          color: _primary,
-          size: 27,
-        ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.route_outlined, color: _primary, size: 27),
 
-        const SizedBox(width: 12),
+          const SizedBox(width: 12),
 
-        Expanded(
-          child: Column(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: <Widget>[
-              const Text(
-                'Customer Route',
-                style: TextStyle(
-                  color: _muted,
-                  fontSize: 10,
-                  fontWeight:
-                      FontWeight.w700,
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'Customer Route',
+                  style: TextStyle(
+                    color: _muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 5),
+                const SizedBox(height: 5),
 
-              Text(
-                customer == null
-                    ? 'Select customer'
-                    : route.isEmpty
-                        ? 'No route assigned'
-                        : route,
-                maxLines: 1,
-                overflow:
-                    TextOverflow.ellipsis,
-                style: TextStyle(
-                  color:
-                      route.isEmpty
-                          ? _muted
-                          : _dark,
-                  fontSize: 13,
-                  fontWeight:
-                      FontWeight.w900,
+                Text(
+                  customer == null
+                      ? 'Select customer'
+                      : route.isEmpty
+                      ? 'No route assigned'
+                      : route,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: route.isEmpty ? _muted : _dark,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
 
-        const Icon(
-          Icons.route_rounded,
-          color: _primary,
-          size: 20,
-        ),
-      ],
-    ),
-  );
-}
+          const Icon(Icons.route_rounded, color: _primary, size: 20),
+        ],
+      ),
+    );
+  }
 
   Widget _buildCustomerInformationPanel() {
     return Container(
@@ -2065,183 +3610,823 @@ void _openCreateSale() {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _buildNumberedHeading(2, 'Customer Information'),
+          _buildNumberedHeading(2, 'Customer'),
+
           const SizedBox(height: 16),
-       DropdownButtonFormField<Map<String, dynamic>>(
-  value: _selectedCustomer,
-  isExpanded: true,
 
-  decoration: _referenceInputDecoration(
-    label: 'Customer Name',
-    icon: Icons.person_outline_rounded,
-    trailing: Icons.keyboard_arrow_down_rounded,
-  ),
+          DropdownButtonFormField<Map<String, dynamic>>(
+            value: _selectedCustomer,
+            isExpanded: true,
 
-  hint: Text(
-    _loadingCustomers
-        ? 'Loading customers...'
-        : 'Select Customer',
-  ),
-
-  items: _customers
-      .where(
-        (customer) =>
-            customer['isActive'] != false,
-      )
-      .map(
-        (customer) =>
-            DropdownMenuItem<Map<String, dynamic>>(
-          value: customer,
-          child: Text(
-            customer['name']?.toString() ?? '',
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      )
-      .toList(),
-
-onChanged: _loadingCustomers
-    ? null
-    : (customer) async {
-        if (customer == null) {
-          return;
-        }
-
-        setState(() {
-          _selectedCustomer =
-              customer;
-
-          _selectedAllocation =
-              null;
-
-          _saleProducts.clear();
-
-          _cart.clear();
-
-          _customerController.text =
-              customer['name']
-                      ?.toString() ??
-                  '';
-        });
-
-      await _loadCustomerProducts();
-      },
-
-  validator: (value) {
-    if (value == null) {
-      return 'Please select a customer';
-    }
-
-    return null;
-  },
-),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _paymentMode,
             decoration: _referenceInputDecoration(
-              label: 'Payment Mode',
-              icon: Icons.account_balance_wallet_outlined,
+              label: 'Customer Name',
+              icon: Icons.person_outline_rounded,
+              trailing: Icons.keyboard_arrow_down_rounded,
             ),
-            items: _paymentModes
+
+            hint: Text(
+              _loadingCustomers ? 'Loading customers...' : 'Select Customer',
+            ),
+
+            items: _customers
+                .where((customer) => customer['isActive'] != false)
                 .map(
-                  (mode) =>
-                      DropdownMenuItem<String>(value: mode, child: Text(mode)),
+                  (customer) => DropdownMenuItem<Map<String, dynamic>>(
+                    value: customer,
+                    child: Text(
+                      customer['name']?.toString() ?? '',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 )
                 .toList(),
-            onChanged: (value) {
-              if (value != null) setState(() => _paymentMode = value);
+
+            onChanged: _loadingCustomers
+                ? null
+                : (customer) async {
+                    if (customer == null) {
+                      return;
+                    }
+
+                    setState(() {
+                      _selectedCustomer = customer;
+
+                      _selectedAllocation = null;
+
+                      _saleProducts.clear();
+
+                      _cart.clear();
+
+                      _customerController.text =
+                          customer['name']?.toString() ?? '';
+                    });
+
+                    await _loadCustomerProducts();
+                  },
+
+            validator: (value) {
+              if (value == null) {
+                return 'Please select a customer';
+              }
+
+              return null;
             },
           ),
+
+          if (_selectedCustomer != null) ...[
+            const SizedBox(height: 12),
+
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.storefront_outlined,
+                    color: _primary,
+                    size: 20,
+                  ),
+
+                  const SizedBox(width: 10),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _selectedCustomer?['name']?.toString() ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _dark,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+
+                        const SizedBox(height: 2),
+
+                        Text(
+                          [
+                                _selectedCustomer?['route']?.toString() ?? '',
+                                _selectedCustomer?['mobile']?.toString() ?? '',
+                              ]
+                              .where((value) => value.trim().isNotEmpty)
+                              .join(' • '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: _muted, fontSize: 10.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildSmartProductInformationPanel() {
-    final query = _productSearchController.text.trim().toLowerCase();
-    final products = _dayAllocations.where((allocation) {
-      final name = (allocation['product'] ?? '').toString().toLowerCase();
-      return query.isEmpty || name.contains(query);
-    }).toList();
+  Future<void> _showProductPicker() async {
+    if (_saleProducts.isEmpty) {
+      _showMessage('No products are available for this customer.');
+      return;
+    }
 
+    final searchController = TextEditingController();
+
+    Map<String, dynamic>? selectedProduct;
+
+    selectedProduct = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final query = searchController.text.trim().toLowerCase();
+
+            final products = _saleProducts.where((product) {
+              final name = product['product']?.toString().toLowerCase() ?? '';
+
+              final variant =
+                  product['variant']?.toString().toLowerCase() ?? '';
+
+              final productId =
+                  product['productId']?.toString().toLowerCase() ?? '';
+
+              return query.isEmpty ||
+                  name.contains(query) ||
+                  variant.contains(query) ||
+                  productId.contains(query);
+            }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * .78,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Select Product',
+                                style: TextStyle(
+                                  color: _dark,
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 3),
+                              Text(
+                                'Search and select a product for this bill',
+                                style: TextStyle(color: _muted, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        IconButton(
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: TextField(
+                      controller: searchController,
+                      autofocus: true,
+                      onChanged: (_) {
+                        setSheetState(() {});
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Search product name...',
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: _primary,
+                        ),
+                        suffixIcon: searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  searchController.clear();
+
+                                  setSheetState(() {});
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Expanded(
+                    child: products.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No matching products found.',
+                              style: TextStyle(color: _muted),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+
+                            itemCount: products.length,
+
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+
+                            itemBuilder: (context, index) {
+                              final product = products[index];
+
+                              final name = product['product']?.toString() ?? '';
+
+                              final variant =
+                                  product['variant']?.toString() ?? '';
+
+                              final unit = product['unit']?.toString() ?? 'Pcs';
+
+                              final available = _remainingFor(product);
+
+                              final rate =
+                                  double.tryParse(
+                                    product['rate']?.toString() ?? '0',
+                                  ) ??
+                                  0;
+
+                              final hasCustomRate =
+                                  product['hasCustomRate'] == true;
+
+                              return InkWell(
+                                onTap: available > 0
+                                    ? () {
+                                        Navigator.pop(sheetContext, product);
+                                      }
+                                    : null,
+
+                                borderRadius: BorderRadius.circular(13),
+
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: available > 0
+                                        ? Colors.white
+                                        : AppColors.surfaceMuted,
+
+                                    borderRadius: BorderRadius.circular(13),
+
+                                    border: Border.all(
+                                      color: available > 0
+                                          ? AppColors.primaryBorder
+                                          : AppColors.border,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.surfaceBlue,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.inventory_2_outlined,
+                                          color: _primary,
+                                          size: 22,
+                                        ),
+                                      ),
+
+                                      const SizedBox(width: 11),
+
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: _dark,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+
+                                            if (variant.trim().isNotEmpty)
+                                              Text(
+                                                variant,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: _muted,
+                                                  fontSize: 9.5,
+                                                ),
+                                              ),
+
+                                            const SizedBox(height: 4),
+
+                                            Text(
+                                              '$available $unit available',
+                                              style: TextStyle(
+                                                color: available > 0
+                                                    ? _green
+                                                    : AppColors.error,
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                      const SizedBox(width: 8),
+
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            '₹${rate.toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              color: _primary,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+
+                                          Text(
+                                            hasCustomRate
+                                                ? 'Customer Rate'
+                                                : 'Default Rate',
+                                            style: TextStyle(
+                                              color: hasCustomRate
+                                                  ? _green
+                                                  : _muted,
+                                              fontSize: 8.5,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+
+                                      const SizedBox(width: 5),
+
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: available > 0
+                                            ? _primary
+                                            : _muted,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    searchController.dispose();
+
+    if (!mounted || selectedProduct == null) {
+      return;
+    }
+
+    await _selectSmartProduct(selectedProduct);
+  }
+
+  Widget _buildPaymentAmountField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+  }) {
+    return TextFormField(
+      controller: controller,
+
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+      ],
+
+      decoration: _referenceInputDecoration(
+        label: label,
+        hint: '0.00',
+        icon: icon,
+        suffix: '₹',
+      ),
+
+      onChanged: (_) {
+        setState(() {
+          _paymentMode = _calculatedPaymentMode;
+        });
+      },
+
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return null;
+        }
+
+        final amount = double.tryParse(value);
+
+        if (amount == null || amount < 0) {
+          return 'Invalid amount';
+        }
+
+        return null;
+      },
+    );
+  }
+
+  Widget _buildPaymentSummaryRow(
+    String label,
+    double value, {
+    Color? valueColor,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _muted,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+
+        Text(
+          '₹${value.toStringAsFixed(2)}',
+          style: TextStyle(
+            color: valueColor ?? _dark,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSmartProductInformationPanel() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _cardDecoration(),
+
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _buildNumberedHeading(3, 'Product Information'),
+          _buildNumberedHeading(3, 'Products'),
+
           const SizedBox(height: 14),
-          TextField(
-            controller: _productSearchController,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Search product...',
-              prefixIcon: const Icon(Icons.search_rounded, color: _primary),
-              suffixIcon: _productSearchController.text.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear product search',
-                      onPressed: () {
-                        _productSearchController.clear();
-                        setState(() {});
-                      },
-                      icon: const Icon(Icons.close_rounded),
+
+          // ========================================================
+          // SELECT PRODUCT BUTTON
+          // ========================================================
+          InkWell(
+            onTap: _showProductPicker,
+            borderRadius: BorderRadius.circular(13),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: AppColors.primaryBorder),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceBlue,
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                    child: const Icon(
+                      Icons.add_shopping_cart_rounded,
+                      color: _primary,
+                      size: 22,
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Select Product',
+                          style: TextStyle(
+                            color: _dark,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+
+                        SizedBox(height: 2),
+
+                        Text(
+                          'Search product and enter quantity',
+                          style: TextStyle(color: _muted, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Icon(Icons.chevron_right_rounded, color: _primary),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 14),
-          if (products.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: Text(
-                  'No matching allotted products.',
-                  style: TextStyle(color: _muted),
-                ),
-              ),
-            )
-          else
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: products.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 1.42,
-              ),
-              itemBuilder: (context, index) {
-                final allocation = products[index];
-                return _buildSmartProductCard(allocation);
-              },
-            ),
-          const SizedBox(height: 16),
+
+          const SizedBox(height: 18),
+
+          // ========================================================
+          // SELECTED PRODUCTS
+          // ========================================================
           Row(
-            children: <Widget>[
+            children: [
               const Expanded(
                 child: Text(
-                  'Selected Products',
+                  'Bill Items',
                   style: TextStyle(
                     color: _dark,
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
-              Text(
-                '${_cart.length} item${_cart.length == 1 ? '' : 's'}',
-                style: const TextStyle(
-                  color: _primary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
+
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceBlue,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${_cart.length} ${_cart.length == 1 ? 'Product' : 'Products'}',
+                  style: const TextStyle(
+                    color: _primary,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
           ),
+
           const SizedBox(height: 10),
+
           _buildSmartBillingRows(),
+
+          // ========================================================
+          // SPLIT PAYMENT
+          // ========================================================
+          if (_cart.isNotEmpty) ...[
+            const SizedBox(height: 18),
+
+            const Divider(),
+
+            const SizedBox(height: 10),
+
+            _buildNumberedHeading(4, 'Payment'),
+
+            const SizedBox(height: 14),
+
+            // ======================================================
+            // BILL TOTAL
+            // ======================================================
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFF3F7FE), Color(0xFFDCEAFF)],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Bill Amount',
+                          style: TextStyle(
+                            color: _muted,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Enter received amount below',
+                          style: TextStyle(color: _muted, fontSize: 8.5),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Text(
+                    '₹${_cartTotal.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: _primary,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // ======================================================
+            // CASH
+            // ======================================================
+            _buildPaymentAmountField(
+              controller: _cashPaymentController,
+              label: 'Cash',
+              icon: Icons.payments_outlined,
+            ),
+
+            const SizedBox(height: 10),
+
+            // ======================================================
+            // UPI
+            // ======================================================
+            _buildPaymentAmountField(
+              controller: _upiPaymentController,
+              label: 'UPI',
+              icon: Icons.qr_code_rounded,
+            ),
+
+            const SizedBox(height: 10),
+
+            // ======================================================
+            // BANK
+            // ======================================================
+            _buildPaymentAmountField(
+              controller: _bankPaymentController,
+              label: 'Bank Transfer',
+              icon: Icons.account_balance_outlined,
+            ),
+
+            const SizedBox(height: 14),
+
+            // ======================================================
+            // PAYMENT SUMMARY
+            // ======================================================
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                children: [
+                  _buildPaymentSummaryRow('Bill Amount', _cartTotal),
+
+                  const Divider(height: 20),
+
+                  _buildPaymentSummaryRow(
+                    'Paid Amount',
+                    _paidAmount,
+                    valueColor: _green,
+                  ),
+
+                  const SizedBox(height: 9),
+
+                  _buildPaymentSummaryRow(
+                    'Outstanding',
+                    _outstandingAmount,
+                    valueColor: _outstandingAmount > 0
+                        ? AppColors.error
+                        : _green,
+                  ),
+
+                  const Divider(height: 20),
+
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Payment Status',
+                          style: TextStyle(
+                            color: _muted,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _calculatedPaymentStatus == 'PAID'
+                              ? const Color(0xFFDDF8E8)
+                              : _calculatedPaymentStatus == 'PARTIAL'
+                              ? const Color(0xFFFFF1D6)
+                              : const Color(0xFFFFE5E5),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _calculatedPaymentStatus,
+                          style: TextStyle(
+                            color: _calculatedPaymentStatus == 'PAID'
+                                ? _green
+                                : _calculatedPaymentStatus == 'PARTIAL'
+                                ? const Color(0xFFA96700)
+                                : AppColors.error,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (_isPaymentOverAmount) ...[
+                    const SizedBox(height: 10),
+
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE5E5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Paid amount cannot be greater than the bill amount.',
+                        style: TextStyle(
+                          color: AppColors.error,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2401,14 +4586,14 @@ onChanged: _loadingCustomers
     if (_cart.isEmpty) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
         decoration: BoxDecoration(
           color: AppColors.surfaceMuted,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.border),
         ),
         child: const Text(
-          'Tap a product above to enter quantity.',
+          'No products added yet.\nTap "Select Product" to add items to this bill.',
           textAlign: TextAlign.center,
           style: TextStyle(color: _muted, fontSize: 11),
         ),
@@ -2936,11 +5121,11 @@ onChanged: _loadingCustomers
     setState(() => line.quantity = quantity);
   }
 
-Widget _buildSaleSummaryPanel() {
-  final todayQuantity = _serverSales.fold<int>(
-    0,
-    (sum, sale) => sum + sale.quantity,
-  );
+  Widget _buildSaleSummaryPanel() {
+    final todayQuantity = _serverSales.fold<int>(
+      0,
+      (sum, sale) => sum + sale.quantity,
+    );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _cardDecoration(),
@@ -3008,10 +5193,7 @@ Widget _buildSaleSummaryPanel() {
                 '₹${_formatMoney(_monthlySalesTotal)}',
               ),
               const SizedBox(width: 7),
-            _recentSaleMetric(
-  'Transactions',
-  '${_serverSales.length}',
-),
+              _recentSaleMetric('Transactions', '${_serverSales.length}'),
               const SizedBox(width: 7),
               _recentSaleMetric('Quantity', '$todayQuantity Units'),
             ],
@@ -3029,28 +5211,35 @@ Widget _buildSaleSummaryPanel() {
               const SizedBox(width: 9),
               Expanded(
                 child: ElevatedButton.icon(
-  onPressed:
-      _cart.isEmpty || _savingSale
-          ? null
-          : _completeSale,
-  icon: _savingSale
-      ? const SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: Colors.white,
-          ),
-        )
-      : const Icon(
-          Icons.check_circle_outline_rounded,
+                  onPressed:
+                      _cart.isEmpty || _savingSale || _isPaymentOverAmount
+                      ? null
+                      : _completeSale,
+             icon: _savingSale
+    ? const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: Colors.white,
         ),
-  label: Text(
-    _savingSale
-        ? 'Saving...'
-        : 'Complete Sale',
-  ),
+      )
+    : Icon(
+        _isEditingSale
+            ? Icons.edit_outlined
+            : Icons.check_circle_outline_rounded,
+      ),
+
+label: Text(
+  _savingSale
+      ? (_isEditingSale
+          ? 'Updating...'
+          : 'Saving...')
+      : (_isEditingSale
+          ? 'Update Sale'
+          : 'Complete Sale'),
 ),
+                ),
               ),
             ],
           ),
@@ -3481,15 +5670,12 @@ Widget _buildSaleSummaryPanel() {
                       '₹${_formatMoney(_monthlySalesTotal)}',
                     ),
                     const SizedBox(width: 7),
-                   _recentSaleMetric(
-  'Transactions',
-  '${_serverSales.length}',
-),
+                    _recentSaleMetric('Transactions', '${_serverSales.length}'),
                     const SizedBox(width: 7),
-                 _recentSaleMetric(
-  'Total Quantity',
-  '${_serverSales.fold<int>(0, (sum, sale) => sum + sale.quantity)} Units',
-),
+                    _recentSaleMetric(
+                      'Total Quantity',
+                      '${_serverSales.fold<int>(0, (sum, sale) => sum + sale.quantity)} Units',
+                    ),
                   ],
                 ),
               ],
@@ -3509,8 +5695,16 @@ Widget _buildSaleSummaryPanel() {
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _cart.isEmpty ? null : _completeSale,
-                  icon: const Icon(Icons.check_circle_outline_rounded),
-                  label: const Text('Complete Sale'),
+                  icon: Icon(
+                    _isEditingSale
+                        ? Icons.edit_outlined
+                        : Icons.check_circle_outline_rounded,
+                  ),
+                  label: Text(
+                    _savingSale
+                        ? (_isEditingSale ? 'Updating...' : 'Saving...')
+                        : (_isEditingSale ? 'Update Sale' : 'Complete Sale'),
+                  ),
                 ),
               ),
             ],
@@ -3873,8 +6067,8 @@ Widget _buildSaleSummaryPanel() {
   }
 
   // ignore: unused_element
-Widget _buildRecentSales() {
-  final sales = _serverSales.take(5).toList();
+  Widget _buildRecentSales() {
+    final sales = _serverSales.take(5).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[

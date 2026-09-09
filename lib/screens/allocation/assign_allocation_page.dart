@@ -14,11 +14,16 @@ class AssignAllocationPage extends StatefulWidget {
     required this.routes,
     required this.salesmen,
     required this.products,
+    this.existingAllocation,
   });
 
   final List<Map<String, dynamic>> routes;
   final List<Map<String, dynamic>> salesmen;
   final List<Map<String, dynamic>> products;
+
+  // null = Create
+  // not null = Edit
+  final Map<String, dynamic>? existingAllocation;
 
   @override
   State<AssignAllocationPage> createState() => _AssignAllocationPageState();
@@ -42,6 +47,103 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
   // String _query = '';
 
   bool _saving = false;
+  bool get _isEditing => widget.existingAllocation != null;
+
+  String get _editingAllocationId =>
+      (widget.existingAllocation?['allocationId'] ?? '').toString().trim();
+
+  bool get _hasExistingActivity {
+    final dynamic rawProducts = widget.existingAllocation?['products'];
+
+    if (rawProducts is! List) {
+      return false;
+    }
+
+    for (final dynamic raw in rawProducts) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final int sold =
+          int.tryParse(raw['soldQuantity']?.toString() ?? '0') ?? 0;
+
+      final int returned =
+          int.tryParse(raw['returnedQuantity']?.toString() ?? '0') ?? 0;
+
+      if (sold > 0 || returned > 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  int _oldAllocatedQuantity(String productId) {
+    final dynamic rawProducts = widget.existingAllocation?['products'];
+
+    if (rawProducts is! List) {
+      return 0;
+    }
+
+    for (final dynamic raw in rawProducts) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final String id = (raw['productId'] ?? '').toString().trim();
+
+      if (id == productId) {
+        return int.tryParse(raw['quantity']?.toString() ?? '0') ?? 0;
+      }
+    }
+
+    return 0;
+  }
+
+  int _minimumAllowedQuantity(String productId) {
+    final dynamic rawProducts = widget.existingAllocation?['products'];
+
+    if (rawProducts is! List) {
+      return 0;
+    }
+
+    for (final dynamic raw in rawProducts) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final String id = (raw['productId'] ?? '').toString().trim();
+
+      if (id != productId) {
+        continue;
+      }
+
+      final int sold =
+          int.tryParse(raw['soldQuantity']?.toString() ?? '0') ?? 0;
+
+      final int returned =
+          int.tryParse(raw['returnedQuantity']?.toString() ?? '0') ?? 0;
+
+      return sold + returned;
+    }
+
+    return 0;
+  }
+
+  int _maximumAllowedQuantity(Map<String, dynamic> product) {
+    final String productId = _productId(product);
+
+    final int warehouseStock = _productStock(product).toInt();
+
+    if (!_isEditing) {
+      return warehouseStock;
+    }
+
+    // Existing allocated quantity is already outside
+    // MAS_PRODUCT stock, so it must be added back only
+    // for edit validation.
+    return warehouseStock + _oldAllocatedQuantity(productId);
+  }
 
   // ============================================================
   // PRODUCT HELPERS
@@ -54,7 +156,6 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
         )
         .toList(growable: false);
   }
-
 
   String _productId(Map<String, dynamic> product) {
     return (product['productId'] ?? '').toString().trim();
@@ -159,6 +260,10 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
   void initState() {
     super.initState();
 
+    // ============================================================
+    // CREATE MODE
+    // ============================================================
+
     _date = DateTime.now();
 
     if (widget.routes.isNotEmpty) {
@@ -182,23 +287,77 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
       _salesmanId = (widget.salesmen.first['salesmanId'] ?? '').toString();
     }
 
+    // ============================================================
+    // PRODUCT CONTROLLERS
+    // ============================================================
+
     for (final product in _catalog) {
       final String productId = _productId(product);
 
       _quantities[productId] = TextEditingController();
     }
+
+    // ============================================================
+    // EDIT MODE - RESTORE EXISTING ALLOCATION
+    // ============================================================
+
+    final Map<String, dynamic>? existing = widget.existingAllocation;
+
+    if (existing == null) {
+      return;
+    }
+
+    final dynamic rawDate = existing['allocationDate'];
+
+    if (rawDate != null) {
+      _date =
+          DateTime.tryParse(rawDate.toString())?.toLocal() ?? DateTime.now();
+    }
+
+    _routeId = (existing['routeId'] ?? '').toString().trim();
+
+    _salesmanId = (existing['salesmanId'] ?? '').toString().trim();
+
+    _notes.text = (existing['notes'] ?? '').toString();
+
+    final dynamic rawProducts = existing['products'];
+
+    if (rawProducts is List) {
+      for (final dynamic raw in rawProducts) {
+        if (raw is! Map) {
+          continue;
+        }
+
+        final String productId = (raw['productId'] ?? '').toString().trim();
+
+        final int quantity =
+            int.tryParse(raw['quantity']?.toString() ?? '0') ?? 0;
+
+        if (productId.isEmpty || quantity <= 0) {
+          continue;
+        }
+
+        if (!_quantities.containsKey(productId)) {
+          continue;
+        }
+
+        _selectedProductIds.add(productId);
+
+        _quantities[productId]!.text = quantity.toString();
+      }
+    }
   }
 
   @override
-void dispose() {
-  _notes.dispose();
+  void dispose() {
+    _notes.dispose();
 
-  for (final controller in _quantities.values) {
-    controller.dispose();
+    for (final controller in _quantities.values) {
+      controller.dispose();
+    }
+
+    super.dispose();
   }
-
-  super.dispose();
-}
 
   // ============================================================
   // DATE
@@ -222,9 +381,15 @@ void dispose() {
   // ============================================================
   // PRODUCT SELECTION
   // ============================================================
-
   void _toggleProduct(Map<String, dynamic> product, bool selected) {
     final String productId = _productId(product);
+
+    if (!selected && _isEditing && _minimumAllowedQuantity(productId) > 0) {
+      _message(
+        '${_productName(product)} cannot be removed because sales or returns already exist.',
+      );
+      return;
+    }
 
     setState(() {
       if (selected) {
@@ -237,7 +402,6 @@ void dispose() {
     });
   }
 
-
   void _changeQuantity(Map<String, dynamic> product, int change) {
     final String productId = _productId(product);
 
@@ -245,9 +409,13 @@ void dispose() {
 
     final int current = int.tryParse(controller.text) ?? 0;
 
-    final int availableStock = _productStock(product).toInt();
+    final int maximumQuantity = _maximumAllowedQuantity(product);
 
-    final int next = (current + change).clamp(0, availableStock);
+    final int minimumQuantity = _isEditing
+        ? _minimumAllowedQuantity(productId)
+        : 0;
+
+    final int next = (current + change).clamp(minimumQuantity, maximumQuantity);
 
     setState(() {
       controller.text = next == 0 ? '' : '$next';
@@ -334,10 +502,23 @@ void dispose() {
         return;
       }
 
-      final num stock = _productStock(product);
+      final int maximumQuantity = _maximumAllowedQuantity(product);
 
-      if (quantity > stock) {
-        _message('$productName exceeds available stock.');
+      final int minimumQuantity = _isEditing
+          ? _minimumAllowedQuantity(productId)
+          : 0;
+
+      if (quantity > maximumQuantity) {
+        _message(
+          '$productName exceeds available quantity. Maximum allowed is $maximumQuantity.',
+        );
+        return;
+      }
+
+      if (quantity < minimumQuantity) {
+        _message(
+          '$productName cannot be reduced below $minimumQuantity because stock is already sold or returned.',
+        );
         return;
       }
 
@@ -349,13 +530,16 @@ void dispose() {
     });
 
     try {
-      final http.Response response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/api/allocations'),
-        headers: <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${ApiConfig.token}',
-        },
-      body: jsonEncode({
+  final Uri uri = _isEditing
+    ? Uri.parse(
+        '${ApiConfig.baseUrl}/api/allocations/$_editingAllocationId',
+      )
+    : Uri.parse(
+        '${ApiConfig.baseUrl}/api/allocations',
+      );
+
+final Map<String, dynamic> body =
+    <String, dynamic>{
   'allocationDate':
       _date.toIso8601String(),
 
@@ -370,8 +554,35 @@ void dispose() {
 
   'products':
       requestProducts,
-}),
-      );
+};
+
+final http.Response response;
+
+if (_isEditing) {
+  response = await http.put(
+    uri,
+    headers: <String, String>{
+      'Content-Type':
+          'application/json',
+
+      'Authorization':
+          'Bearer ${ApiConfig.token}',
+    },
+    body: jsonEncode(body),
+  );
+} else {
+  response = await http.post(
+    uri,
+    headers: <String, String>{
+      'Content-Type':
+          'application/json',
+
+      'Authorization':
+          'Bearer ${ApiConfig.token}',
+    },
+    body: jsonEncode(body),
+  );
+}
 
       dynamic decoded;
 
@@ -381,7 +592,11 @@ void dispose() {
         decoded = null;
       }
 
-      if (response.statusCode != 201) {
+    final int expectedStatus =
+    _isEditing ? 200 : 201;
+
+if (response.statusCode !=
+    expectedStatus) {
         final String message = decoded is Map
             ? decoded['message']?.toString() ?? 'Unable to save allocation.'
             : 'Unable to save allocation.';
@@ -422,10 +637,17 @@ void dispose() {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const PremiumAppBar(
-        title: 'Assign Allocation',
-        subtitle: 'Allocate multiple products in one entry',
-      ),
+     appBar: PremiumAppBar(
+  title:
+      _isEditing
+          ? 'Edit Allocation'
+          : 'Assign Allocation',
+
+  subtitle:
+      _isEditing
+          ? 'Update allocated products and quantity'
+          : 'Allocate multiple products in one entry',
+),
       bottomNavigationBar: _bottomSummary(),
       body: ListView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -433,194 +655,181 @@ void dispose() {
         children: [
           _detailsCard(),
           const SizedBox(height: 14),
-        AppSectionTitle(
-  title: 'Products & Quantity',
-  subtitle:
-      '${_selectedProductIds.length} selected • Allocate only required products',
-  action: _selectedProductIds.isEmpty
-      ? null
-      : TextButton(
-          onPressed: _saving ? null : _clearAll,
-          child: const Text('Clear'),
-        ),
-),
-
-const SizedBox(height: 10),
-
-// ============================================================
-// PRODUCT PICKER BUTTON
-// ============================================================
-
-InkWell(
-  borderRadius: BorderRadius.circular(14),
-  onTap: _saving ? null : _openProductPicker,
-  child: Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(
-      horizontal: 14,
-      vertical: 14,
-    ),
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: AppColors.border,
-      ),
-    ),
-    child: Row(
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: AppColors.surfaceBlue,
-            borderRadius: BorderRadius.circular(11),
+          AppSectionTitle(
+            title: 'Products & Quantity',
+            subtitle:
+                '${_selectedProductIds.length} selected • Allocate only required products',
+            action: _selectedProductIds.isEmpty
+                ? null
+                : TextButton(
+                    onPressed: _saving ? null : _clearAll,
+                    child: const Text('Clear'),
+                  ),
           ),
-          child: const Icon(
-            Icons.add_shopping_cart_rounded,
-            color: AppColors.primary,
+
+          const SizedBox(height: 10),
+
+          // ============================================================
+          // PRODUCT PICKER BUTTON
+          // ============================================================
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _saving ? null : _openProductPicker,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceBlue,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: const Icon(
+                      Icons.add_shopping_cart_rounded,
+                      color: AppColors.primary,
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Select Products',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Search and select products from stock',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (_selectedProductIds.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${_selectedProductIds.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(width: 6),
+
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
 
-        const SizedBox(width: 12),
+          const SizedBox(height: 14),
 
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Select Products',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
+          // ============================================================
+          // SELECTED PRODUCTS ONLY
+          // ============================================================
+          if (_selectedProductIds.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Column(
+                children: [
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    size: 34,
+                    color: AppColors.textSecondary,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'No products selected',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'Tap Select Products to add products.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Selected Products',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
-              ),
-              SizedBox(height: 3),
-              Text(
-                'Search and select products from stock',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 11,
+
+                Text(
+                  '${_selectedProductIds.length} products',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-
-        if (_selectedProductIds.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 5,
+              ],
             ),
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '${_selectedProductIds.length}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
 
-        const SizedBox(width: 6),
+            const SizedBox(height: 8),
 
-        const Icon(
-          Icons.chevron_right_rounded,
-          color: AppColors.textSecondary,
-        ),
-      ],
-    ),
-  ),
-),
-
-const SizedBox(height: 14),
-
-// ============================================================
-// SELECTED PRODUCTS ONLY
-// ============================================================
-
-if (_selectedProductIds.isEmpty)
-  Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(
-      vertical: 24,
-      horizontal: 16,
-    ),
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: AppColors.border,
-      ),
-    ),
-    child: const Column(
-      children: [
-        Icon(
-          Icons.inventory_2_outlined,
-          size: 34,
-          color: AppColors.textSecondary,
-        ),
-        SizedBox(height: 8),
-        Text(
-          'No products selected',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        SizedBox(height: 3),
-        Text(
-          'Tap Select Products to add products.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 11,
-          ),
-        ),
-      ],
-    ),
-  )
-else ...[
-  Row(
-    children: [
-      const Expanded(
-        child: Text(
-          'Selected Products',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ),
-
-      Text(
-        '${_selectedProductIds.length} products',
-        style: const TextStyle(
-          color: AppColors.primary,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    ],
-  ),
-
-  const SizedBox(height: 8),
-
-  ..._catalog
-      .where(
-        (product) => _selectedProductIds.contains(
-          _productId(product),
-        ),
-      )
-      .map(_productCard),
-],
+            ..._catalog
+                .where(
+                  (product) =>
+                      _selectedProductIds.contains(_productId(product)),
+                )
+                .map(_productCard),
+          ],
           const SizedBox(height: 14),
           Card(
             child: Padding(
@@ -687,7 +896,12 @@ else ...[
                 );
               },
             ).toList(),
-            onChanged: _saving ? null : _onRouteChanged,
+           onChanged:
+    _saving ||
+            (_isEditing &&
+                _hasExistingActivity)
+        ? null
+        : _onRouteChanged,
           ),
 
           const SizedBox(height: 11),
@@ -715,587 +929,423 @@ else ...[
                   );
                 })
                 .toList(),
-            onChanged: _saving
-                ? null
-                : (value) {
+           onChanged:
+    _saving ||
+            (_isEditing &&
+                _hasExistingActivity)
+        ? null
+        : (value) {
                     setState(() {
                       _salesmanId = value;
                     });
                   },
           ),
-
-       
-
         ],
       ),
     ),
   );
 
+  Future<void> _openProductPicker() async {
+    final TextEditingController searchController = TextEditingController();
 
-Future<void> _openProductPicker() async {
-  final TextEditingController searchController =
-      TextEditingController();
+    String query = '';
 
-  String query = '';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setSheetState) {
+            final String normalizedQuery = query.trim().toLowerCase();
 
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    backgroundColor: Colors.transparent,
-    builder: (sheetContext) {
-      return StatefulBuilder(
-        builder: (
-          BuildContext context,
-          StateSetter setSheetState,
-        ) {
-          final String normalizedQuery =
-              query.trim().toLowerCase();
+            final List<Map<String, dynamic>> filteredProducts = _catalog.where((
+              product,
+            ) {
+              final String name = _productName(product).toLowerCase();
 
-          final List<Map<String, dynamic>> filteredProducts =
-              _catalog.where(
-            (product) {
-              final String name =
-                  _productName(product).toLowerCase();
+              final String variant = _productVariant(product).toLowerCase();
 
-              final String variant =
-                  _productVariant(product).toLowerCase();
-
-              final String productId =
-                  _productId(product).toLowerCase();
+              final String productId = _productId(product).toLowerCase();
 
               return normalizedQuery.isEmpty ||
                   name.contains(normalizedQuery) ||
                   variant.contains(normalizedQuery) ||
                   productId.contains(normalizedQuery);
-            },
-          ).toList();
+            }).toList();
 
-          final bool allVisibleSelected =
-              filteredProducts.isNotEmpty &&
-                  filteredProducts.every(
-                    (product) =>
-                        _selectedProductIds.contains(
-                      _productId(product),
-                    ),
-                  );
+            final bool allVisibleSelected =
+                filteredProducts.isNotEmpty &&
+                filteredProducts.every(
+                  (product) =>
+                      _selectedProductIds.contains(_productId(product)),
+                );
 
-          return Container(
-            height:
-                MediaQuery.of(context).size.height * .88,
-            decoration: const BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(24),
+            return Container(
+              height: MediaQuery.of(context).size.height * .88,
+              decoration: const BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
-            ),
-            child: Column(
-              children: [
-                // ==================================================
-                // HANDLE
-                // ==================================================
+              child: Column(
+                children: [
+                  // ==================================================
+                  // HANDLE
+                  // ==================================================
+                  const SizedBox(height: 8),
 
-                const SizedBox(height: 8),
-
-                Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-
-                // ==================================================
-                // HEADER
-                // ==================================================
-
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    16,
-                    14,
-                    8,
-                    10,
-                  ),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Select Products',
-                              style: TextStyle(
-                                color:
-                                    AppColors.textPrimary,
-                                fontSize: 18,
-                                fontWeight:
-                                    FontWeight.w900,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Search, select and then enter quantities.',
-                              style: TextStyle(
-                                color:
-                                    AppColors.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      IconButton(
-                        onPressed: () =>
-                            Navigator.pop(sheetContext),
-                        icon: const Icon(
-                          Icons.close_rounded,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ==================================================
-                // SEARCH
-                // ==================================================
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                  ),
-                  child: TextField(
-                    controller: searchController,
-                    autofocus: false,
-                    textInputAction:
-                        TextInputAction.search,
-                    onChanged: (value) {
-                      setSheetState(() {
-                        query = value;
-                      });
-                    },
-                    decoration: InputDecoration(
-                      hintText:
-                          'Search product name, variant or ID',
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                      ),
-                      suffixIcon:
-                          searchController.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    searchController
-                                        .clear();
-
-                                    setSheetState(() {
-                                      query = '';
-                                    });
-                                  },
-                                  icon: const Icon(
-                                    Icons.close_rounded,
-                                  ),
-                                ),
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                ),
 
-                const SizedBox(height: 8),
-
-                // ==================================================
-                // SELECT ALL VISIBLE
-                // ==================================================
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                  ),
-                  child: Row(
-                    children: [
-                      Checkbox(
-                        value: allVisibleSelected,
-                        onChanged:
-                            filteredProducts.isEmpty
-                                ? null
-                                : (_) {
-                                    setState(() {
-                                      for (final product
-                                          in filteredProducts) {
-                                        final String productId =
-                                            _productId(
-                                          product,
-                                        );
-
-                                        if (allVisibleSelected) {
-                                          _selectedProductIds
-                                              .remove(
-                                            productId,
-                                          );
-
-                                          _quantities[
-                                                  productId]
-                                              ?.clear();
-                                        } else {
-                                          _selectedProductIds
-                                              .add(
-                                            productId,
-                                          );
-                                        }
-                                      }
-                                    });
-
-                                    setSheetState(() {});
-                                  },
-                      ),
-
-                      Expanded(
-                        child: Text(
-                          allVisibleSelected
-                              ? 'Unselect visible products'
-                              : 'Select all visible products',
-                          style: const TextStyle(
-                            color:
-                                AppColors.textPrimary,
-                            fontWeight:
-                                FontWeight.w700,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-
-                      Text(
-                        '${filteredProducts.length} products',
-                        style: const TextStyle(
-                          color:
-                              AppColors.textSecondary,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Divider(height: 1),
-
-                // ==================================================
-                // PRODUCT LIST
-                // ==================================================
-
-                Expanded(
-                  child: filteredProducts.isEmpty
-                      ? const Center(
+                  // ==================================================
+                  // HEADER
+                  // ==================================================
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+                    child: Row(
+                      children: [
+                        const Expanded(
                           child: Column(
-                            mainAxisSize:
-                                MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                Icons
-                                    .search_off_rounded,
-                                size: 42,
-                                color: AppColors
-                                    .textSecondary,
-                              ),
-                              SizedBox(height: 8),
                               Text(
-                                'No matching products',
+                                'Select Products',
                                 style: TextStyle(
-                                  color: AppColors
-                                      .textPrimary,
-                                  fontWeight:
-                                      FontWeight.w700,
+                                  color: AppColors.textPrimary,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Search, select and then enter quantities.',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
                                 ),
                               ),
                             ],
                           ),
-                        )
-                      : ListView.separated(
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior
-                                  .onDrag,
-                          padding:
-                              const EdgeInsets.fromLTRB(
-                            12,
-                            8,
-                            12,
-                            100,
-                          ),
-                          itemCount:
-                              filteredProducts.length,
-                          separatorBuilder:
-                              (_, __) =>
-                                  const SizedBox(
-                            height: 6,
-                          ),
-                          itemBuilder: (
-                            context,
-                            index,
-                          ) {
-                            final product =
-                                filteredProducts[index];
+                        ),
 
-                            final String productId =
-                                _productId(product);
+                        IconButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
 
-                            final String productName =
-                                _productName(product);
+                  // ==================================================
+                  // SEARCH
+                  // ==================================================
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: TextField(
+                      controller: searchController,
+                      autofocus: false,
+                      textInputAction: TextInputAction.search,
+                      onChanged: (value) {
+                        setSheetState(() {
+                          query = value;
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Search product name, variant or ID',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  searchController.clear();
 
-                            final String variant =
-                                _productVariant(product);
-
-                            final String unit =
-                                _productUnit(product);
-
-                            final num stock =
-                                _productStock(product);
-
-                            final bool selected =
-                                _selectedProductIds
-                                    .contains(
-                              productId,
-                            );
-
-                            return Material(
-                              color: selected
-                                  ? AppColors.surfaceBlue
-                                  : AppColors.surface,
-                              borderRadius:
-                                  BorderRadius.circular(
-                                12,
+                                  setSheetState(() {
+                                    query = '';
+                                  });
+                                },
+                                icon: const Icon(Icons.close_rounded),
                               ),
-                              child: InkWell(
-                                borderRadius:
-                                    BorderRadius.circular(
-                                  12,
-                                ),
-                                onTap: () {
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // ==================================================
+                  // SELECT ALL VISIBLE
+                  // ==================================================
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: allVisibleSelected,
+                          onChanged: filteredProducts.isEmpty
+                              ? null
+                              : (_) {
                                   setState(() {
-                                    if (selected) {
-                                      _selectedProductIds
-                                          .remove(
-                                        productId,
+                                    for (final product in filteredProducts) {
+                                      final String productId = _productId(
+                                        product,
                                       );
 
-                                      _quantities[
-                                              productId]
-                                          ?.clear();
-                                    } else {
-                                      _selectedProductIds
-                                          .add(
-                                        productId,
-                                      );
+                                      if (allVisibleSelected) {
+                                        _selectedProductIds.remove(productId);
+
+                                        _quantities[productId]?.clear();
+                                      } else {
+                                        _selectedProductIds.add(productId);
+                                      }
                                     }
                                   });
 
                                   setSheetState(() {});
                                 },
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets
-                                          .symmetric(
-                                    horizontal: 10,
-                                    vertical: 9,
-                                  ),
-                                  decoration:
-                                      BoxDecoration(
-                                    borderRadius:
-                                        BorderRadius
-                                            .circular(
-                                      12,
-                                    ),
-                                    border:
-                                        Border.all(
-                                      color: selected
-                                          ? AppColors
-                                              .primary
-                                          : AppColors
-                                              .border,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Checkbox(
-                                        value:
-                                            selected,
-                                        onChanged:
-                                            (_) {
-                                          setState(
-                                            () {
-                                              if (selected) {
-                                                _selectedProductIds
-                                                    .remove(
-                                                  productId,
-                                                );
-
-                                                _quantities[
-                                                        productId]
-                                                    ?.clear();
-                                              } else {
-                                                _selectedProductIds
-                                                    .add(
-                                                  productId,
-                                                );
-                                              }
-                                            },
-                                          );
-
-                                          setSheetState(
-                                            () {},
-                                          );
-                                        },
-                                      ),
-
-                                      const SizedBox(
-                                        width: 2,
-                                      ),
-
-                                      Container(
-                                        width: 38,
-                                        height: 38,
-                                        decoration:
-                                            BoxDecoration(
-                                          color: Colors
-                                              .white,
-                                          borderRadius:
-                                              BorderRadius
-                                                  .circular(
-                                            9,
-                                          ),
-                                        ),
-                                        child:
-                                            const Icon(
-                                          Icons
-                                              .inventory_2_outlined,
-                                          size: 20,
-                                        ),
-                                      ),
-
-                                      const SizedBox(
-                                        width: 10,
-                                      ),
-
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment
-                                                  .start,
-                                          children: [
-                                            Text(
-                                              productName,
-                                              maxLines:
-                                                  1,
-                                              overflow:
-                                                  TextOverflow
-                                                      .ellipsis,
-                                              style:
-                                                  const TextStyle(
-                                                color: AppColors
-                                                    .textPrimary,
-                                                fontSize:
-                                                    12,
-                                                fontWeight:
-                                                    FontWeight
-                                                        .w800,
-                                              ),
-                                            ),
-                                            const SizedBox(
-                                              height:
-                                                  3,
-                                            ),
-                                            Text(
-                                              '${variant.isEmpty ? 'Standard' : variant} • '
-                                              '${stock.toStringAsFixed(0)} $unit available',
-                                              maxLines:
-                                                  1,
-                                              overflow:
-                                                  TextOverflow
-                                                      .ellipsis,
-                                              style:
-                                                  const TextStyle(
-                                                color: AppColors
-                                                    .textSecondary,
-                                                fontSize:
-                                                    10,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
                         ),
-                ),
 
-                // ==================================================
-                // BOTTOM BUTTON
-                // ==================================================
-
-                Container(
-                  padding: const EdgeInsets.fromLTRB(
-                    16,
-                    10,
-                    16,
-                    12,
-                  ),
-                  decoration:
-                      const BoxDecoration(
-                    color: AppColors.surface,
-                    border: Border(
-                      top: BorderSide(
-                        color: AppColors.border,
-                      ),
-                    ),
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Row(
-                      children: [
                         Expanded(
                           child: Text(
-                            '${_selectedProductIds.length} product${_selectedProductIds.length == 1 ? '' : 's'} selected',
-                            style:
-                                const TextStyle(
-                              color: AppColors
-                                  .textPrimary,
-                              fontWeight:
-                                  FontWeight.w800,
+                            allVisibleSelected
+                                ? 'Unselect visible products'
+                                : 'Select all visible products',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
                             ),
                           ),
                         ),
-                        ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(
-                              sheetContext,
-                            );
 
-                            setState(() {});
-                          },
-                          child:
-                              const Text('DONE'),
+                        Text(
+                          '${filteredProducts.length} products',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    },
-  );
 
-  searchController.dispose();
+                  const Divider(height: 1),
 
-  if (mounted) {
-    setState(() {});
+                  // ==================================================
+                  // PRODUCT LIST
+                  // ==================================================
+                  Expanded(
+                    child: filteredProducts.isEmpty
+                        ? const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.search_off_rounded,
+                                  size: 42,
+                                  color: AppColors.textSecondary,
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'No matching products',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
+                            itemCount: filteredProducts.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 6),
+                            itemBuilder: (context, index) {
+                              final product = filteredProducts[index];
+
+                              final String productId = _productId(product);
+
+                              final String productName = _productName(product);
+
+                              final String variant = _productVariant(product);
+
+                              final String unit = _productUnit(product);
+
+                              final num stock = _productStock(product);
+
+                              final bool selected = _selectedProductIds
+                                  .contains(productId);
+
+                              return Material(
+                                color: selected
+                                    ? AppColors.surfaceBlue
+                                    : AppColors.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () {
+                                    setState(() {
+                                      if (selected) {
+                                        _selectedProductIds.remove(productId);
+
+                                        _quantities[productId]?.clear();
+                                      } else {
+                                        _selectedProductIds.add(productId);
+                                      }
+                                    });
+
+                                    setSheetState(() {});
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 9,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: selected
+                                            ? AppColors.primary
+                                            : AppColors.border,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Checkbox(
+                                          value: selected,
+                                          onChanged: (_) {
+                                            setState(() {
+                                              if (selected) {
+                                                _selectedProductIds.remove(
+                                                  productId,
+                                                );
+
+                                                _quantities[productId]?.clear();
+                                              } else {
+                                                _selectedProductIds.add(
+                                                  productId,
+                                                );
+                                              }
+                                            });
+
+                                            setSheetState(() {});
+                                          },
+                                        ),
+
+                                        const SizedBox(width: 2),
+
+                                        Container(
+                                          width: 38,
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              9,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.inventory_2_outlined,
+                                            size: 20,
+                                          ),
+                                        ),
+
+                                        const SizedBox(width: 10),
+
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                productName,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: AppColors.textPrimary,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                '${variant.isEmpty ? 'Standard' : variant} • '
+                                                '${stock.toStringAsFixed(0)} $unit available',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color:
+                                                      AppColors.textSecondary,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+
+                  // ==================================================
+                  // BOTTOM BUTTON
+                  // ==================================================
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                    decoration: const BoxDecoration(
+                      color: AppColors.surface,
+                      border: Border(top: BorderSide(color: AppColors.border)),
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${_selectedProductIds.length} product${_selectedProductIds.length == 1 ? '' : 's'} selected',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+
+                              setState(() {});
+                            },
+                            child: const Text('DONE'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    searchController.dispose();
+
+    if (mounted) {
+      setState(() {});
+    }
   }
-}
   // ============================================================
   // PRODUCT CARD
   // ============================================================
@@ -1474,7 +1524,11 @@ Future<void> _openProductPicker() async {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('ASSIGN ALLOCATION'),
+               : Text(
+    _isEditing
+        ? 'UPDATE ALLOCATION'
+        : 'ASSIGN ALLOCATION',
+  ),
           ),
         ],
       ),

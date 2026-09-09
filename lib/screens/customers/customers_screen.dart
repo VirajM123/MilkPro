@@ -10,7 +10,6 @@ import '../../theme/app_colors.dart';
 import '../common/simple_screen_widgets.dart';
 import 'customer_detail_screen.dart';
 
-
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
 
@@ -32,7 +31,18 @@ class _CustomersScreenState extends State<CustomersScreen> {
   List<CustomerModel> _customerList = [];
   List<String> _routeList = [];
 
-bool _loadingRoutes = false;
+  bool _loadingRoutes = false;
+
+  // ============================================================
+  // CURRENT CUSTOMER OUTSTANDING
+  //
+  // customer.balance = opening/master balance
+  // This map = live ledger balance
+  // ============================================================
+
+  final Map<String, double> _currentBalances = <String, double>{};
+
+  bool _loadingBalances = false;
 
   static const _avatarColors = <Color>[
     Color(0xFFE8F1FF),
@@ -64,22 +74,121 @@ bool _loadingRoutes = false;
     }).toList();
   }
 
-  double get _totalDue =>
-      _customerList.fold(0, (sum, customer) => sum + customer.balance);
+  double get _totalDue {
+    double total = 0;
 
- @override
-void initState() {
-  super.initState();
+    for (final CustomerModel customer in _customerList) {
+      total += _currentBalanceFor(customer);
+    }
 
-  _loadCustomers();
-  _loadRoutes();
-}
+    return total;
+  }
+
+  double _currentBalanceFor(CustomerModel customer) {
+    final String customerId = customer.customerId.trim().toUpperCase();
+
+    if (customerId.isEmpty) {
+      return customer.balance;
+    }
+
+    return _currentBalances[customerId] ?? customer.balance;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    _loadCustomers();
+    _loadRoutes();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCurrentBalances() async {
+    if (_customerList.isEmpty) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingBalances = true;
+      });
+    }
+
+    try {
+      final List<Future<void>> requests = [];
+
+      final Map<String, double> loadedBalances = <String, double>{};
+
+      for (final CustomerModel customer in _customerList) {
+        final String customerId = customer.customerId.trim().toUpperCase();
+
+        if (customerId.isEmpty) {
+          continue;
+        }
+
+        requests.add(() async {
+          try {
+            final http.Response response = await http.get(
+              Uri.parse(ApiConfig.customerLedger(customerId)),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${ApiConfig.token}',
+              },
+            );
+
+            if (response.statusCode != 200) {
+              return;
+            }
+
+            final dynamic decoded = jsonDecode(response.body);
+
+            if (decoded is! Map || decoded['success'] != true) {
+              return;
+            }
+
+            final dynamic ledgerData = decoded['data'];
+
+            if (ledgerData is! Map) {
+              return;
+            }
+
+            loadedBalances[customerId] =
+                double.tryParse(ledgerData['balance']?.toString() ?? '0') ?? 0;
+          } catch (_) {
+            // Keep existing value for this
+            // customer if one request fails.
+          }
+        }());
+      }
+
+      await Future.wait(requests);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _currentBalances
+          ..clear()
+          ..addAll(loadedBalances);
+
+        _loadingBalances = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _loadingBalances = false;
+      });
+    }
   }
 
   Future<void> _loadCustomers() async {
@@ -105,17 +214,17 @@ void initState() {
       if (response.statusCode == 200 && data['success'] == true) {
         final List<dynamic> records = data['data'] as List<dynamic>? ?? [];
 
-final customers =
-    records.map((item) {
-  final map =
-      item as Map<String, dynamic>;
+        final customers = records.map((item) {
+          final map = item as Map<String, dynamic>;
 
-  return CustomerModel.fromJson(map);
-}).toList();
+          return CustomerModel.fromJson(map);
+        }).toList();
 
         setState(() {
           _customerList = customers;
         });
+
+        await _loadCurrentBalances();
       } else {
         _message(data['message']?.toString() ?? 'Unable to load customers.');
       }
@@ -131,861 +240,599 @@ final customers =
       }
     }
   }
+
   Future<void> _loadRoutes() async {
-  if (mounted) {
-    setState(() {
-      _loadingRoutes = true;
-    });
-  }
-
-  try {
-    final response = await http.get(
-      Uri.parse(ApiConfig.routes),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${ApiConfig.token}',
-      },
-    );
-
-    final Map<String, dynamic> data =
-        jsonDecode(response.body) as Map<String, dynamic>;
-
-    if (!mounted) return;
-
-    if (response.statusCode == 200 &&
-        data['success'] == true) {
-      final List<dynamic> records =
-          data['data'] as List<dynamic>? ?? [];
-
-      final routes = records
-          .where((item) {
-            final map = item as Map<String, dynamic>;
-            return map['isActive'] != false;
-          })
-          .map((item) {
-            final map = item as Map<String, dynamic>;
-            return map['routeName']?.toString() ?? '';
-          })
-          .where((name) => name.trim().isNotEmpty)
-          .toList();
-
-      setState(() {
-        _routeList = routes;
-      });
-    } else {
-      _message(
-        data['message']?.toString() ??
-            'Unable to load routes.',
-      );
-    }
-  } catch (error) {
-    if (!mounted) return;
-
-    _message(
-      'Unable to load routes from server.',
-    );
-  } finally {
     if (mounted) {
       setState(() {
-        _loadingRoutes = false;
+        _loadingRoutes = true;
       });
     }
+
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConfig.routes),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
+      );
+
+      final Map<String, dynamic> data =
+          jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        final List<dynamic> records = data['data'] as List<dynamic>? ?? [];
+
+        final routes = records
+            .where((item) {
+              final map = item as Map<String, dynamic>;
+              return map['isActive'] != false;
+            })
+            .map((item) {
+              final map = item as Map<String, dynamic>;
+              return map['routeName']?.toString() ?? '';
+            })
+            .where((name) => name.trim().isNotEmpty)
+            .toList();
+
+        setState(() {
+          _routeList = routes;
+        });
+      } else {
+        _message(data['message']?.toString() ?? 'Unable to load routes.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      _message('Unable to load routes from server.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingRoutes = false;
+        });
+      }
+    }
   }
-}
 
   Future<void> _addCustomer() async {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController();
     final mobileController = TextEditingController();
     final balanceController = TextEditingController(text: '0');
-    String? route =
-    _routeList.isNotEmpty
-        ? _routeList.first
-        : null;
+    String? route = _routeList.isNotEmpty ? _routeList.first : null;
 
     final customer = await showModalBottomSheet<CustomerModel>(
       context: context,
       isScrollControlled: true,
-   builder: (sheetContext) => SafeArea(
-  child: SingleChildScrollView(
-    padding: EdgeInsets.fromLTRB(
-      18,
-      12,
-      18,
-      MediaQuery.viewInsetsOf(sheetContext).bottom + 22,
-    ),
-    child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Add Customer',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Customer name',
-                  prefixIcon: Icon(Icons.person_outline),
-                ),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Enter customer name'
-                    : null,
-              ),
-              const SizedBox(height: 11),
-              TextFormField(
-                controller: mobileController,
-                keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(10),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'Mobile number',
-                  prefixIcon: Icon(Icons.phone_outlined),
-                ),
-                validator: (value) => value?.length == 10
-                    ? null
-                    : 'Enter a 10-digit mobile number',
-              ),
-              const SizedBox(height: 11),
-          DropdownButtonFormField<String>(
-  value: route,
-  isExpanded: true,
-
-  decoration: InputDecoration(
-    labelText: 'Route',
-    prefixIcon:
-        const Icon(Icons.route_outlined),
-    suffixIcon:
-        _loadingRoutes
-            ? const Padding(
-                padding: EdgeInsets.all(14),
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child:
-                      CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
-                ),
-              )
-            : null,
-  ),
-
-  items: _routeList
-      .map(
-        (item) =>
-            DropdownMenuItem<String>(
-          value: item,
-          child: Text(
-            item,
-            overflow: TextOverflow.ellipsis,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            12,
+            18,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 22,
           ),
-        ),
-      )
-      .toList(),
-
-  onChanged: _routeList.isEmpty
-      ? null
-      : (value) {
-          route = value;
-        },
-
-  validator: (value) {
-    if (value == null ||
-        value.trim().isEmpty) {
-      return 'Please select route';
-    }
-
-    return null;
-  },
-),
-              const SizedBox(height: 11),
-              TextFormField(
-                controller: balanceController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Add Customer',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Opening balance',
-                  prefixIcon: Icon(Icons.currency_rupee_rounded),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer name',
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Enter customer name'
+                      : null,
                 ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    if (!(formKey.currentState?.validate() ?? false)) {
-                      return;
+                const SizedBox(height: 11),
+                TextFormField(
+                  controller: mobileController,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Mobile number',
+                    prefixIcon: Icon(Icons.phone_outlined),
+                  ),
+                  validator: (value) => value?.length == 10
+                      ? null
+                      : 'Enter a 10-digit mobile number',
+                ),
+                const SizedBox(height: 11),
+                DropdownButtonFormField<String>(
+                  value: route,
+                  isExpanded: true,
+
+                  decoration: InputDecoration(
+                    labelText: 'Route',
+                    prefixIcon: const Icon(Icons.route_outlined),
+                    suffixIcon: _loadingRoutes
+                        ? const Padding(
+                            padding: EdgeInsets.all(14),
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : null,
+                  ),
+
+                  items: _routeList
+                      .map(
+                        (item) => DropdownMenuItem<String>(
+                          value: item,
+                          child: Text(item, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+
+                  onChanged: _routeList.isEmpty
+                      ? null
+                      : (value) {
+                          route = value;
+                        },
+
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please select route';
                     }
 
-                    Navigator.pop(
-                      sheetContext,
-                      CustomerModel(
-                        name: nameController.text.trim(),
-
-                        mobile: mobileController.text.trim(),
-
-                        route: route ?? '',
-
-                        balance: double.tryParse(balanceController.text) ?? 0,
-                      ),
-                    );
+                    return null;
                   },
-                  child: const Text('Save Customer'),
                 ),
-              ),
-           ],
+                const SizedBox(height: 11),
+                TextFormField(
+                  controller: balanceController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Opening balance',
+                    prefixIcon: Icon(Icons.currency_rupee_rounded),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      if (!(formKey.currentState?.validate() ?? false)) {
+                        return;
+                      }
+
+                      Navigator.pop(
+                        sheetContext,
+                        CustomerModel(
+                          name: nameController.text.trim(),
+
+                          mobile: mobileController.text.trim(),
+
+                          route: route ?? '',
+
+                          balance: double.tryParse(balanceController.text) ?? 0,
+                        ),
+                      );
+                    },
+                    child: const Text('Save Customer'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-    ),
-  ),
-);
-
-if (customer == null || !mounted) {
-  return;
-}
-
-await _saveCustomer(customer);
-  }
-  Future<void> _saveCustomer(
-  CustomerModel customer,
-) async {
-
-  try {
-
-    final response =
-        await http.post(
-      Uri.parse(
-        ApiConfig.customers,
-      ),
-
-      headers: {
-        'Content-Type':
-            'application/json',
-
-        'Authorization':
-            'Bearer ${ApiConfig.token}',
-      },
-
-      body: jsonEncode({
-        'name':
-            customer.name,
-
-        'mobile':
-            customer.mobile,
-
-        'route':
-            customer.route,
-
-        'balance':
-            customer.balance,
-      }),
     );
 
-
-    final Map<String, dynamic> data =
-        jsonDecode(response.body)
-            as Map<String, dynamic>;
-
-
-    if (!mounted) return;
-
-
-    if (
-        response.statusCode == 200 ||
-        response.statusCode == 201
-    ) {
-
-      showSavedMessage(
-        context,
-        data['message']?.toString() ??
-            'Customer added successfully.',
-      );
-
-
-      await _loadCustomers();
-
-    } else {
-
-      _message(
-        data['message']?.toString() ??
-            'Unable to add customer.',
-      );
+    if (customer == null || !mounted) {
+      return;
     }
 
-  } catch (error) {
-
-    if (!mounted) return;
-
-    _message(
-      'Unable to connect to backend.',
-    );
-  }
-}
-
-Future<void> _editCustomer(
-  CustomerModel customer,
-) async {
-  if (customer.id.trim().isEmpty) {
-    _message(
-      'Customer database ID is missing. Please reload customers.',
-    );
-    return;
+    await _saveCustomer(customer);
   }
 
-  final formKey =
-      GlobalKey<FormState>();
+  Future<void> _saveCustomer(CustomerModel customer) async {
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConfig.customers),
 
-  final nameController =
-      TextEditingController(
-    text: customer.name,
-  );
+        headers: {
+          'Content-Type': 'application/json',
 
-  final mobileController =
-      TextEditingController(
-    text: customer.mobile,
-  );
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
 
-  final balanceController =
-      TextEditingController(
-    text: customer.balance.toStringAsFixed(
-      0,
-    ),
-  );
+        body: jsonEncode({
+          'name': customer.name,
 
-  String? selectedRoute =
-      customer.route.trim().isNotEmpty
-          ? customer.route
-          : (_routeList.isNotEmpty
-              ? _routeList.first
-              : null);
+          'mobile': customer.mobile,
 
-  // In case an old customer contains a route
-  // that is currently inactive / missing.
-  final availableRoutes =
-      <String>[..._routeList];
+          'route': customer.route,
 
-  if (selectedRoute != null &&
-      selectedRoute.trim().isNotEmpty &&
-      !availableRoutes.contains(
-        selectedRoute,
-      )) {
-    availableRoutes.insert(
-      0,
-      selectedRoute,
-    );
-  }
+          'balance': customer.balance,
+        }),
+      );
 
-  bool isActive =
-      customer.isActive;
+      final Map<String, dynamic> data =
+          jsonDecode(response.body) as Map<String, dynamic>;
 
-  final updatedCustomer =
-      await showModalBottomSheet<
-          CustomerModel>(
-    context: context,
-    isScrollControlled: true,
-    builder: (sheetContext) {
-      return StatefulBuilder(
-        builder: (
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        showSavedMessage(
           context,
-          setSheetState,
-        ) {
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding:
-                  EdgeInsets.fromLTRB(
-                18,
-                12,
-                18,
-                MediaQuery.viewInsetsOf(
-                      sheetContext,
-                    ).bottom +
-                    22,
-              ),
-              child: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize:
-                      MainAxisSize.min,
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Edit Customer',
-                            style:
-                                Theme.of(
-                              context,
-                            )
-                                    .textTheme
-                                    .titleLarge,
+          data['message']?.toString() ?? 'Customer added successfully.',
+        );
+
+        await _loadCustomers();
+      } else {
+        _message(data['message']?.toString() ?? 'Unable to add customer.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      _message('Unable to connect to backend.');
+    }
+  }
+
+  Future<void> _editCustomer(CustomerModel customer) async {
+    if (customer.id.trim().isEmpty) {
+      _message('Customer database ID is missing. Please reload customers.');
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+
+    final nameController = TextEditingController(text: customer.name);
+
+    final mobileController = TextEditingController(text: customer.mobile);
+
+    final balanceController = TextEditingController(
+      text: customer.balance.toStringAsFixed(0),
+    );
+
+    String? selectedRoute = customer.route.trim().isNotEmpty
+        ? customer.route
+        : (_routeList.isNotEmpty ? _routeList.first : null);
+
+    // In case an old customer contains a route
+    // that is currently inactive / missing.
+    final availableRoutes = <String>[..._routeList];
+
+    if (selectedRoute != null &&
+        selectedRoute.trim().isNotEmpty &&
+        !availableRoutes.contains(selectedRoute)) {
+      availableRoutes.insert(0, selectedRoute);
+    }
+
+    bool isActive = customer.isActive;
+
+    final updatedCustomer = await showModalBottomSheet<CustomerModel>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  18,
+                  12,
+                  18,
+                  MediaQuery.viewInsetsOf(sheetContext).bottom + 22,
+                ),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Edit Customer',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          onPressed: () =>
-                              Navigator.pop(
-                            sheetContext,
+                          IconButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: const Icon(Icons.close_rounded),
                           ),
-                          icon: const Icon(
-                            Icons.close_rounded,
+                        ],
+                      ),
+
+                      if (customer.customerId.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          customer.customerId,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
-                    ),
 
-                    if (customer
-                        .customerId
-                        .isNotEmpty) ...[
-                      const SizedBox(
-                        height: 4,
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Customer name',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Enter customer name';
+                          }
+
+                          return null;
+                        },
                       ),
-                      Text(
-                        customer.customerId,
-                        style:
-                            const TextStyle(
-                          color: AppColors
-                              .textSecondary,
-                          fontSize: 11,
-                          fontWeight:
-                              FontWeight.w600,
+
+                      const SizedBox(height: 11),
+
+                      TextFormField(
+                        controller: mobileController,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Mobile number',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                        ),
+                        validator: (value) {
+                          if (value?.length != 10) {
+                            return 'Enter a 10-digit mobile number';
+                          }
+
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 11),
+
+                      DropdownButtonFormField<String>(
+                        value: selectedRoute,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Route',
+                          prefixIcon: Icon(Icons.route_outlined),
+                        ),
+                        items: availableRoutes
+                            .map(
+                              (route) => DropdownMenuItem<String>(
+                                value: route,
+                                child: Text(
+                                  route,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: availableRoutes.isEmpty
+                            ? null
+                            : (value) {
+                                setSheetState(() {
+                                  selectedRoute = value;
+                                });
+                              },
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please select route';
+                          }
+
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 11),
+
+                      TextFormField(
+                        controller: balanceController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d{0,2}'),
+                          ),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Opening / current balance',
+                          prefixIcon: Icon(Icons.currency_rupee_rounded),
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: isActive,
+                        title: const Text('Customer Active'),
+                        subtitle: Text(
+                          isActive
+                              ? 'Customer can be used in transactions'
+                              : 'Customer is currently inactive',
+                        ),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            isActive = value;
+                          });
+                        },
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (!(formKey.currentState?.validate() ?? false)) {
+                              return;
+                            }
+
+                            Navigator.pop(
+                              sheetContext,
+                              customer.copyWith(
+                                name: nameController.text.trim(),
+                                mobile: mobileController.text.trim(),
+                                route: selectedRoute ?? '',
+                                balance:
+                                    double.tryParse(balanceController.text) ??
+                                    0,
+                                isActive: isActive,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.save_outlined),
+                          label: const Text('Update Customer'),
                         ),
                       ),
                     ],
-
-                    const SizedBox(
-                      height: 16,
-                    ),
-
-                    TextFormField(
-                      controller:
-                          nameController,
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'Customer name',
-                        prefixIcon: Icon(
-                          Icons
-                              .person_outline,
-                        ),
-                      ),
-                      validator: (value) {
-                        if (value == null ||
-                            value
-                                .trim()
-                                .isEmpty) {
-                          return 'Enter customer name';
-                        }
-
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(
-                      height: 11,
-                    ),
-
-                    TextFormField(
-                      controller:
-                          mobileController,
-                      keyboardType:
-                          TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter
-                            .digitsOnly,
-                        LengthLimitingTextInputFormatter(
-                          10,
-                        ),
-                      ],
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'Mobile number',
-                        prefixIcon: Icon(
-                          Icons
-                              .phone_outlined,
-                        ),
-                      ),
-                      validator: (value) {
-                        if (value?.length !=
-                            10) {
-                          return 'Enter a 10-digit mobile number';
-                        }
-
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(
-                      height: 11,
-                    ),
-
-                    DropdownButtonFormField<
-                        String>(
-                      value:
-                          selectedRoute,
-                      isExpanded: true,
-                      decoration:
-                          const InputDecoration(
-                        labelText: 'Route',
-                        prefixIcon: Icon(
-                          Icons
-                              .route_outlined,
-                        ),
-                      ),
-                      items: availableRoutes
-                          .map(
-                            (route) =>
-                                DropdownMenuItem<
-                                    String>(
-                              value: route,
-                              child: Text(
-                                route,
-                                overflow:
-                                    TextOverflow
-                                        .ellipsis,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged:
-                          availableRoutes
-                                  .isEmpty
-                              ? null
-                              : (value) {
-                                  setSheetState(
-                                    () {
-                                      selectedRoute =
-                                          value;
-                                    },
-                                  );
-                                },
-                      validator: (value) {
-                        if (value == null ||
-                            value
-                                .trim()
-                                .isEmpty) {
-                          return 'Please select route';
-                        }
-
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(
-                      height: 11,
-                    ),
-
-                    TextFormField(
-                      controller:
-                          balanceController,
-                      keyboardType:
-                          const TextInputType
-                              .numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter
-                            .allow(
-                          RegExp(
-                            r'^\d*\.?\d{0,2}',
-                          ),
-                        ),
-                      ],
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'Opening / current balance',
-                        prefixIcon: Icon(
-                          Icons
-                              .currency_rupee_rounded,
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(
-                      height: 8,
-                    ),
-
-                    SwitchListTile(
-                      contentPadding:
-                          EdgeInsets.zero,
-                      value: isActive,
-                      title: const Text(
-                        'Customer Active',
-                      ),
-                      subtitle: Text(
-                        isActive
-                            ? 'Customer can be used in transactions'
-                            : 'Customer is currently inactive',
-                      ),
-                      onChanged: (value) {
-                        setSheetState(() {
-                          isActive =
-                              value;
-                        });
-                      },
-                    ),
-
-                    const SizedBox(
-                      height: 14,
-                    ),
-
-                    SizedBox(
-                      width:
-                          double.infinity,
-                      child:
-                          ElevatedButton.icon(
-                        onPressed: () {
-                          if (!(formKey
-                                  .currentState
-                                  ?.validate() ??
-                              false)) {
-                            return;
-                          }
-
-                          Navigator.pop(
-                            sheetContext,
-                            customer.copyWith(
-                              name:
-                                  nameController
-                                      .text
-                                      .trim(),
-                              mobile:
-                                  mobileController
-                                      .text
-                                      .trim(),
-                              route:
-                                  selectedRoute ??
-                                      '',
-                              balance:
-                                  double.tryParse(
-                                        balanceController
-                                            .text,
-                                      ) ??
-                                      0,
-                              isActive:
-                                  isActive,
-                            ),
-                          );
-                        },
-                        icon: const Icon(
-                          Icons.save_outlined,
-                        ),
-                        label: const Text(
-                          'Update Customer',
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
+            );
+          },
+        );
+      },
+    );
+
+    if (updatedCustomer == null || !mounted) {
+      return;
+    }
+
+    await _updateCustomer(updatedCustomer);
+  }
+
+  Future<void> _updateCustomer(CustomerModel customer) async {
+    try {
+      final response = await http.put(
+        Uri.parse(ApiConfig.customerById(customer.id)),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
+        body: jsonEncode({
+          'name': customer.name,
+          'mobile': customer.mobile,
+          'route': customer.route,
+          'balance': customer.balance,
+          'isActive': customer.isActive,
+        }),
+      );
+
+      final Map<String, dynamic> data =
+          jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        showSavedMessage(
+          context,
+          data['message']?.toString() ?? 'Customer updated successfully.',
+        );
+
+        await _loadCustomers();
+      } else {
+        _message(data['message']?.toString() ?? 'Unable to update customer.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      _message('Unable to connect to backend.');
+    }
+  }
+
+  Future<void> _deleteCustomer(CustomerModel customer) async {
+    if (customer.id.trim().isEmpty) {
+      _message('Customer database ID is missing. Please reload customers.');
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Customer?'),
+          content: Text(
+            'Are you sure you want to delete "${customer.name}"?\n\n'
+            'This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
             ),
-          );
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Delete'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
+
+    try {
+      final response = await http.delete(
+        Uri.parse(ApiConfig.customerById(customer.id)),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.token}',
         },
       );
-    },
-  );
- 
 
-  if (updatedCustomer == null ||
-      !mounted) {
-    return;
-  }
+      final Map<String, dynamic> data =
+          jsonDecode(response.body) as Map<String, dynamic>;
 
-  await _updateCustomer(
-    updatedCustomer,
-  );
-}
+      if (!mounted) return;
 
-Future<void> _updateCustomer(
-  CustomerModel customer,
-) async {
-  try {
-    final response =
-        await http.put(
-      Uri.parse(
-        ApiConfig.customerById(
-          customer.id,
-        ),
-      ),
-      headers: {
-        'Content-Type':
-            'application/json',
-        'Authorization':
-            'Bearer ${ApiConfig.token}',
-      },
-      body: jsonEncode({
-        'name':
-            customer.name,
-        'mobile':
-            customer.mobile,
-        'route':
-            customer.route,
-        'balance':
-            customer.balance,
-        'isActive':
-            customer.isActive,
-      }),
-    );
+      if (response.statusCode == 200 && data['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              data['message']?.toString() ?? 'Customer deleted successfully.',
+            ),
+          ),
+        );
 
-    final Map<String, dynamic>
-        data =
-        jsonDecode(
-          response.body,
-        ) as Map<String, dynamic>;
+        await _loadCustomers();
+      } else {
+        _message(data['message']?.toString() ?? 'Unable to delete customer.');
+      }
+    } catch (error) {
+      if (!mounted) return;
 
-    if (!mounted) return;
-
-    if (response.statusCode ==
-            200 &&
-        data['success'] == true) {
-      showSavedMessage(
-        context,
-        data['message']
-                ?.toString() ??
-            'Customer updated successfully.',
-      );
-
-      await _loadCustomers();
-    } else {
-      _message(
-        data['message']
-                ?.toString() ??
-            'Unable to update customer.',
-      );
+      _message('Unable to connect to backend.');
     }
-  } catch (error) {
-    if (!mounted) return;
-
-    _message(
-      'Unable to connect to backend.',
-    );
-  }
-}
-Future<void> _deleteCustomer(
-  CustomerModel customer,
-) async {
-  if (customer.id.trim().isEmpty) {
-    _message(
-      'Customer database ID is missing. Please reload customers.',
-    );
-    return;
   }
 
-  final shouldDelete =
-      await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: const Text(
-          'Delete Customer?',
-        ),
-        content: Text(
-          'Are you sure you want to delete "${customer.name}"?\n\n'
-          'This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(
-              dialogContext,
-              false,
-            ),
-            child:
-                const Text('Cancel'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () =>
-                Navigator.pop(
-              dialogContext,
-              true,
-            ),
-            icon: const Icon(
-              Icons.delete_outline,
-            ),
-            label:
-                const Text('Delete'),
-            style:
-                ElevatedButton.styleFrom(
-              backgroundColor:
-                  AppColors.error,
-              foregroundColor:
-                  Colors.white,
-            ),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (shouldDelete != true ||
-      !mounted) {
-    return;
-  }
-
-  try {
-    final response =
-        await http.delete(
-      Uri.parse(
-        ApiConfig.customerById(
-          customer.id,
-        ),
-      ),
-      headers: {
-        'Content-Type':
-            'application/json',
-        'Authorization':
-            'Bearer ${ApiConfig.token}',
-      },
-    );
-
-    final Map<String, dynamic>
-        data =
-        jsonDecode(
-          response.body,
-        ) as Map<String, dynamic>;
-
-    if (!mounted) return;
-
-    if (response.statusCode ==
-            200 &&
-        data['success'] == true) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(
-          content: Text(
-            data['message']
-                    ?.toString() ??
-                'Customer deleted successfully.',
-          ),
-        ),
-      );
-
-      await _loadCustomers();
-    } else {
-      _message(
-        data['message']
-                ?.toString() ??
-            'Unable to delete customer.',
-      );
-    }
-  } catch (error) {
-    if (!mounted) return;
-
-    _message(
-      'Unable to connect to backend.',
-    );
-  }
-}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1013,28 +860,18 @@ Future<void> _deleteCustomer(
                       const SizedBox(height: 18),
                       _buildSearchAndFilter(),
                       const SizedBox(height: 18),
-                   if (_loadingCustomers)
-  const Padding(
-    padding:
-        EdgeInsets.symmetric(
-          vertical: 40,
-        ),
-    child: Center(
-      child:
-          CircularProgressIndicator(),
-    ),
-  )
-else if (_customers.isEmpty)
-  _buildEmptyState()
-else
-  ...List.generate(
-    _customers.length,
-    (index) =>
-        _customerCard(
-          _customers[index],
-          index,
-        ),
-  ),
+                      if (_loadingCustomers)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (_customers.isEmpty)
+                        _buildEmptyState()
+                      else
+                        ...List.generate(
+                          _customers.length,
+                          (index) => _customerCard(_customers[index], index),
+                        ),
                       const SizedBox(height: 8),
                       _buildAddCustomerBanner(),
                     ],
@@ -1158,7 +995,7 @@ else
         Expanded(
           child: _summaryCard(
             label: 'Total Customers',
-           value: '${_customerList.length}',
+            value: '${_customerList.length}',
             icon: Icons.groups_rounded,
             color: AppColors.primary,
             background: const Color(0xFFF3F7FF),
@@ -1270,6 +1107,10 @@ else
   Widget _customerCard(CustomerModel customer, int index) {
     final avatarColor = _avatarColors[index % _avatarColors.length];
     final avatarTextColor = _avatarTextColors[index % _avatarTextColors.length];
+    final double currentBalance =
+    _currentBalanceFor(
+  customer,
+);
     return Container(
       margin: const EdgeInsets.only(bottom: 13),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 5),
@@ -1352,82 +1193,89 @@ else
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    '₹${customer.balance.toStringAsFixed(0)}',
-                    style: TextStyle(
-                      color: customer.balance > 0
-                          ? const Color(0xFFFF681D)
-                          : AppColors.success,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
+                 Text(
+  _loadingBalances
+      ? '...'
+      : '₹${currentBalance.toStringAsFixed(0)}',
+  style: TextStyle(
+    color: currentBalance > 0.001
+        ? const Color(0xFFFF681D)
+        : AppColors.success,
+    fontSize: 15,
+    fontWeight: FontWeight.w900,
+  ),
+),
+
+const SizedBox(height: 3),
+
+Text(
+  _loadingBalances
+      ? 'Checking...'
+      : currentBalance > 0.001
+          ? 'Outstanding'
+          : 'Clear',
+  style: const TextStyle(
+    color:
+        AppColors.textSecondary,
+    fontSize: 9.5,
+  ),
+),
+                ],
+              ),
+              const SizedBox(width: 3),
+
+              PopupMenuButton<String>(
+                tooltip: 'Customer actions',
+                icon: const Icon(
+                  Icons.more_vert_rounded,
+                  color: AppColors.textSecondary,
+                ),
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    _editCustomer(customer);
+                  }
+
+                  if (value == 'delete') {
+                    _deleteCustomer(customer);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem<String>(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.edit_outlined,
+                          size: 20,
+                          color: AppColors.primary,
+                        ),
+                        SizedBox(width: 10),
+                        Text('Edit Customer'),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    customer.balance > 0 ? 'Outstanding' : 'Clear',
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 9.5,
+
+                  const PopupMenuDivider(),
+
+                  const PopupMenuItem<String>(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.delete_outline_rounded,
+                          size: 20,
+                          color: AppColors.error,
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Delete Customer',
+                          style: TextStyle(color: AppColors.error),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-             const SizedBox(width: 3),
-
-PopupMenuButton<String>(
-  tooltip: 'Customer actions',
-  icon: const Icon(
-    Icons.more_vert_rounded,
-    color: AppColors.textSecondary,
-  ),
-  onSelected: (value) {
-    if (value == 'edit') {
-      _editCustomer(customer);
-    }
-
-    if (value == 'delete') {
-      _deleteCustomer(customer);
-    }
-  },
-  itemBuilder: (context) => [
-    const PopupMenuItem<String>(
-      value: 'edit',
-      child: Row(
-        children: [
-          Icon(
-            Icons.edit_outlined,
-            size: 20,
-            color: AppColors.primary,
-          ),
-          SizedBox(width: 10),
-          Text('Edit Customer'),
-        ],
-      ),
-    ),
-
-    const PopupMenuDivider(),
-
-    const PopupMenuItem<String>(
-      value: 'delete',
-      child: Row(
-        children: [
-          Icon(
-            Icons.delete_outline_rounded,
-            size: 20,
-            color: AppColors.error,
-          ),
-          SizedBox(width: 10),
-          Text(
-            'Delete Customer',
-            style: TextStyle(
-              color: AppColors.error,
-            ),
-          ),
-        ],
-      ),
-    ),
-  ],
-),
             ],
           ),
           const SizedBox(height: 12),

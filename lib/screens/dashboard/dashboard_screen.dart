@@ -37,18 +37,32 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  _DashboardData _dashboard = const _DashboardData();
+ _DashboardData _dashboard = const _DashboardData();
 
-  bool _dashboardLoading = true;
+bool _dashboardLoading = true;
+String _dashboardError = '';
 
-  String _dashboardError = '';
+// ================================================================
+// SALESMAN PERFORMANCE
+// ================================================================
 
-  @override
-  void initState() {
-    super.initState();
+String _salesmanPerformancePeriod = 'day';
 
-    _loadDashboard();
+bool _salesmanPerformanceLoading = false;
+String _salesmanPerformanceError = '';
+
+Map<String, dynamic> _salesmanPerformance = <String, dynamic>{};
+
+@override
+void initState() {
+  super.initState();
+
+  _loadDashboard();
+
+  if (user.role == UserRole.salesman) {
+    _loadSalesmanPerformance();
   }
+}
 
   AppUser get user => UiSession.instance.currentUser;
 
@@ -108,6 +122,156 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     }
   }
+
+Future<void> _loadSalesmanPerformance({
+  String? period,
+}) async {
+  final String requestedPeriod =
+      period ?? _salesmanPerformancePeriod;
+
+  try {
+    if (mounted) {
+      setState(() {
+        _salesmanPerformanceLoading = true;
+        _salesmanPerformanceError = '';
+      });
+    }
+
+    final http.Response response =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/api/dashboard/salesman-performance'
+        '?period=$requestedPeriod',
+      ),
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final dynamic decoded =
+        jsonDecode(response.body);
+
+    if (response.statusCode != 200 ||
+        decoded is! Map ||
+        decoded['success'] != true) {
+      String message =
+          'Unable to load sales performance.';
+
+      if (decoded is Map &&
+          decoded['message'] != null) {
+        message =
+            decoded['message'].toString();
+      }
+
+      throw Exception(message);
+    }
+
+    final dynamic data =
+        decoded['data'];
+
+    if (data is! Map) {
+      throw Exception(
+        'Sales performance data not found.',
+      );
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _salesmanPerformancePeriod =
+          requestedPeriod;
+
+      _salesmanPerformance =
+          Map<String, dynamic>.from(
+        data,
+      );
+
+      _salesmanPerformanceLoading =
+          false;
+
+      _salesmanPerformanceError = '';
+    });
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _salesmanPerformanceLoading =
+          false;
+
+      _salesmanPerformanceError =
+          error
+              .toString()
+              .replaceFirst(
+                'Exception: ',
+                '',
+              );
+    });
+  }
+}
+Map<String, dynamic>
+get _salesmanPerformanceSummary {
+  final dynamic summary =
+      _salesmanPerformance['summary'];
+
+  if (summary is Map) {
+    return Map<String, dynamic>.from(
+      summary,
+    );
+  }
+
+  return <String, dynamic>{};
+}
+
+List<Map<String, dynamic>>
+get _salesmanPerformanceCustomers {
+  final dynamic customers =
+      _salesmanPerformance['customers'];
+
+  if (customers is! List) {
+    return <Map<String, dynamic>>[];
+  }
+
+  return customers
+      .whereType<Map>()
+      .map(
+        (dynamic item) =>
+            Map<String, dynamic>.from(
+          item as Map,
+        ),
+      )
+      .toList(
+        growable: false,
+      );
+}
+
+double _performanceNumber(
+  String key,
+) {
+  return double.tryParse(
+        _salesmanPerformanceSummary[key]
+                ?.toString() ??
+            '0',
+      ) ??
+      0;
+}
+
+int _performanceInteger(
+  String key,
+) {
+  return int.tryParse(
+        _salesmanPerformanceSummary[key]
+                ?.toString() ??
+            '0',
+      ) ??
+      0;
+}
 
   String _money(double value) {
     if (value >= 10000000) {
@@ -360,6 +524,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
               const SizedBox(height: 22),
+
+              const AppSectionTitle(
+                title: 'My Sales Performance',
+                subtitle:
+                    'Customer-wise product sales',
+              ),
+
+              const SizedBox(height: 11),
+
+              _salesPerformanceWindow(),
+
+              const SizedBox(height: 22),
+
               const AppSectionTitle(
                 title: 'My Day',
                 subtitle: 'Daily route workflow',
@@ -570,7 +747,1323 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
     );
   }
+  Widget _salesPerformanceWindow() {
+  if (_salesmanPerformanceLoading &&
+      _salesmanPerformance.isEmpty) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(30),
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      ),
+    );
+  }
 
+  if (_salesmanPerformanceError.isNotEmpty &&
+      _salesmanPerformance.isEmpty) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 34,
+              color: AppColors.warning,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _salesmanPerformanceError,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed:
+                  _loadSalesmanPerformance,
+              icon: const Icon(
+                Icons.refresh_rounded,
+              ),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  final double salesAmount =
+      _performanceNumber('salesAmount');
+
+  final double quantity =
+      _performanceNumber('quantity');
+
+  final int bills =
+      _performanceInteger('bills');
+
+  final int customers =
+      _performanceInteger('customers');
+
+  return Card(
+    clipBehavior: Clip.antiAlias,
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          // =====================================================
+          // PERIOD FILTER
+          // =====================================================
+
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Sales Overview',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+
+              if (_salesmanPerformanceLoading)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: _performancePeriodButton(
+                  'Day',
+                  'day',
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _performancePeriodButton(
+                  'Week',
+                  'week',
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _performancePeriodButton(
+                  'Month',
+                  'month',
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _performancePeriodButton(
+                  'Year',
+                  'year',
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // =====================================================
+          // SUMMARY
+          // =====================================================
+
+          Row(
+            children: [
+              Expanded(
+                child: _performanceSummaryBox(
+                  label: 'Sales',
+                  value: _money(
+                    salesAmount,
+                  ),
+                  icon:
+                      Icons.currency_rupee_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _performanceSummaryBox(
+                  label: 'Quantity',
+                  value: _qty(
+                    quantity,
+                  ),
+                  icon:
+                      Icons.inventory_2_outlined,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              Expanded(
+                child: _performanceSummaryBox(
+                  label: 'Bills',
+                  value: bills.toString(),
+                  icon:
+                      Icons.receipt_long_outlined,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _performanceSummaryBox(
+                  label: 'Customers',
+                  value:
+                      customers.toString(),
+                  icon:
+                      Icons.people_outline_rounded,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 18),
+
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Customer Wise Sales',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '$customers customers',
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // =====================================================
+          // CUSTOMERS
+          // =====================================================
+
+          if (_salesmanPerformanceCustomers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(
+                vertical: 24,
+              ),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.point_of_sale_outlined,
+                      size: 34,
+                      color: AppColors.textMuted,
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'No sales in this period',
+                      style: TextStyle(
+                        color:
+                            AppColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight:
+                            FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ..._salesmanPerformanceCustomers
+                .take(5)
+                .map(
+                  _performanceCustomerCard,
+                ),
+
+          if (_salesmanPerformanceCustomers
+                  .length >
+              5) ...[
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed:
+                    _showAllPerformanceCustomers,
+                child: Text(
+                  'View All '
+                  '(${_salesmanPerformanceCustomers.length})',
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _performancePeriodButton(
+  String label,
+  String value,
+) {
+  final bool selected =
+      _salesmanPerformancePeriod == value;
+
+  return InkWell(
+    onTap: _salesmanPerformanceLoading
+        ? null
+        : () {
+            if (selected) {
+              return;
+            }
+
+            _loadSalesmanPerformance(
+              period: value,
+            );
+          },
+    borderRadius: BorderRadius.circular(9),
+    child: AnimatedContainer(
+      duration:
+          const Duration(milliseconds: 180),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(
+        vertical: 9,
+        horizontal: 3,
+      ),
+      decoration: BoxDecoration(
+        color: selected
+            ? AppColors.primary
+            : AppColors.primarySoft,
+        borderRadius:
+            BorderRadius.circular(9),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        style: TextStyle(
+          color: selected
+              ? Colors.white
+              : AppColors.primary,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
+}
+Widget _performanceSummaryBox({
+  required String label,
+  required String value,
+  required IconData icon,
+}) {
+  return Container(
+    padding: const EdgeInsets.all(11),
+    decoration: BoxDecoration(
+      color: AppColors.primarySoft,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius:
+                BorderRadius.circular(10),
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: AppColors.primary,
+          ),
+        ),
+
+        const SizedBox(width: 9),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                maxLines: 1,
+                overflow:
+                    TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color:
+                      AppColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight:
+                      FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: const TextStyle(
+                  color:
+                      AppColors.textSecondary,
+                  fontSize: 9.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+Widget _performanceCustomerCard(
+  Map<String, dynamic> customer,
+) {
+  final String name =
+      customer['customerName']
+              ?.toString()
+              .trim() ??
+          '';
+
+  final String route =
+      customer['route']
+              ?.toString()
+              .trim() ??
+          '';
+
+  final double amount =
+      double.tryParse(
+            customer['salesAmount']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+  final double quantity =
+      double.tryParse(
+            customer['totalQuantity']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+  final int billCount =
+      int.tryParse(
+            customer['billCount']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+  final List<dynamic> products =
+      customer['products'] is List
+          ? customer['products'] as List
+          : const [];
+
+  return Container(
+    margin: const EdgeInsets.only(
+      bottom: 9,
+    ),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: AppColors.border,
+      ),
+    ),
+    child: InkWell(
+      onTap: () =>
+          _showCustomerPerformance(
+        customer,
+      ),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor:
+                      AppColors.primarySoft,
+                  foregroundColor:
+                      AppColors.primary,
+                  child: Text(
+                    name.isNotEmpty
+                        ? name[0]
+                            .toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                      fontWeight:
+                          FontWeight.w900,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name.isEmpty
+                            ? 'Customer'
+                            : name,
+                        maxLines: 1,
+                        overflow:
+                            TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color:
+                              AppColors.textPrimary,
+                          fontSize: 12.5,
+                          fontWeight:
+                              FontWeight.w800,
+                        ),
+                      ),
+
+                      if (route.isNotEmpty)
+                        Padding(
+                          padding:
+                              const EdgeInsets.only(
+                            top: 2,
+                          ),
+                          child: Text(
+                            route,
+                            maxLines: 1,
+                            overflow:
+                                TextOverflow.ellipsis,
+                            style:
+                                const TextStyle(
+                              color: AppColors
+                                  .textSecondary,
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 6),
+
+                Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _money(amount),
+                      style: const TextStyle(
+                        color:
+                            AppColors.success,
+                        fontSize: 13,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Icon(
+                      Icons
+                          .chevron_right_rounded,
+                      size: 18,
+                      color:
+                          AppColors.textMuted,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_qty(quantity)} Qty',
+                    style: const TextStyle(
+                      color:
+                          AppColors.textSecondary,
+                      fontSize: 10,
+                      fontWeight:
+                          FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$billCount '
+                  '${billCount == 1 ? 'Bill' : 'Bills'}',
+                  style: const TextStyle(
+                    color:
+                        AppColors.textSecondary,
+                    fontSize: 10,
+                    fontWeight:
+                        FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+
+            if (products.isNotEmpty) ...[
+              const SizedBox(height: 9),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+
+              ...products.take(2).map(
+                (dynamic rawProduct) {
+                  if (rawProduct is! Map) {
+                    return const SizedBox
+                        .shrink();
+                  }
+
+                  final String productName =
+                      rawProduct[
+                                  'productName']
+                              ?.toString() ??
+                          '';
+
+                  final double productQty =
+                      double.tryParse(
+                            rawProduct[
+                                        'quantity']
+                                    ?.toString() ??
+                                '0',
+                          ) ??
+                          0;
+
+                  return Padding(
+                    padding:
+                        const EdgeInsets.only(
+                      bottom: 4,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            productName,
+                            maxLines: 1,
+                            overflow:
+                                TextOverflow
+                                    .ellipsis,
+                            style:
+                                const TextStyle(
+                              color: AppColors
+                                  .textSecondary,
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${_qty(productQty)} Qty',
+                          style:
+                              const TextStyle(
+                            color: AppColors
+                                .textPrimary,
+                            fontSize: 9.5,
+                            fontWeight:
+                                FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+
+              if (products.length > 2)
+                Align(
+                  alignment:
+                      Alignment.centerLeft,
+                  child: Text(
+                    '+ ${products.length - 2} more products',
+                    style: const TextStyle(
+                      color:
+                          AppColors.primary,
+                      fontSize: 9,
+                      fontWeight:
+                          FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+void _showCustomerPerformance(
+  Map<String, dynamic> customer,
+) {
+  final String customerName =
+      customer['customerName']
+              ?.toString()
+              .trim() ??
+          'Customer';
+
+  final String route =
+      customer['route']
+              ?.toString()
+              .trim() ??
+          '';
+
+  final double totalQuantity =
+      double.tryParse(
+            customer['totalQuantity']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+  final double salesAmount =
+      double.tryParse(
+            customer['salesAmount']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+  final int billCount =
+      int.tryParse(
+            customer['billCount']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
+
+  final List<Map<String, dynamic>>
+      products =
+      (customer['products'] as List? ??
+              const [])
+          .whereType<Map>()
+          .map(
+            (item) =>
+                Map<String, dynamic>.from(
+              item,
+            ),
+          )
+          .toList();
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) {
+      return DraggableScrollableSheet(
+        initialChildSize: .72,
+        minChildSize: .45,
+        maxChildSize: .92,
+        expand: false,
+        builder: (
+          context,
+          scrollController,
+        ) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  BorderRadius.vertical(
+                top: Radius.circular(22),
+              ),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color:
+                        AppColors.border,
+                    borderRadius:
+                        BorderRadius.circular(
+                      20,
+                    ),
+                  ),
+                ),
+
+                Padding(
+                  padding:
+                      const EdgeInsets.fromLTRB(
+                    16,
+                    16,
+                    12,
+                    12,
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor:
+                            AppColors.primarySoft,
+                        foregroundColor:
+                            AppColors.primary,
+                        child: Text(
+                          customerName
+                                  .trim()
+                                  .isNotEmpty
+                              ? customerName
+                                  .trim()[0]
+                                  .toUpperCase()
+                              : '?',
+                          style:
+                              const TextStyle(
+                            fontWeight:
+                                FontWeight.w900,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(
+                        width: 11,
+                      ),
+
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment
+                                  .start,
+                          children: [
+                            Text(
+                              customerName,
+                              maxLines: 1,
+                              overflow:
+                                  TextOverflow
+                                      .ellipsis,
+                              style:
+                                  const TextStyle(
+                                color: AppColors
+                                    .textPrimary,
+                                fontSize: 16,
+                                fontWeight:
+                                    FontWeight
+                                        .w900,
+                              ),
+                            ),
+
+                            if (route
+                                .isNotEmpty) ...[
+                              const SizedBox(
+                                height: 3,
+                              ),
+                              Text(
+                                route,
+                                style:
+                                    const TextStyle(
+                                  color: AppColors
+                                      .textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+
+                      IconButton(
+                        onPressed: () =>
+                            Navigator.pop(
+                          sheetContext,
+                        ),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Divider(
+                  height: 1,
+                ),
+
+                Expanded(
+                  child: ListView(
+                    controller:
+                        scrollController,
+                    padding:
+                        const EdgeInsets.all(
+                      16,
+                    ),
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child:
+                                _performanceDetailBox(
+                              label:
+                                  'Sales',
+                              value: _money(
+                                salesAmount,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(
+                            width: 8,
+                          ),
+                          Expanded(
+                            child:
+                                _performanceDetailBox(
+                              label:
+                                  'Quantity',
+                              value:
+                                  '${_qty(totalQuantity)} Qty',
+                            ),
+                          ),
+                          const SizedBox(
+                            width: 8,
+                          ),
+                          Expanded(
+                            child:
+                                _performanceDetailBox(
+                              label:
+                                  'Bills',
+                              value:
+                                  billCount
+                                      .toString(),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(
+                        height: 20,
+                      ),
+
+                      const Text(
+                        'Products Sold',
+                        style: TextStyle(
+                          color: AppColors
+                              .textPrimary,
+                          fontSize: 14,
+                          fontWeight:
+                              FontWeight.w900,
+                        ),
+                      ),
+
+                      const SizedBox(
+                        height: 10,
+                      ),
+
+                      if (products.isEmpty)
+                        const Padding(
+                          padding:
+                              EdgeInsets.symmetric(
+                            vertical: 30,
+                          ),
+                          child: Center(
+                            child: Text(
+                              'No product details available.',
+                              style: TextStyle(
+                                color: AppColors
+                                    .textSecondary,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        ...products.map(
+                          (product) {
+                            final String
+                                productName =
+                                product[
+                                            'productName']
+                                        ?.toString() ??
+                                    '';
+
+                            final String
+                                variant =
+                                product[
+                                            'variant']
+                                        ?.toString() ??
+                                    '';
+
+                            final String unit =
+                                product['unit']
+                                        ?.toString() ??
+                                    '';
+
+                            final double
+                                quantity =
+                                double.tryParse(
+                                      product[
+                                                  'quantity']
+                                              ?.toString() ??
+                                          '0',
+                                    ) ??
+                                    0;
+
+                            final double
+                                amount =
+                                double.tryParse(
+                                      product[
+                                                  'salesAmount']
+                                              ?.toString() ??
+                                          '0',
+                                    ) ??
+                                    0;
+
+                            return Container(
+                              margin:
+                                  const EdgeInsets
+                                      .only(
+                                bottom: 8,
+                              ),
+                              padding:
+                                  const EdgeInsets
+                                      .all(
+                                12,
+                              ),
+                              decoration:
+                                  BoxDecoration(
+                                color:
+                                    AppColors
+                                        .primarySoft,
+                                borderRadius:
+                                    BorderRadius
+                                        .circular(
+                                  12,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 38,
+                                    height: 38,
+                                    alignment:
+                                        Alignment
+                                            .center,
+                                    decoration:
+                                        BoxDecoration(
+                                      color:
+                                          Colors
+                                              .white,
+                                      borderRadius:
+                                          BorderRadius
+                                              .circular(
+                                        10,
+                                      ),
+                                    ),
+                                    child:
+                                        const Icon(
+                                      Icons
+                                          .inventory_2_outlined,
+                                      color:
+                                          AppColors
+                                              .primary,
+                                      size: 19,
+                                    ),
+                                  ),
+
+                                  const SizedBox(
+                                    width: 10,
+                                  ),
+
+                                  Expanded(
+                                    child:
+                                        Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment
+                                              .start,
+                                      children: [
+                                        Text(
+                                          productName,
+                                          maxLines:
+                                              1,
+                                          overflow:
+                                              TextOverflow
+                                                  .ellipsis,
+                                          style:
+                                              const TextStyle(
+                                            color: AppColors
+                                                .textPrimary,
+                                            fontSize:
+                                                12,
+                                            fontWeight:
+                                                FontWeight
+                                                    .w800,
+                                          ),
+                                        ),
+
+                                        if (variant
+                                                .isNotEmpty ||
+                                            unit.isNotEmpty)
+                                          Padding(
+                                            padding:
+                                                const EdgeInsets
+                                                    .only(
+                                              top:
+                                                  3,
+                                            ),
+                                            child:
+                                                Text(
+                                              [
+                                                variant,
+                                                unit,
+                                              ]
+                                                  .where(
+                                                    (value) =>
+                                                        value
+                                                            .trim()
+                                                            .isNotEmpty,
+                                                  )
+                                                  .join(
+                                                    ' · ',
+                                                  ),
+                                              style:
+                                                  const TextStyle(
+                                                color:
+                                                    AppColors
+                                                        .textSecondary,
+                                                fontSize:
+                                                    9.5,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  const SizedBox(
+                                    width: 8,
+                                  ),
+
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment
+                                            .end,
+                                    children: [
+                                      Text(
+                                        '${_qty(quantity)} Qty',
+                                        style:
+                                            const TextStyle(
+                                          color:
+                                              AppColors
+                                                  .textPrimary,
+                                          fontSize:
+                                              11,
+                                          fontWeight:
+                                              FontWeight
+                                                  .w800,
+                                        ),
+                                      ),
+                                      const SizedBox(
+                                        height: 3,
+                                      ),
+                                      Text(
+                                        _money(
+                                          amount,
+                                        ),
+                                        style:
+                                            const TextStyle(
+                                          color:
+                                              AppColors
+                                                  .success,
+                                          fontSize:
+                                              11,
+                                          fontWeight:
+                                              FontWeight
+                                                  .w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+void _showAllPerformanceCustomers() {
+  final List<Map<String, dynamic>>
+      customers =
+      _salesmanPerformanceCustomers;
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) {
+      return DraggableScrollableSheet(
+        initialChildSize: .82,
+        minChildSize: .55,
+        maxChildSize: .94,
+        expand: false,
+        builder: (
+          context,
+          scrollController,
+        ) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  BorderRadius.vertical(
+                top: Radius.circular(22),
+              ),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color:
+                        AppColors.border,
+                    borderRadius:
+                        BorderRadius.circular(
+                      20,
+                    ),
+                  ),
+                ),
+
+                Padding(
+                  padding:
+                      const EdgeInsets.fromLTRB(
+                    16,
+                    15,
+                    8,
+                    12,
+                  ),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Customer Wise Sales',
+                          style: TextStyle(
+                            color: AppColors
+                                .textPrimary,
+                            fontSize: 16,
+                            fontWeight:
+                                FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () =>
+                            Navigator.pop(
+                          sheetContext,
+                        ),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Divider(height: 1),
+
+                Expanded(
+                  child: ListView.builder(
+                    controller:
+                        scrollController,
+                    padding:
+                        const EdgeInsets.all(
+                      14,
+                    ),
+                    itemCount:
+                        customers.length,
+                    itemBuilder: (
+                      context,
+                      index,
+                    ) {
+                      return _performanceCustomerCard(
+                        customers[index],
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+Widget _performanceDetailBox({
+  required String label,
+  required String value,
+}) {
+  return Container(
+    padding:
+        const EdgeInsets.symmetric(
+      horizontal: 8,
+      vertical: 11,
+    ),
+    decoration: BoxDecoration(
+      color: AppColors.primarySoft,
+      borderRadius:
+          BorderRadius.circular(11),
+    ),
+    child: Column(
+      children: [
+        Text(
+          value,
+          maxLines: 1,
+          overflow:
+              TextOverflow.ellipsis,
+          style: const TextStyle(
+            color:
+                AppColors.textPrimary,
+            fontSize: 12,
+            fontWeight:
+                FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          label,
+          style: const TextStyle(
+            color:
+                AppColors.textSecondary,
+            fontSize: 9,
+          ),
+        ),
+      ],
+    ),
+  );
+}
   Widget _operationsCard() => Card(
     child: Padding(
       padding: const EdgeInsets.all(15),

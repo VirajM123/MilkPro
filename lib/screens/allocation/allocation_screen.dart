@@ -522,9 +522,20 @@ void _showApiMessage(String message) {
     return 'legacy_$fallbackIndex';
   }
 
-  List<Map<String, dynamic>> get _filteredAllocations {
-    return _allocations.where((item) {
-      final dynamic rawDate = item['date'];
+List<Map<String, dynamic>> get _filteredAllocations {
+  return _allocations.where((item) {
+    final String status =
+        (item['status'] ?? 'POSTED')
+            .toString()
+            .trim()
+            .toUpperCase();
+
+    if (status == 'CANCELLED') {
+      return false;
+    }
+
+    final dynamic rawDate =
+        item['date'];
 
       if (rawDate is! DateTime) {
         return false;
@@ -699,6 +710,335 @@ AssignAllocationPage(
 
   _showApiMessage(
     'Allocation saved successfully.',
+  );
+}
+
+// ============================================================
+// CANCEL / DELETE ALLOCATION
+// Soft delete - backend keeps audit history
+// ============================================================
+
+Future<void> _cancelAllocation(
+  _AllocationGroup group,
+) async {
+  if (group.items.isEmpty) {
+    return;
+  }
+
+  final Map<String, dynamic> first =
+      group.items.first;
+
+  final String allocationId =
+      (first['allocationId'] ?? '')
+          .toString()
+          .trim();
+
+  final String allocationNo =
+      (first['allocationNo'] ?? '')
+          .toString()
+          .trim();
+
+  final String salesman =
+      (first['salesman'] ?? '')
+          .toString()
+          .trim();
+
+  final String route =
+      (first['route'] ?? '')
+          .toString()
+          .trim();
+
+  if (allocationId.isEmpty) {
+    _showApiMessage(
+      'Allocation ID not found.',
+    );
+    return;
+  }
+
+  // ========================================================
+  // CONFIRMATION
+  // ========================================================
+
+  final bool? confirmed =
+      await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius:
+              BorderRadius.circular(18),
+        ),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.red,
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Delete Allocation?',
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to delete '
+          '${allocationNo.isEmpty ? 'this allocation' : allocationNo}?\n\n'
+          'Route: $route\n'
+          'Salesman: $salesman\n\n'
+          'Unused allocated stock will be restored to warehouse stock.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(
+                dialogContext,
+              ).pop(false);
+            },
+            child: const Text(
+              'CANCEL',
+            ),
+          ),
+          ElevatedButton.icon(
+            style:
+                ElevatedButton.styleFrom(
+              backgroundColor:
+                  Colors.red,
+              foregroundColor:
+                  Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(
+                dialogContext,
+              ).pop(true);
+            },
+            icon: const Icon(
+              Icons.delete_outline_rounded,
+              size: 18,
+            ),
+            label: const Text(
+              'DELETE',
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true ||
+      !mounted) {
+    return;
+  }
+
+  try {
+    final http.Response response =
+        await http.put(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/api/allocations/$allocationId/cancel',
+      ),
+      headers: _apiHeaders,
+    );
+
+    dynamic decoded;
+
+    try {
+      decoded =
+          jsonDecode(response.body);
+    } catch (_) {
+      decoded = null;
+    }
+
+    if (response.statusCode != 200) {
+      final String message =
+          decoded is Map
+              ? decoded['message']
+                      ?.toString() ??
+                  'Unable to delete allocation.'
+              : 'Unable to delete allocation.';
+
+      throw Exception(message);
+    }
+
+    // Reload because warehouse stock changed.
+    await _loadAllocations();
+    await _loadProducts();
+
+    if (!mounted) {
+      return;
+    }
+
+    _showApiMessage(
+      'Allocation deleted successfully. Stock restored.',
+    );
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    String message =
+        error.toString();
+
+    if (message.startsWith(
+      'Exception: ',
+    )) {
+      message = message.substring(
+        'Exception: '.length,
+      );
+    }
+
+    _showApiMessage(message);
+  }
+}
+// ============================================================
+// EDIT ALLOCATION
+// ============================================================
+
+Future<void> _openEditAllocation(
+  _AllocationGroup group,
+) async {
+  if (_loadingAllocationData ||
+      group.items.isEmpty) {
+    return;
+  }
+
+  final Map<String, dynamic> first =
+      group.items.first;
+
+  final String allocationId =
+      (first['allocationId'] ?? '')
+          .toString()
+          .trim();
+
+  if (allocationId.isEmpty) {
+    _showApiMessage(
+      'Allocation ID not found.',
+    );
+    return;
+  }
+
+  // Rebuild the original allocation object from
+  // the grouped product rows already loaded on screen.
+  final Map<String, dynamic>
+      existingAllocation =
+      <String, dynamic>{
+    'allocationId':
+        allocationId,
+
+    'allocationNo':
+        (first['allocationNo'] ?? '')
+            .toString(),
+
+    'allocationDate':
+        first['date'] is DateTime
+            ? (first['date'] as DateTime)
+                .toIso8601String()
+            : first['date']?.toString(),
+
+    'routeId':
+        (first['routeId'] ?? '')
+            .toString(),
+
+    'salesmanId':
+        (first['salesmanId'] ?? '')
+            .toString(),
+
+    'notes':
+        (first['notes'] ?? '')
+            .toString(),
+
+    'status':
+        (first['status'] ?? 'POSTED')
+            .toString(),
+
+    'products':
+        group.items
+            .map<Map<String, dynamic>>(
+              (
+                Map<String, dynamic>
+                    item,
+              ) {
+                return <
+                    String,
+                    dynamic>{
+                  'productId':
+                      (item['productId'] ??
+                              '')
+                          .toString(),
+
+                  'productName':
+                      (item['product'] ??
+                              '')
+                          .toString(),
+
+                  'variant':
+                      (item['variant'] ??
+                              '')
+                          .toString(),
+
+                  'unit':
+                      (item['unit'] ??
+                              'Pcs')
+                          .toString(),
+
+                  'quantity':
+                      _asInt(
+                        item['qty'],
+                      ),
+
+                  'soldQuantity':
+                      _asInt(
+                        item['soldQty'],
+                      ),
+
+                  'returnedQuantity':
+                      _asInt(
+                        item['returnedQty'],
+                      ),
+
+                  'remainingQuantity':
+                      _asInt(
+                        item[
+                            'remainingQty'],
+                      ),
+                };
+              },
+            )
+            .toList(),
+  };
+
+  final bool? updated =
+      await Navigator.of(context)
+          .push<bool>(
+    MaterialPageRoute(
+      builder: (_) =>
+          AssignAllocationPage(
+        routes: _routes,
+        salesmen: _salesmen,
+        products: _products,
+        existingAllocation:
+            existingAllocation,
+      ),
+    ),
+  );
+
+  if (!mounted ||
+      updated != true) {
+    return;
+  }
+
+  // Reload both because editing allocation
+  // can change warehouse stock.
+  await _loadAllocations();
+  await _loadProducts();
+
+  if (!mounted) {
+    return;
+  }
+
+  _showApiMessage(
+    'Allocation updated successfully.',
   );
 }
 
@@ -1341,8 +1681,92 @@ for (final item in group.items) {
           tilePadding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
           childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
           iconColor: primaryBlue,
-          collapsedIconColor: const Color(0xFF647590),
-          leading: Container(
+      collapsedIconColor: const Color(0xFF647590),
+
+trailing: PopupMenuButton<String>(
+  tooltip: 'Allocation actions',
+  position: PopupMenuPosition.under,
+  color: Colors.white,
+  surfaceTintColor: Colors.white,
+  icon: Container(
+    width: 34,
+    height: 34,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: const Color(0xFFF4F7FB),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(
+        color: const Color(0xFFE1E7F0),
+      ),
+    ),
+    child: const Icon(
+      Icons.more_vert_rounded,
+      size: 20,
+      color: Color(0xFF536987),
+    ),
+  ),
+  shape: RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(14),
+  ),
+  onSelected: (String value) {
+    if (value == 'edit') {
+      _openEditAllocation(group);
+    }
+
+    if (value == 'delete') {
+      _cancelAllocation(group);
+    }
+  },
+  itemBuilder: (BuildContext context) {
+    return const [
+      PopupMenuItem<String>(
+        value: 'edit',
+        child: Row(
+          children: [
+            Icon(
+              Icons.edit_outlined,
+              color: primaryBlue,
+              size: 19,
+            ),
+            SizedBox(width: 10),
+            Text(
+              'Edit Allocation',
+              style: TextStyle(
+                color: textDark,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      PopupMenuDivider(),
+
+      PopupMenuItem<String>(
+        value: 'delete',
+        child: Row(
+          children: [
+            Icon(
+              Icons.delete_outline_rounded,
+              color: Colors.red,
+              size: 19,
+            ),
+            SizedBox(width: 10),
+            Text(
+              'Delete Allocation',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+  },
+),
+
+leading: Container(
             width: 44,
             height: 44,
             decoration: BoxDecoration(
@@ -1385,6 +1809,8 @@ for (final item in group.items) {
                   ),
                 ),
               ),
+              const SizedBox(width: 4),
+
             ],
           ),
           subtitle: Padding(

@@ -961,23 +961,35 @@ const stockSchema = new mongoose.Schema(
       trim: true,
     },
 
-    transactionType: {
-      type: String,
-      required: true,
-      enum: [
-        "OPENING",
-        "PURCHASE",
-        "PURCHASE_CANCEL",
-        "PURCHASE_RETURN",
-        "SALE",
-        "SALE_CANCEL",
-        "SALES_RETURN",
-        "ALLOCATION_OUT",
-        "ALLOCATION_RETURN",
-        "ADJUSTMENT_IN",
-        "ADJUSTMENT_OUT"
-      ],
-    },
+transactionType: {
+  type: String,
+  required: true,
+  enum: [
+    "OPENING",
+
+    "PURCHASE",
+    "PURCHASE_EDIT_REVERSE",
+    "PURCHASE_EDIT",
+    "PURCHASE_CANCEL",
+    "PURCHASE_RETURN",
+
+    "SALE",
+    "SALE_EDIT",
+    "SALE_EDIT_REVERSE",
+    "SALE_CANCEL",
+    "SALES_RETURN",
+
+  "ALLOCATION_OUT",
+"ALLOCATION_RETURN",
+
+"ALLOCATION_EDIT",
+"ALLOCATION_EDIT_REVERSE",
+"ALLOCATION_CANCEL",
+
+    "ADJUSTMENT_IN",
+    "ADJUSTMENT_OUT"
+  ],
+},
 
     referenceType: {
       type: String,
@@ -1166,17 +1178,104 @@ const saleSchema = new mongoose.Schema(
       trim: true,
     },
 
-    paymentMode: {
-      type: String,
-      required: true,
-      enum: [
-        "Cash",
-        "UPI",
-        "Credit",
-        "Bank Transfer",
-      ],
-      default: "Cash",
+// ======================================================
+// LEGACY / DISPLAY PAYMENT MODE
+//
+// Single payment:
+//   Cash / UPI / Bank Transfer / Credit
+//
+// Multiple payment methods:
+//   Split
+//
+// Kept for compatibility with existing Flutter screens.
+// ======================================================
+
+paymentMode: {
+  type: String,
+  required: true,
+
+  enum: [
+    "Cash",
+    "UPI",
+    "Credit",
+    "Bank Transfer",
+    "Split",
+  ],
+
+  default: "Cash",
+},
+
+// ======================================================
+// PAYMENT BREAKUP
+//
+// Example:
+// Bill = 1000
+//
+// Cash = 300
+// UPI  = 500
+//
+// paidAmount        = 800
+// outstandingAmount = 200
+// paymentStatus     = PARTIAL
+// ======================================================
+
+payments: {
+  type: [
+    {
+      mode: {
+        type: String,
+
+        enum: [
+          "Cash",
+          "UPI",
+          "Bank Transfer",
+        ],
+
+        required: true,
+      },
+
+      amount: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+
+      referenceNo: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      _id: false,
     },
+  ],
+
+  default: [],
+},
+
+paidAmount: {
+  type: Number,
+  default: 0,
+  min: 0,
+},
+
+outstandingAmount: {
+  type: Number,
+  default: 0,
+  min: 0,
+},
+
+paymentStatus: {
+  type: String,
+
+  enum: [
+    "PAID",
+    "PARTIAL",
+    "CREDIT",
+  ],
+
+  default: "PAID",
+},
 
     products: {
       type: [saleProductSchema],
@@ -1431,15 +1530,32 @@ const allocationSchema = new mongoose.Schema(
       default: "POSTED",
     },
 
-    createdBy: {
-      type: String,
-      default: "",
-    },
+   createdBy: {
+  type: String,
+  default: "",
+},
 
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
+updatedBy: {
+  type: String,
+  default: "",
+},
+
+cancelledBy: {
+  type: String,
+  default: "",
+},
+
+cancelledAt: {
+  type: Date,
+  default: null,
+},
+
+createdAt: {
+  type: Date,
+  default: Date.now,
+},
+
+
 
     updatedAt: {
       type: Date,
@@ -1451,7 +1567,48 @@ const allocationSchema = new mongoose.Schema(
     collection: "TRN_ALLOCATION",
   }
 );
+// ======================================================
+// COLLECTION BILL ALLOCATION
+// ONE RECEIPT CAN SETTLE ONE OR MORE SALES
+// ======================================================
 
+const collectionAllocationSchema =
+  new mongoose.Schema(
+    {
+      saleId: {
+        type: String,
+        required: true,
+        uppercase: true,
+        trim: true,
+      },
+
+      saleNo: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      saleDate: {
+        type: Date,
+        default: null,
+      },
+
+      billAmount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      amountApplied: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+    },
+    {
+      _id: false,
+    }
+  );
 
 // ======================================================
 // TRN_COLLECTION
@@ -1534,7 +1691,10 @@ const collectionSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-
+allocations: {
+  type: [collectionAllocationSchema],
+  default: [],
+},
     paymentMode: {
       type: String,
       required: true,
@@ -4886,27 +5046,49 @@ app.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const products = await Product.find({
-        farmId: req.user.farmId,
-      }).sort({
-        createdAt: -1,
-      });
+
+      if (req.user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Product master is available only to admin.",
+        });
+      }
+
+      const products =
+        await Product.find({
+          farmId:
+            req.user.farmId,
+        })
+          .sort({
+            createdAt:
+              -1,
+          });
 
       return res.status(200).json({
-        success: true,
-        count: products.length,
-        data: products,
+        success:
+          true,
+
+        count:
+          products.length,
+
+        data:
+          products,
       });
 
     } catch (error) {
+
       console.error(
         "GET PRODUCTS ERROR:",
         error
       );
 
       return res.status(500).json({
-        success: false,
-        message: "Unable to load products.",
+        success:
+          false,
+
+        message:
+          "Unable to load products.",
       });
     }
   }
@@ -6165,7 +6347,704 @@ app.post(
     }
   }
 );
+// ======================================================
+// EDIT PURCHASE
+// PUT /api/purchases/:id
+//
+// ATOMIC:
+// 1. REVERSE OLD STOCK
+// 2. VALIDATE NEW PURCHASE
+// 3. ADD NEW STOCK
+// 4. UPDATE PURCHASE
+// 5. WRITE STOCK LEDGER
+// ======================================================
 
+app.put(
+  "/api/purchases/:id",
+  authenticateToken,
+  async (req, res) => {
+
+    const session =
+      await mongoose.startSession();
+
+    try {
+
+      let updatedPurchase = null;
+
+      await session.withTransaction(
+        async () => {
+
+          const farmId =
+            req.user.farmId;
+
+          const userId =
+            req.user.userId || "";
+
+          // ============================================
+          // FIND EXISTING PURCHASE
+          // ============================================
+
+          const purchase =
+            await Purchase.findOne({
+              _id: req.params.id,
+              farmId,
+            }).session(session);
+
+          if (!purchase) {
+            const error =
+              new Error(
+                "Purchase not found."
+              );
+
+            error.statusCode = 404;
+            throw error;
+          }
+
+          // ============================================
+          // CANCELLED PURCHASE CANNOT BE EDITED
+          // ============================================
+
+          if (
+            purchase.status ===
+            "CANCELLED"
+          ) {
+            const error =
+              new Error(
+                "Cancelled purchase cannot be edited."
+              );
+
+            error.statusCode = 400;
+            throw error;
+          }
+
+          const {
+            purchaseDate,
+            supplierId,
+            invoiceNo,
+            billDate,
+            paymentType,
+            dueDate,
+            godown,
+            remarks,
+            products,
+            discount,
+            taxPercentage,
+          } = req.body;
+
+          // ============================================
+          // BASIC VALIDATION
+          // ============================================
+
+          if (
+            !supplierId ||
+            !supplierId
+              .toString()
+              .trim()
+          ) {
+            const error =
+              new Error(
+                "Supplier is required."
+              );
+
+            error.statusCode = 400;
+            throw error;
+          }
+
+          if (
+            !Array.isArray(products) ||
+            products.length === 0
+          ) {
+            const error =
+              new Error(
+                "Please add at least one product."
+              );
+
+            error.statusCode = 400;
+            throw error;
+          }
+
+          // ============================================
+          // CHECK OLD PURCHASE STOCK CAN BE REVERSED
+          // ============================================
+
+          for (
+            const oldLine of
+              purchase.products
+          ) {
+
+            const product =
+              await Product.findOne({
+                farmId,
+                productId:
+                  oldLine.productId,
+              }).session(session);
+
+            if (!product) {
+              const error =
+                new Error(
+                  `Product ${oldLine.productId} not found.`
+                );
+
+              error.statusCode = 404;
+              throw error;
+            }
+
+            const currentStock =
+              Number(product.stock) ||
+              0;
+
+            const oldQuantity =
+              Number(
+                oldLine.quantity
+              ) || 0;
+
+            if (
+              currentStock <
+              oldQuantity
+            ) {
+              const error =
+                new Error(
+                  `Cannot edit purchase. Available stock for ${product.productName} is ${currentStock}, but old purchase quantity is ${oldQuantity}.`
+                );
+
+              error.statusCode = 400;
+              throw error;
+            }
+          }
+
+          // ============================================
+          // REVERSE OLD PURCHASE STOCK
+          // ============================================
+
+          for (
+            const oldLine of
+              purchase.products
+          ) {
+
+            const oldQty =
+              Number(
+                oldLine.quantity
+              ) || 0;
+
+            const result =
+              await Product.updateOne(
+                {
+                  farmId,
+                  productId:
+                    oldLine.productId,
+
+                  stock: {
+                    $gte: oldQty,
+                  },
+                },
+                {
+                  $inc: {
+                    stock:
+                      -oldQty,
+                  },
+
+                  $set: {
+                    updatedAt:
+                      new Date(),
+                  },
+                },
+                {
+                  session,
+                }
+              );
+
+            if (
+              result.modifiedCount !==
+              1
+            ) {
+              const error =
+                new Error(
+                  `Unable to reverse old stock for ${oldLine.productName}.`
+                );
+
+              error.statusCode = 409;
+              throw error;
+            }
+
+            // ------------------------------------------
+            // STOCK LEDGER - OLD STOCK REVERSE
+            // ------------------------------------------
+
+            const stockId =
+              await generateStockId();
+
+            await StockTransaction.create(
+              [
+                {
+                  farmId,
+
+                  stockId,
+
+                  productId:
+                    oldLine.productId,
+
+                  productName:
+                    oldLine.productName,
+
+                  transactionType:
+                    "PURCHASE_EDIT_REVERSE",
+
+                  referenceType:
+                    "PURCHASE",
+
+                  referenceId:
+                    purchase.purchaseId,
+
+                  referenceNo:
+                    purchase.purchaseNo,
+
+                  quantityIn: 0,
+
+                  quantityOut:
+                    oldQty,
+
+                  rate:
+                    Number(
+                      oldLine.rate
+                    ) || 0,
+
+                  godown:
+                    purchase.godown,
+
+                  createdBy:
+                    userId,
+                },
+              ],
+              {
+                session,
+              }
+            );
+          }
+
+          // ============================================
+          // VERIFY SUPPLIER
+          // ============================================
+
+          const normalizedSupplierId =
+            supplierId
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          const supplier =
+            await Supplier.findOne({
+              farmId,
+
+              supplierId:
+                normalizedSupplierId,
+
+              isActive: true,
+            }).session(session);
+
+          if (!supplier) {
+            const error =
+              new Error(
+                "Selected supplier not found."
+              );
+
+            error.statusCode = 404;
+            throw error;
+          }
+
+          // ============================================
+          // VERIFY NEW PRODUCTS
+          // ============================================
+
+          const verifiedProducts = [];
+
+          let totalQuantity = 0;
+          let subTotal = 0;
+
+          const receivedProductIds =
+            new Set();
+
+          for (
+            const line of products
+          ) {
+
+            const productId =
+              line.productId
+                ?.toString()
+                .trim()
+                .toUpperCase();
+
+            const quantity =
+              Number(
+                line.quantity
+              );
+
+            const rate =
+              Number(
+                line.rate
+              );
+
+            if (!productId) {
+              const error =
+                new Error(
+                  "Invalid product."
+                );
+
+              error.statusCode = 400;
+              throw error;
+            }
+
+            if (
+              receivedProductIds.has(
+                productId
+              )
+            ) {
+              const error =
+                new Error(
+                  `Product ${productId} is repeated in this purchase.`
+                );
+
+              error.statusCode = 400;
+              throw error;
+            }
+
+            receivedProductIds.add(
+              productId
+            );
+
+            if (
+              !Number.isFinite(
+                quantity
+              ) ||
+              quantity <= 0
+            ) {
+              const error =
+                new Error(
+                  `Invalid quantity for ${productId}.`
+                );
+
+              error.statusCode = 400;
+              throw error;
+            }
+
+            if (
+              !Number.isFinite(rate) ||
+              rate < 0
+            ) {
+              const error =
+                new Error(
+                  `Invalid rate for ${productId}.`
+                );
+
+              error.statusCode = 400;
+              throw error;
+            }
+
+            const product =
+              await Product.findOne({
+                farmId,
+                productId,
+                isActive: true,
+              }).session(session);
+
+            if (!product) {
+              const error =
+                new Error(
+                  `Product ${productId} not found.`
+                );
+
+              error.statusCode = 404;
+              throw error;
+            }
+
+            const amount =
+              quantity * rate;
+
+            verifiedProducts.push({
+              productId:
+                product.productId,
+
+              productName:
+                product.productName,
+
+              variant:
+                product.variant || "",
+
+              unit:
+                product.unit,
+
+              quantity,
+
+              rate,
+
+              amount,
+            });
+
+            totalQuantity +=
+              quantity;
+
+            subTotal +=
+              amount;
+          }
+
+          // ============================================
+          // RECALCULATE TOTALS
+          // ============================================
+
+          const discountValue =
+            Math.max(
+              0,
+              Number(discount) || 0
+            );
+
+          const taxPercentageValue =
+            Math.max(
+              0,
+              Number(
+                taxPercentage
+              ) || 0
+            );
+
+          const taxableAmount =
+            Math.max(
+              0,
+              subTotal -
+                discountValue
+            );
+
+          const taxAmount =
+            taxableAmount *
+            taxPercentageValue /
+            100;
+
+          const grandTotal =
+            taxableAmount +
+            taxAmount;
+
+          // ============================================
+          // ADD NEW STOCK
+          // ============================================
+
+          for (
+            const newLine of
+              verifiedProducts
+          ) {
+
+            const result =
+              await Product.updateOne(
+                {
+                  farmId,
+
+                  productId:
+                    newLine.productId,
+                },
+                {
+                  $inc: {
+                    stock:
+                      newLine.quantity,
+                  },
+
+                  $set: {
+                    updatedAt:
+                      new Date(),
+                  },
+                },
+                {
+                  session,
+                }
+              );
+
+            if (
+              result.matchedCount !==
+              1
+            ) {
+              const error =
+                new Error(
+                  `Unable to add stock for ${newLine.productName}.`
+                );
+
+              error.statusCode = 409;
+              throw error;
+            }
+
+            // ------------------------------------------
+            // STOCK LEDGER - NEW PURCHASE STOCK
+            // ------------------------------------------
+
+            const stockId =
+              await generateStockId();
+
+            await StockTransaction.create(
+              [
+                {
+                  farmId,
+
+                  stockId,
+
+                  productId:
+                    newLine.productId,
+
+                  productName:
+                    newLine.productName,
+
+                  transactionType:
+                    "PURCHASE_EDIT",
+
+                  referenceType:
+                    "PURCHASE",
+
+                  referenceId:
+                    purchase.purchaseId,
+
+                  referenceNo:
+                    purchase.purchaseNo,
+
+                  quantityIn:
+                    newLine.quantity,
+
+                  quantityOut: 0,
+
+                  rate:
+                    newLine.rate,
+
+                  godown:
+                    (
+                      godown ||
+                      purchase.godown ||
+                      "Main Godown"
+                    ).trim(),
+
+                  createdBy:
+                    userId,
+                },
+              ],
+              {
+                session,
+              }
+            );
+          }
+
+          // ============================================
+          // UPDATE PURCHASE
+          // ============================================
+
+          purchase.purchaseDate =
+            purchaseDate
+              ? new Date(
+                  purchaseDate
+                )
+              : purchase.purchaseDate;
+
+          purchase.supplierId =
+            supplier.supplierId;
+
+          purchase.supplierName =
+            supplier.supplierName;
+
+          purchase.invoiceNo =
+            (invoiceNo || "")
+              .toString()
+              .trim();
+
+          purchase.billDate =
+            billDate
+              ? new Date(billDate)
+              : purchase.billDate;
+
+          purchase.paymentType =
+            (
+              paymentType ||
+              "Credit"
+            )
+              .toString()
+              .trim();
+
+          purchase.dueDate =
+            dueDate
+              ? new Date(dueDate)
+              : purchase.dueDate;
+
+          purchase.godown =
+            (
+              godown ||
+              "Main Godown"
+            )
+              .toString()
+              .trim();
+
+          purchase.remarks =
+            (remarks || "")
+              .toString()
+              .trim();
+
+          purchase.products =
+            verifiedProducts;
+
+          purchase.totalQuantity =
+            totalQuantity;
+
+          purchase.subTotal =
+            subTotal;
+
+          purchase.discount =
+            discountValue;
+
+          purchase.taxPercentage =
+            taxPercentageValue;
+
+          purchase.taxAmount =
+            taxAmount;
+
+          purchase.grandTotal =
+            grandTotal;
+
+          purchase.updatedAt =
+            new Date();
+
+          await purchase.save({
+            session,
+          });
+
+          updatedPurchase =
+            purchase;
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          "Purchase updated and stock recalculated successfully.",
+
+        data:
+          updatedPurchase,
+      });
+
+    } catch (error) {
+
+      console.error(
+        "EDIT PURCHASE ERROR:",
+        error
+      );
+
+      return res
+        .status(
+          error.statusCode || 500
+        )
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to update purchase.",
+        });
+
+    } finally {
+
+      await session.endSession();
+
+    }
+  }
+);
 // ======================================================
 // CANCEL PURCHASE
 // STOCK REVERSAL
@@ -7078,13 +7957,14 @@ app.post(
           }
 
 
-          const {
-            saleDate,
-            customerId,
-            paymentMode,
-            products,
-            godown,
-          } = req.body;
+        const {
+  saleDate,
+  customerId,
+  paymentMode,
+  payments,
+  products,
+  godown,
+} = req.body;
 
 
           // ==================================================
@@ -7248,24 +8128,7 @@ if (role === "salesman") {
     throw error;
   }
 }
-          // ==================================================
-          // PAYMENT MODE
-          // ==================================================
-
-          const allowedPaymentModes = [
-            "Cash",
-            "UPI",
-            "Credit",
-            "Bank Transfer",
-          ];
-
-
-          const finalPaymentMode =
-            allowedPaymentModes.includes(
-              paymentMode
-            )
-              ? paymentMode
-              : "Cash";
+    
 
 
           // ==================================================
@@ -7830,7 +8693,177 @@ if (role === "salesman") {
               amount;
           }
 
+// ==================================================
+// PAYMENT BREAKUP
+// NEVER TRUST PAYMENT TOTAL FROM FRONTEND
+// ==================================================
 
+const allowedImmediatePaymentModes = [
+  "Cash",
+  "UPI",
+  "Bank Transfer",
+];
+
+const normalizedPayments = [];
+
+if (Array.isArray(payments)) {
+
+  for (const payment of payments) {
+
+    const mode =
+      (
+        payment?.mode ||
+        ""
+      )
+        .toString()
+        .trim();
+
+    const amount =
+      Number(
+        payment?.amount
+      );
+
+    if (
+      !allowedImmediatePaymentModes.includes(
+        mode
+      )
+    ) {
+      const error =
+        new Error(
+          `Invalid payment mode: ${mode || "Unknown"}.`
+        );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+      const error =
+        new Error(
+          `Invalid payment amount for ${mode}.`
+        );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    normalizedPayments.push({
+      mode,
+
+      amount:
+        Number(
+          amount.toFixed(2)
+        ),
+
+      referenceNo:
+        (
+          payment?.referenceNo ||
+          ""
+        )
+          .toString()
+          .trim(),
+    });
+  }
+}
+
+
+// ==================================================
+// CALCULATE PAID AMOUNT
+// ==================================================
+
+const finalPaidAmount =
+  normalizedPayments.reduce(
+    (
+      total,
+      payment
+    ) =>
+      total +
+      (
+        Number(
+          payment.amount
+        ) || 0
+      ),
+    0
+  );
+
+
+if (
+  finalPaidAmount >
+  grandTotal + 0.001
+) {
+  const error =
+    new Error(
+      "Paid amount cannot be greater than bill amount."
+    );
+
+  error.statusCode = 400;
+
+  throw error;
+}
+
+
+// ==================================================
+// OUTSTANDING
+// ==================================================
+
+const finalOutstandingAmount =
+  Math.max(
+    0,
+    grandTotal -
+    finalPaidAmount
+  );
+
+
+// ==================================================
+// PAYMENT STATUS
+// ==================================================
+
+let finalPaymentStatus =
+  "PAID";
+
+if (
+  finalPaidAmount <= 0
+) {
+  finalPaymentStatus =
+    "CREDIT";
+}
+
+else if (
+  finalOutstandingAmount >
+  0.001
+) {
+  finalPaymentStatus =
+    "PARTIAL";
+}
+
+
+// ==================================================
+// DISPLAY PAYMENT MODE
+// ==================================================
+
+let finalPaymentMode =
+  "Credit";
+
+if (
+  normalizedPayments.length === 1 &&
+  finalOutstandingAmount <= 0.001
+) {
+  finalPaymentMode =
+    normalizedPayments[0]
+      .mode;
+}
+
+else if (
+  normalizedPayments.length > 0
+) {
+  finalPaymentMode =
+    "Split";
+}
           // ==================================================
           // GENERATE SALE IDS
           // ==================================================
@@ -7896,11 +8929,27 @@ if (role === "salesman") {
                   route:
                     customer.route || "",
 
-                  paymentMode:
-                    finalPaymentMode,
+                 paymentMode:
+  finalPaymentMode,
 
-                  products:
-                    verifiedProducts,
+payments:
+  normalizedPayments,
+
+paidAmount:
+  Number(
+    finalPaidAmount.toFixed(2)
+  ),
+
+outstandingAmount:
+  Number(
+    finalOutstandingAmount.toFixed(2)
+  ),
+
+paymentStatus:
+  finalPaymentStatus,
+
+products:
+  verifiedProducts,
 
                   totalItems:
                     verifiedProducts.length,
@@ -8123,6 +9172,1209 @@ if (role === "salesman") {
 
     } finally {
 
+      await session.endSession();
+    }
+  }
+);
+// ======================================================
+// EDIT SALE
+// PUT /api/sales/:id
+//
+// ADMIN
+//   -> Adjust MAS_PRODUCT by quantity difference
+//
+// SALESMAN
+//   -> Do not change MAS_PRODUCT
+//   -> Validate against salesman allocated stock
+//
+// NEVER TRUST RATE FROM FRONTEND
+// CUSTOMER SPECIAL RATE IS RECALCULATED
+// ======================================================
+
+app.put(
+  "/api/sales/:id",
+  authenticateToken,
+  async (req, res) => {
+    const session =
+      await mongoose.startSession();
+
+    try {
+      let updatedSale = null;
+
+      await session.withTransaction(
+        async () => {
+          const farmId =
+            req.user.farmId;
+
+          const userId =
+            req.user.userId;
+
+          const role =
+            req.user.role;
+
+          if (
+            role !== "admin" &&
+            role !== "salesman"
+          ) {
+            const error =
+              new Error(
+                "You are not allowed to edit sales."
+              );
+
+            error.statusCode = 403;
+
+            throw error;
+          }
+
+          // ==============================================
+          // FIND ORIGINAL SALE
+          // ==============================================
+
+          const saleIdentifier =
+            req.params.id
+              .toString()
+              .trim();
+
+          const saleConditions = [
+            {
+              saleId:
+                saleIdentifier
+                  .toUpperCase(),
+            },
+            {
+              saleNo:
+                saleIdentifier,
+            },
+          ];
+
+          if (
+            mongoose.Types.ObjectId
+              .isValid(
+                saleIdentifier
+              )
+          ) {
+            saleConditions.push({
+              _id:
+                saleIdentifier,
+            });
+          }
+
+          const sale =
+            await Sale.findOne({
+              farmId,
+              $or:
+                saleConditions,
+            }).session(session);
+
+          if (!sale) {
+            const error =
+              new Error(
+                "Sale not found."
+              );
+
+            error.statusCode = 404;
+
+            throw error;
+          }
+
+          // ==============================================
+          // CANCELLED SALE CANNOT BE EDITED
+          // ==============================================
+
+          if (
+            sale.status ===
+            "CANCELLED"
+          ) {
+            const error =
+              new Error(
+                "Cancelled sale cannot be edited."
+              );
+
+            error.statusCode = 400;
+
+            throw error;
+          }
+
+          // ==============================================
+          // SALESMAN CAN EDIT ONLY HIS OWN BILL
+          // ==============================================
+
+          if (
+            role === "salesman"
+          ) {
+            if (
+              sale.createdRole !==
+                "salesman" ||
+              sale.createdBy !==
+                userId
+            ) {
+              const error =
+                new Error(
+                  "You can edit only your own sales."
+                );
+
+              error.statusCode = 403;
+
+              throw error;
+            }
+          }
+
+          // ==============================================
+          // REQUEST
+          // ==============================================
+
+     const {
+  saleDate,
+  customerId,
+  paymentMode,
+  payments,
+  products,
+} = req.body;
+
+          if (
+            !Array.isArray(products) ||
+            products.length === 0
+          ) {
+            const error =
+              new Error(
+                "Please add at least one product."
+              );
+
+            error.statusCode = 400;
+
+            throw error;
+          }
+
+          // ==============================================
+          // CUSTOMER
+          // ==============================================
+
+          const normalizedCustomerId =
+            (
+              customerId ||
+              sale.customerId
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          const customer =
+            await Customer.findOne({
+              farmId,
+              customerId:
+                normalizedCustomerId,
+              isActive: true,
+            }).session(session);
+
+          if (!customer) {
+            const error =
+              new Error(
+                "Selected customer not found."
+              );
+
+            error.statusCode = 404;
+
+            throw error;
+          }
+
+          // ==============================================
+          // PAYMENT MODE
+          // ==============================================
+
+  
+
+          // ==============================================
+          // OLD QUANTITY MAP
+          // ==============================================
+
+          const oldQuantityMap =
+            new Map();
+
+          for (
+            const oldLine of
+            sale.products
+          ) {
+            const id =
+              oldLine.productId
+                .toString()
+                .trim()
+                .toUpperCase();
+
+            oldQuantityMap.set(
+              id,
+              Number(
+                oldLine.quantity
+              ) || 0
+            );
+          }
+
+          // ==============================================
+          // SALESMAN AVAILABLE STOCK
+          //
+          // Exclude current sale because it is being edited.
+          // ==============================================
+
+          const salesmanAvailableMap =
+            new Map();
+
+          let salesman = null;
+
+          if (
+            role === "salesman"
+          ) {
+            salesman =
+              await Salesman.findOne({
+                _id:
+                  userId,
+                farmId,
+                isActive: true,
+              })
+                .session(session)
+                .lean();
+
+            if (!salesman) {
+              const error =
+                new Error(
+                  "Salesman account not found."
+                );
+
+              error.statusCode = 404;
+
+              throw error;
+            }
+
+            const allocations =
+              await Allocation.find({
+                farmId,
+                salesmanId:
+                  salesman.salesmanId,
+
+                status: {
+                  $in: [
+                    "POSTED",
+                    "RETURNED",
+                  ],
+                },
+              })
+                .session(session)
+                .lean();
+
+            for (
+              const allocation of
+              allocations
+            ) {
+              for (
+                const item of
+                allocation.products || []
+              ) {
+                const productId =
+                  (
+                    item.productId ||
+                    ""
+                  )
+                    .toString()
+                    .trim()
+                    .toUpperCase();
+
+                if (!productId) {
+                  continue;
+                }
+
+                if (
+                  !salesmanAvailableMap
+                    .has(productId)
+                ) {
+                  salesmanAvailableMap
+                    .set(
+                      productId,
+                      {
+                        allocated: 0,
+                        returned: 0,
+                        sold: 0,
+                      }
+                    );
+                }
+
+                const row =
+                  salesmanAvailableMap
+                    .get(productId);
+
+                row.allocated +=
+                  Number(
+                    item.quantity
+                  ) || 0;
+
+                row.returned +=
+                  Number(
+                    item.returnedQuantity
+                  ) || 0;
+              }
+            }
+
+            // Other posted sales only.
+            // Current bill is excluded.
+            const otherSales =
+              await Sale.find({
+                farmId,
+
+                status:
+                  "POSTED",
+
+                createdRole:
+                  "salesman",
+
+                _id: {
+                  $ne:
+                    sale._id,
+                },
+
+                $or: [
+                  {
+                    salesmanId:
+                      salesman.salesmanId,
+                  },
+                  {
+                    createdBy:
+                      userId,
+                  },
+                ],
+              })
+                .session(session)
+                .lean();
+
+            for (
+              const otherSale of
+              otherSales
+            ) {
+              for (
+                const item of
+                otherSale.products || []
+              ) {
+                const productId =
+                  (
+                    item.productId ||
+                    ""
+                  )
+                    .toString()
+                    .trim()
+                    .toUpperCase();
+
+                if (!productId) {
+                  continue;
+                }
+
+                if (
+                  !salesmanAvailableMap
+                    .has(productId)
+                ) {
+                  salesmanAvailableMap
+                    .set(
+                      productId,
+                      {
+                        allocated: 0,
+                        returned: 0,
+                        sold: 0,
+                      }
+                    );
+                }
+
+                salesmanAvailableMap
+                  .get(productId)
+                  .sold +=
+                    Number(
+                      item.quantity
+                    ) || 0;
+              }
+            }
+          }
+
+          // ==============================================
+          // VERIFY NEW PRODUCTS
+          // ==============================================
+
+          const verifiedProducts = [];
+
+          const receivedProductIds =
+            new Set();
+
+          let totalQuantity = 0;
+          let grandTotal = 0;
+
+          for (
+            const line of
+            products
+          ) {
+            const productId =
+              line.productId
+                ?.toString()
+                .trim()
+                .toUpperCase();
+
+            const quantity =
+              Number(
+                line.quantity
+              );
+
+            if (!productId) {
+              const error =
+                new Error(
+                  "Invalid product."
+                );
+
+              error.statusCode = 400;
+
+              throw error;
+            }
+
+            if (
+              receivedProductIds.has(
+                productId
+              )
+            ) {
+              const error =
+                new Error(
+                  `Product ${productId} is repeated in this sale.`
+                );
+
+              error.statusCode = 400;
+
+              throw error;
+            }
+
+            receivedProductIds.add(
+              productId
+            );
+
+            if (
+              !Number.isFinite(
+                quantity
+              ) ||
+              quantity <= 0
+            ) {
+              const error =
+                new Error(
+                  `Invalid quantity for ${productId}.`
+                );
+
+              error.statusCode = 400;
+
+              throw error;
+            }
+
+            const product =
+              await Product.findOne({
+                farmId,
+                productId,
+                isActive: true,
+              }).session(session);
+
+            if (!product) {
+              const error =
+                new Error(
+                  `Product ${productId} not found.`
+                );
+
+              error.statusCode = 404;
+
+              throw error;
+            }
+
+            // ============================================
+            // CUSTOMER SPECIAL RATE
+            // ============================================
+
+            const defaultRate =
+              Number(
+                product.price
+              ) || 0;
+
+            const customerRate =
+              await CustomerRate.findOne({
+                farmId,
+
+                customerId:
+                  customer.customerId,
+
+                productId:
+                  product.productId,
+
+                isActive:
+                  true,
+              }).session(session);
+
+            let finalRate =
+              defaultRate;
+
+            let rateSource =
+              "PRODUCT_RATE";
+
+            if (
+              customerRate &&
+              Number(
+                customerRate.specialRate
+              ) > 0
+            ) {
+              finalRate =
+                Number(
+                  customerRate.specialRate
+                );
+
+              rateSource =
+                "CUSTOMER_RATE";
+            }
+
+            if (
+              !Number.isFinite(
+                finalRate
+              ) ||
+              finalRate <= 0
+            ) {
+              const error =
+                new Error(
+                  `Selling rate is not configured for ${product.productName}.`
+                );
+
+              error.statusCode = 400;
+
+              throw error;
+            }
+
+            // ============================================
+            // STOCK VALIDATION
+            // ============================================
+
+            const oldQuantity =
+              oldQuantityMap.get(
+                productId
+              ) || 0;
+
+            const difference =
+              quantity -
+              oldQuantity;
+
+            // ADMIN:
+            // Only additional quantity needs more stock.
+            if (
+              role === "admin" &&
+              difference > 0
+            ) {
+              const availableStock =
+                Number(
+                  product.stock
+                ) || 0;
+
+              if (
+                availableStock <
+                difference
+              ) {
+                const error =
+                  new Error(
+                    `Insufficient stock for ${product.productName}. Additional ${difference} required but only ${availableStock} available.`
+                  );
+
+                error.statusCode = 400;
+
+                throw error;
+              }
+            }
+
+            // SALESMAN:
+            // Current sale was excluded from sold quantity.
+            if (
+              role === "salesman"
+            ) {
+              const stockRow =
+                salesmanAvailableMap
+                  .get(productId);
+
+              const available =
+                stockRow
+                  ? (
+                      Number(
+                        stockRow.allocated
+                      ) || 0
+                    ) -
+                    (
+                      Number(
+                        stockRow.returned
+                      ) || 0
+                    ) -
+                    (
+                      Number(
+                        stockRow.sold
+                      ) || 0
+                    )
+                  : 0;
+
+              if (
+                available <
+                quantity
+              ) {
+                const error =
+                  new Error(
+                    `Insufficient salesman stock for ${product.productName}. Available stock is ${available} ${product.unit}.`
+                  );
+
+                error.statusCode = 400;
+
+                throw error;
+              }
+            }
+
+            const amount =
+              quantity *
+              finalRate;
+
+            verifiedProducts.push({
+              productId:
+                product.productId,
+
+              productName:
+                product.productName,
+
+              variant:
+                product.variant || "",
+
+              unit:
+                product.unit,
+
+              quantity,
+
+              defaultRate,
+
+              rate:
+                finalRate,
+
+              rateSource,
+
+              amount,
+            });
+
+            totalQuantity +=
+              quantity;
+
+            grandTotal +=
+              amount;
+          }
+          // ==================================================
+// PAYMENT BREAKUP
+// NEVER TRUST PAYMENT TOTAL FROM FRONTEND
+// ==================================================
+
+const allowedImmediatePaymentModes = [
+  "Cash",
+  "UPI",
+  "Bank Transfer",
+];
+
+const normalizedPayments = [];
+
+if (Array.isArray(payments)) {
+
+  for (const payment of payments) {
+
+    const mode =
+      (
+        payment?.mode ||
+        ""
+      )
+        .toString()
+        .trim();
+
+    const amount =
+      Number(
+        payment?.amount
+      );
+
+    if (
+      !allowedImmediatePaymentModes.includes(
+        mode
+      )
+    ) {
+      const error =
+        new Error(
+          `Invalid payment mode: ${mode || "Unknown"}.`
+        );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+      const error =
+        new Error(
+          `Invalid payment amount for ${mode}.`
+        );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    normalizedPayments.push({
+      mode,
+
+      amount:
+        Number(
+          amount.toFixed(2)
+        ),
+
+      referenceNo:
+        (
+          payment?.referenceNo ||
+          ""
+        )
+          .toString()
+          .trim(),
+    });
+  }
+}
+
+
+// ==================================================
+// CALCULATE PAID AMOUNT
+// ==================================================
+
+const finalPaidAmount =
+  normalizedPayments.reduce(
+    (
+      total,
+      payment
+    ) =>
+      total +
+      (
+        Number(
+          payment.amount
+        ) || 0
+      ),
+    0
+  );
+
+
+if (
+  finalPaidAmount >
+  grandTotal + 0.001
+) {
+  const error =
+    new Error(
+      "Paid amount cannot be greater than bill amount."
+    );
+
+  error.statusCode = 400;
+
+  throw error;
+}
+
+
+// ==================================================
+// OUTSTANDING
+// ==================================================
+
+const finalOutstandingAmount =
+  Math.max(
+    0,
+    grandTotal -
+    finalPaidAmount
+  );
+
+
+// ==================================================
+// PAYMENT STATUS
+// ==================================================
+
+let finalPaymentStatus =
+  "PAID";
+
+if (
+  finalPaidAmount <= 0
+) {
+  finalPaymentStatus =
+    "CREDIT";
+}
+
+else if (
+  finalOutstandingAmount >
+  0.001
+) {
+  finalPaymentStatus =
+    "PARTIAL";
+}
+
+
+// ==================================================
+// DISPLAY PAYMENT MODE
+// ==================================================
+
+let finalPaymentMode =
+  "Credit";
+
+if (
+  normalizedPayments.length === 1 &&
+  finalOutstandingAmount <= 0.001
+) {
+  finalPaymentMode =
+    normalizedPayments[0]
+      .mode;
+}
+
+else if (
+  normalizedPayments.length > 0
+) {
+  finalPaymentMode =
+    "Split";
+} 
+
+          // ==============================================
+          // ADMIN STOCK DIFFERENCE
+          // ==============================================
+
+          if (
+            role === "admin"
+          ) {
+            const newQuantityMap =
+              new Map();
+
+            for (
+              const line of
+              verifiedProducts
+            ) {
+              newQuantityMap.set(
+                line.productId,
+                Number(
+                  line.quantity
+                ) || 0
+              );
+            }
+
+            const allProductIds =
+              new Set([
+                ...oldQuantityMap.keys(),
+                ...newQuantityMap.keys(),
+              ]);
+
+            for (
+              const productId of
+              allProductIds
+            ) {
+              const oldQty =
+                oldQuantityMap.get(
+                  productId
+                ) || 0;
+
+              const newQty =
+                newQuantityMap.get(
+                  productId
+                ) || 0;
+
+              const difference =
+                newQty -
+                oldQty;
+
+              if (
+                difference === 0
+              ) {
+                continue;
+              }
+
+              const line =
+                verifiedProducts.find(
+                  (item) =>
+                    item.productId ===
+                    productId
+                ) ||
+                sale.products.find(
+                  (item) =>
+                    item.productId ===
+                    productId
+                );
+
+              // ------------------------------------------
+              // MORE SOLD -> STOCK OUT
+              // ------------------------------------------
+
+              if (
+                difference > 0
+              ) {
+                const updateResult =
+                  await Product.updateOne(
+                    {
+                      farmId,
+                      productId,
+
+                      stock: {
+                        $gte:
+                          difference,
+                      },
+                    },
+
+                    {
+                      $inc: {
+                        stock:
+                          -difference,
+                      },
+
+                      $set: {
+                        updatedAt:
+                          new Date(),
+                      },
+                    },
+
+                    {
+                      session,
+                    }
+                  );
+
+                if (
+                  updateResult.modifiedCount !==
+                  1
+                ) {
+                  const error =
+                    new Error(
+                      `Unable to deduct additional stock for ${line.productName}.`
+                    );
+
+                  error.statusCode = 409;
+
+                  throw error;
+                }
+
+                const stockId =
+                  await generateStockId();
+
+                await StockTransaction.create(
+                  [
+                    {
+                      farmId,
+                      stockId,
+
+                      productId,
+
+                      productName:
+                        line.productName,
+
+                      transactionType:
+                        "SALE_EDIT",
+
+                      referenceType:
+                        "SALE",
+
+                      referenceId:
+                        sale.saleId,
+
+                      referenceNo:
+                        sale.saleNo,
+
+                      quantityIn:
+                        0,
+
+                      quantityOut:
+                        difference,
+
+                      rate:
+                        Number(
+                          line.rate
+                        ) || 0,
+
+                      godown:
+                        sale.godown ||
+                        "Main Godown",
+
+                      createdBy:
+                        userId || "",
+                    },
+                  ],
+                  {
+                    session,
+                  }
+                );
+              }
+
+              // ------------------------------------------
+              // LESS SOLD -> STOCK BACK IN
+              // ------------------------------------------
+
+              if (
+                difference < 0
+              ) {
+                const quantityBack =
+                  Math.abs(
+                    difference
+                  );
+
+                await Product.updateOne(
+                  {
+                    farmId,
+                    productId,
+                  },
+
+                  {
+                    $inc: {
+                      stock:
+                        quantityBack,
+                    },
+
+                    $set: {
+                      updatedAt:
+                        new Date(),
+                    },
+                  },
+
+                  {
+                    session,
+                  }
+                );
+
+                const stockId =
+                  await generateStockId();
+
+                await StockTransaction.create(
+                  [
+                    {
+                      farmId,
+                      stockId,
+
+                      productId,
+
+                      productName:
+                        line.productName,
+
+                      transactionType:
+                        "SALE_EDIT_REVERSE",
+
+                      referenceType:
+                        "SALE",
+
+                      referenceId:
+                        sale.saleId,
+
+                      referenceNo:
+                        sale.saleNo,
+
+                      quantityIn:
+                        quantityBack,
+
+                      quantityOut:
+                        0,
+
+                      rate:
+                        Number(
+                          line.rate
+                        ) || 0,
+
+                      godown:
+                        sale.godown ||
+                        "Main Godown",
+
+                      createdBy:
+                        userId || "",
+                    },
+                  ],
+                  {
+                    session,
+                  }
+                );
+              }
+            }
+          }
+
+          // ==============================================
+          // UPDATE SALE DOCUMENT
+          // ==============================================
+
+          sale.saleDate =
+            saleDate
+              ? new Date(
+                  saleDate
+                )
+              : sale.saleDate;
+
+          sale.customerId =
+            customer.customerId;
+
+          sale.customerName =
+            customer.name;
+
+          sale.customerMobile =
+            customer.mobile || "";
+
+          sale.route =
+            customer.route || "";
+
+      sale.paymentMode =
+  finalPaymentMode;
+
+sale.payments =
+  normalizedPayments;
+
+sale.paidAmount =
+  Number(
+    finalPaidAmount.toFixed(2)
+  );
+
+sale.outstandingAmount =
+  Number(
+    finalOutstandingAmount.toFixed(2)
+  );
+
+sale.paymentStatus =
+  finalPaymentStatus;
+
+sale.products =
+  verifiedProducts;
+
+          sale.totalItems =
+            verifiedProducts.length;
+
+          sale.totalQuantity =
+            totalQuantity;
+
+          sale.grandTotal =
+            grandTotal;
+
+          sale.updatedAt =
+            new Date();
+
+          await sale.save({
+            session,
+          });
+
+          updatedSale =
+            sale;
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          "Sale updated successfully.",
+
+        data:
+          updatedSale,
+      });
+    } catch (error) {
+      console.error(
+        "EDIT SALE ERROR:",
+        error
+      );
+
+      return res
+        .status(
+          error.statusCode ||
+          500
+        )
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to update sale.",
+        });
+    } finally {
       await session.endSession();
     }
   }
@@ -8560,6 +10812,209 @@ app.put(
     }
   }
 );
+// ======================================================
+// HELPER - SOLD QUANTITY BELONGING TO ONE ALLOCATION
+//
+// SALESMAN SALES ARE CONSUMED AGAINST ALLOCATIONS
+// OLDEST FIRST.
+//
+// Returns:
+// Map<productId, soldQuantityForTargetAllocation>
+// ======================================================
+
+async function getSoldQuantityForAllocation({
+  farmId,
+  salesmanId,
+  allocationId,
+  session = null,
+}) {
+  const normalizedSalesmanId = (
+    salesmanId || ""
+  )
+    .toString()
+    .trim()
+    .toUpperCase();
+
+  const normalizedAllocationId = (
+    allocationId || ""
+  )
+    .toString()
+    .trim()
+    .toUpperCase();
+
+  const salesQuery = Sale.find({
+    farmId,
+    salesmanId: normalizedSalesmanId,
+    createdRole: "salesman",
+    status: "POSTED",
+  })
+    .select("products")
+    .lean();
+
+  if (session) {
+    salesQuery.session(session);
+  }
+
+  const postedSales =
+    await salesQuery;
+
+  // --------------------------------------------------
+  // TOTAL SALESMAN SOLD PRODUCT-WISE
+  // --------------------------------------------------
+
+  const totalSoldMap =
+    new Map();
+
+  for (const sale of postedSales) {
+    for (
+      const item of
+      Array.isArray(sale.products)
+        ? sale.products
+        : []
+    ) {
+      const productId = (
+        item.productId || ""
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+
+      if (!productId) {
+        continue;
+      }
+
+      totalSoldMap.set(
+        productId,
+        (
+          totalSoldMap.get(productId) ||
+          0
+        ) +
+          (Number(item.quantity) || 0)
+      );
+    }
+  }
+
+  // --------------------------------------------------
+  // ALL ACTIVE/RETURNED ALLOCATIONS OLDEST FIRST
+  // --------------------------------------------------
+
+  const allocationQuery =
+    Allocation.find({
+      farmId,
+      salesmanId:
+        normalizedSalesmanId,
+
+      status: {
+        $in: [
+          "POSTED",
+          "RETURNED",
+        ],
+      },
+    })
+      .sort({
+        allocationDate: 1,
+        createdAt: 1,
+      })
+      .lean();
+
+  if (session) {
+    allocationQuery.session(
+      session
+    );
+  }
+
+  const allocations =
+    await allocationQuery;
+
+  const remainingSoldMap =
+    new Map(totalSoldMap);
+
+  const targetSoldMap =
+    new Map();
+
+  for (
+    const allocation of
+    allocations
+  ) {
+    const isTarget =
+      (
+        allocation.allocationId ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toUpperCase() ===
+      normalizedAllocationId;
+
+    for (
+      const item of
+      Array.isArray(
+        allocation.products
+      )
+        ? allocation.products
+        : []
+    ) {
+      const productId = (
+        item.productId || ""
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+
+      if (!productId) {
+        continue;
+      }
+
+      const allocatedQty =
+        Number(item.quantity) || 0;
+
+      const returnedQty =
+        Number(
+          item.returnedQuantity
+        ) || 0;
+
+      const usableQty =
+        Math.max(
+          0,
+          allocatedQty -
+            returnedQty
+        );
+
+      const remainingSold =
+        remainingSoldMap.get(
+          productId
+        ) || 0;
+
+      const consumedQty =
+        Math.min(
+          usableQty,
+          remainingSold
+        );
+
+      if (isTarget) {
+        targetSoldMap.set(
+          productId,
+          consumedQty
+        );
+      }
+
+      remainingSoldMap.set(
+        productId,
+        Math.max(
+          0,
+          remainingSold -
+            consumedQty
+        )
+      );
+    }
+
+    if (isTarget) {
+      break;
+    }
+  }
+
+  return targetSoldMap;
+}
 // ======================================================
 // ALLOCATION
 // TRN_ALLOCATION
@@ -9283,7 +11738,197 @@ creditSales:
   }
 );
 
+// ======================================================
+// GET SINGLE ALLOCATION
+//
+// ADMIN
+// -> Can view any allocation of own farm
+//
+// SALESMAN
+// -> Can view only own allocation
+// ======================================================
 
+app.get(
+  "/api/allocations/:allocationId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const farmId =
+        req.user.farmId;
+
+      const role =
+        req.user.role;
+
+      const allocationId = (
+        req.params.allocationId ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+
+      if (!allocationId) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Allocation ID is required.",
+          });
+      }
+
+      const allocation =
+        await Allocation.findOne({
+          farmId,
+          allocationId,
+        }).lean();
+
+      if (!allocation) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "Allocation not found.",
+          });
+      }
+
+      // ================================================
+      // ROLE SECURITY
+      // ================================================
+
+      if (role === "salesman") {
+        const salesman =
+          await Salesman.findOne({
+            _id:
+              req.user.userId,
+            farmId,
+            isActive: true,
+          }).lean();
+
+        if (!salesman) {
+          return res
+            .status(404)
+            .json({
+              success: false,
+              message:
+                "Salesman account not found.",
+            });
+        }
+
+        if (
+          salesman.salesmanId
+            .toString()
+            .trim()
+            .toUpperCase() !==
+          allocation.salesmanId
+            .toString()
+            .trim()
+            .toUpperCase()
+        ) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+              message:
+                "You cannot view another salesman's allocation.",
+            });
+        }
+      } else if (
+        role !== "admin"
+      ) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message:
+              "You are not allowed to view this allocation.",
+          });
+      }
+
+      // ================================================
+      // SOLD QUANTITY FOR THIS ALLOCATION
+      // ================================================
+
+      const soldMap =
+        await getSoldQuantityForAllocation({
+          farmId,
+          salesmanId:
+            allocation.salesmanId,
+          allocationId:
+            allocation.allocationId,
+        });
+
+      const products = (
+        allocation.products || []
+      ).map((item) => {
+        const productId = (
+          item.productId || ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
+        const allocated =
+          Number(item.quantity) ||
+          0;
+
+        const returned =
+          Number(
+            item.returnedQuantity
+          ) || 0;
+
+        const sold =
+          Number(
+            soldMap.get(
+              productId
+            ) || 0
+          );
+
+        return {
+          ...item,
+
+          soldQuantity:
+            sold,
+
+          remainingQuantity:
+            Math.max(
+              0,
+              allocated -
+                returned -
+                sold
+            ),
+        };
+      });
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          data: {
+            ...allocation,
+            products,
+          },
+        });
+    } catch (error) {
+      console.error(
+        "GET SINGLE ALLOCATION ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message:
+            "Unable to load allocation.",
+          error:
+            error.message,
+        });
+    }
+  }
+);
 // ======================================================
 // ADD ALLOCATION
 // ATOMIC TRANSACTION
@@ -9976,6 +12621,1353 @@ const allocation =
 
     } finally {
 
+      await session.endSession();
+    }
+  }
+);
+// ======================================================
+// EDIT ALLOCATION
+// PUT /api/allocations/:allocationId
+//
+// ADMIN ONLY
+//
+// STOCK DELTA:
+//
+// OLD 20 -> NEW 30
+//   Additional 10 OUT
+//   ALLOCATION_EDIT
+//
+// OLD 20 -> NEW 15
+//   5 back into warehouse
+//   ALLOCATION_EDIT_REVERSE
+//
+// IMPORTANT:
+// New Qty can never go below:
+// Sold Qty + Returned Qty
+// ======================================================
+
+app.put(
+  "/api/allocations/:allocationId",
+  authenticateToken,
+  async (req, res) => {
+    const session =
+      await mongoose.startSession();
+
+    try {
+      let updatedAllocation =
+        null;
+
+      await session.withTransaction(
+        async () => {
+          const farmId =
+            req.user.farmId;
+
+          const userId =
+            req.user.userId;
+
+          // ==============================================
+          // ADMIN ONLY
+          // ==============================================
+
+          if (
+            req.user.role !==
+            "admin"
+          ) {
+            const error =
+              new Error(
+                "Only admin can edit allocation."
+              );
+
+            error.statusCode =
+              403;
+
+            throw error;
+          }
+
+          const allocationId = (
+            req.params
+              .allocationId ||
+            ""
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
+
+          if (!allocationId) {
+            const error =
+              new Error(
+                "Allocation ID is required."
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
+
+          // ==============================================
+          // ORIGINAL ALLOCATION
+          // ==============================================
+
+          const allocation =
+            await Allocation.findOne({
+              farmId,
+              allocationId,
+            }).session(session);
+
+          if (!allocation) {
+            const error =
+              new Error(
+                "Allocation not found."
+              );
+
+            error.statusCode =
+              404;
+
+            throw error;
+          }
+
+          if (
+            allocation.status !==
+            "POSTED"
+          ) {
+            const error =
+              new Error(
+                `${allocation.status} allocation cannot be edited.`
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
+
+          const {
+            allocationDate,
+            salesmanId,
+            routeId,
+            products,
+            notes,
+          } = req.body;
+
+          if (
+            !Array.isArray(
+              products
+            ) ||
+            products.length ===
+              0
+          ) {
+            const error =
+              new Error(
+                "Please select at least one product."
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
+
+          // ==============================================
+          // SOLD QUANTITY OF THIS ALLOCATION
+          // BEFORE EDIT
+          // ==============================================
+
+          const soldMap =
+            await getSoldQuantityForAllocation({
+              farmId,
+              salesmanId:
+                allocation
+                  .salesmanId,
+              allocationId:
+                allocation
+                  .allocationId,
+              session,
+            });
+
+          let hasActivity =
+            false;
+
+          for (
+            const item of
+            allocation.products
+          ) {
+            const productId = (
+              item.productId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+            const sold =
+              Number(
+                soldMap.get(
+                  productId
+                ) || 0
+              );
+
+            const returned =
+              Number(
+                item
+                  .returnedQuantity
+              ) || 0;
+
+            if (
+              sold > 0 ||
+              returned > 0
+            ) {
+              hasActivity =
+                true;
+
+              break;
+            }
+          }
+
+          // ==============================================
+          // SALESMAN
+          // ==============================================
+
+          const normalizedSalesmanId =
+            (
+              salesmanId ||
+              allocation.salesmanId
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          const salesman =
+            await Salesman.findOne({
+              farmId,
+              salesmanId:
+                normalizedSalesmanId,
+              isActive: true,
+            }).session(session);
+
+          if (!salesman) {
+            const error =
+              new Error(
+                "Selected salesman not found."
+              );
+
+            error.statusCode =
+              404;
+
+            throw error;
+          }
+
+          // ==============================================
+          // ROUTE
+          // ==============================================
+
+          const normalizedRouteId =
+            (
+              routeId ||
+              allocation.routeId
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          const route =
+            await RouteMaster.findOne({
+              farmId,
+              routeId:
+                normalizedRouteId,
+              isActive: true,
+            }).session(session);
+
+          if (!route) {
+            const error =
+              new Error(
+                "Selected route not found."
+              );
+
+            error.statusCode =
+              404;
+
+            throw error;
+          }
+
+          // Route must belong to selected salesman
+          if (
+            route.salesmanId &&
+            route.salesmanId
+              .toString()
+              .trim() &&
+            route.salesmanId
+              .toString()
+              .trim()
+              .toUpperCase() !==
+              normalizedSalesmanId
+          ) {
+            const error =
+              new Error(
+                "Selected route is assigned to another salesman."
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
+
+          // ==============================================
+          // AFTER SALES/RETURN ACTIVITY
+          // SALESMAN / ROUTE CANNOT BE CHANGED
+          // ==============================================
+
+          if (hasActivity) {
+            if (
+              normalizedSalesmanId !==
+              allocation.salesmanId
+                .toString()
+                .trim()
+                .toUpperCase()
+            ) {
+              const error =
+                new Error(
+                  "Salesman cannot be changed after sales or return activity."
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            if (
+              normalizedRouteId !==
+              (
+                allocation.routeId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase()
+            ) {
+              const error =
+                new Error(
+                  "Route cannot be changed after sales or return activity."
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+          }
+
+          // ==============================================
+          // OLD PRODUCT MAP
+          // ==============================================
+
+          const oldProductMap =
+            new Map();
+
+          for (
+            const oldItem of
+            allocation.products
+          ) {
+            const id =
+              oldItem.productId
+                .toString()
+                .trim()
+                .toUpperCase();
+
+            oldProductMap.set(
+              id,
+              {
+                quantity:
+                  Number(
+                    oldItem.quantity
+                  ) || 0,
+
+                returnedQuantity:
+                  Number(
+                    oldItem
+                      .returnedQuantity
+                  ) || 0,
+
+                productName:
+                  oldItem
+                    .productName,
+
+                variant:
+                  oldItem
+                    .variant ||
+                  "",
+
+                unit:
+                  oldItem.unit,
+              }
+            );
+          }
+
+          // ==============================================
+          // VERIFY NEW PRODUCTS
+          // ==============================================
+
+          const newProducts =
+            [];
+
+          const newProductMap =
+            new Map();
+
+          const receivedIds =
+            new Set();
+
+          let totalQuantity =
+            0;
+
+          for (
+            const line of products
+          ) {
+            const productId = (
+              line.productId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+            const quantity =
+              Number(
+                line.quantity
+              );
+
+            if (!productId) {
+              const error =
+                new Error(
+                  "Invalid product."
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            if (
+              receivedIds.has(
+                productId
+              )
+            ) {
+              const error =
+                new Error(
+                  `Product ${productId} is repeated in allocation.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            receivedIds.add(
+              productId
+            );
+
+            if (
+              !Number.isFinite(
+                quantity
+              ) ||
+              quantity <= 0 ||
+              !Number.isInteger(
+                quantity
+              )
+            ) {
+              const error =
+                new Error(
+                  `Invalid quantity for ${productId}.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            const product =
+              await Product.findOne({
+                farmId,
+                productId,
+                isActive: true,
+              }).session(session);
+
+            if (!product) {
+              const error =
+                new Error(
+                  `Product ${productId} not found.`
+                );
+
+              error.statusCode =
+                404;
+
+              throw error;
+            }
+
+            const oldRow =
+              oldProductMap.get(
+                productId
+              );
+
+            const returnedQty =
+              Number(
+                oldRow
+                  ?.returnedQuantity ||
+                0
+              );
+
+            const soldQty =
+              Number(
+                soldMap.get(
+                  productId
+                ) || 0
+              );
+
+            const minimumQty =
+              soldQty +
+              returnedQty;
+
+            if (
+              quantity <
+              minimumQty
+            ) {
+              const error =
+                new Error(
+                  `${product.productName} cannot be reduced below ${minimumQty}. Sold: ${soldQty}, Returned: ${returnedQty}.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            newProducts.push({
+              productId:
+                product.productId,
+
+              productName:
+                product.productName,
+
+              variant:
+                product.variant ||
+                "",
+
+              unit:
+                product.unit,
+
+              quantity:
+                quantity,
+
+              returnedQuantity:
+                returnedQty,
+            });
+
+            newProductMap.set(
+              productId,
+              {
+                quantity,
+                product,
+              }
+            );
+
+            totalQuantity +=
+              quantity;
+          }
+
+          // ==============================================
+          // REMOVED PRODUCTS
+          // ==============================================
+
+          for (
+            const [
+              productId,
+              oldRow,
+            ] of
+            oldProductMap.entries()
+          ) {
+            if (
+              newProductMap.has(
+                productId
+              )
+            ) {
+              continue;
+            }
+
+            const soldQty =
+              Number(
+                soldMap.get(
+                  productId
+                ) || 0
+              );
+
+            const returnedQty =
+              Number(
+                oldRow
+                  .returnedQuantity
+              ) || 0;
+
+            if (
+              soldQty > 0 ||
+              returnedQty > 0
+            ) {
+              const error =
+                new Error(
+                  `${oldRow.productName} cannot be removed because sales/returns already exist.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+          }
+
+          // ==============================================
+          // ALL PRODUCT IDS
+          // OLD + NEW
+          // ==============================================
+
+          const allProductIds =
+            new Set([
+              ...oldProductMap.keys(),
+              ...newProductMap.keys(),
+            ]);
+
+          // ==============================================
+          // APPLY STOCK DELTA
+          // ==============================================
+
+          for (
+            const productId of
+            allProductIds
+          ) {
+            const oldQty =
+              Number(
+                oldProductMap.get(
+                  productId
+                )?.quantity || 0
+              );
+
+            const newQty =
+              Number(
+                newProductMap.get(
+                  productId
+                )?.quantity || 0
+              );
+
+            const difference =
+              newQty -
+              oldQty;
+
+            if (
+              difference === 0
+            ) {
+              continue;
+            }
+
+            let product =
+              newProductMap.get(
+                productId
+              )?.product;
+
+            if (!product) {
+              product =
+                await Product.findOne({
+                  farmId,
+                  productId,
+                }).session(session);
+            }
+
+            if (!product) {
+              const error =
+                new Error(
+                  `Product ${productId} not found.`
+                );
+
+              error.statusCode =
+                404;
+
+              throw error;
+            }
+
+            // ------------------------------------------
+            // INCREASE ALLOCATION
+            // EXTRA WAREHOUSE STOCK OUT
+            // ------------------------------------------
+
+            if (
+              difference > 0
+            ) {
+              const stockResult =
+                await Product.updateOne(
+                  {
+                    farmId,
+                    productId,
+
+                    stock: {
+                      $gte:
+                        difference,
+                    },
+                  },
+
+                  {
+                    $inc: {
+                      stock:
+                        -difference,
+                    },
+
+                    $set: {
+                      updatedAt:
+                        new Date(),
+                    },
+                  },
+
+                  {
+                    session,
+                  }
+                );
+
+              if (
+                stockResult
+                  .modifiedCount !==
+                1
+              ) {
+                const error =
+                  new Error(
+                    `Insufficient stock for ${product.productName}.`
+                  );
+
+                error.statusCode =
+                  409;
+
+                throw error;
+              }
+
+              const stockId =
+                await generateStockId();
+
+              await StockTransaction.create(
+                [
+                  {
+                    farmId,
+
+                    stockId,
+
+                    productId:
+                      product
+                        .productId,
+
+                    productName:
+                      product
+                        .productName,
+
+                    transactionType:
+                      "ALLOCATION_EDIT",
+
+                    referenceType:
+                      "ALLOCATION",
+
+                    referenceId:
+                      allocation
+                        .allocationId,
+
+                    referenceNo:
+                      allocation
+                        .allocationNo,
+
+                    quantityIn:
+                      0,
+
+                    quantityOut:
+                      difference,
+
+                    rate:
+                      Number(
+                        product.price
+                      ) || 0,
+
+                    godown:
+                      "Main Godown",
+
+                    createdBy:
+                      userId ||
+                      "",
+                  },
+                ],
+
+                {
+                  session,
+                }
+              );
+            }
+
+            // ------------------------------------------
+            // REDUCE ALLOCATION
+            // UNUSED STOCK BACK TO WAREHOUSE
+            // ------------------------------------------
+
+            if (
+              difference < 0
+            ) {
+              const quantityBack =
+                Math.abs(
+                  difference
+                );
+
+              await Product.updateOne(
+                {
+                  farmId,
+                  productId,
+                },
+
+                {
+                  $inc: {
+                    stock:
+                      quantityBack,
+                  },
+
+                  $set: {
+                    updatedAt:
+                      new Date(),
+                  },
+                },
+
+                {
+                  session,
+                }
+              );
+
+              const stockId =
+                await generateStockId();
+
+              await StockTransaction.create(
+                [
+                  {
+                    farmId,
+
+                    stockId,
+
+                    productId:
+                      product
+                        .productId,
+
+                    productName:
+                      product
+                        .productName,
+
+                    transactionType:
+                      "ALLOCATION_EDIT_REVERSE",
+
+                    referenceType:
+                      "ALLOCATION",
+
+                    referenceId:
+                      allocation
+                        .allocationId,
+
+                    referenceNo:
+                      allocation
+                        .allocationNo,
+
+                    quantityIn:
+                      quantityBack,
+
+                    quantityOut:
+                      0,
+
+                    rate:
+                      Number(
+                        product.price
+                      ) || 0,
+
+                    godown:
+                      "Main Godown",
+
+                    createdBy:
+                      userId ||
+                      "",
+                  },
+                ],
+
+                {
+                  session,
+                }
+              );
+            }
+          }
+
+          // ==============================================
+          // UPDATE ALLOCATION
+          // ==============================================
+
+          if (
+            allocationDate
+          ) {
+            const parsedDate =
+              new Date(
+                allocationDate
+              );
+
+            if (
+              Number.isNaN(
+                parsedDate.getTime()
+              )
+            ) {
+              const error =
+                new Error(
+                  "Invalid allocation date."
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            allocation
+              .allocationDate =
+              parsedDate;
+          }
+
+          allocation.salesmanId =
+            salesman.salesmanId;
+
+          allocation.salesmanName =
+            salesman.name;
+
+          allocation.routeId =
+            route.routeId;
+
+          allocation.routeName =
+            route.routeName;
+
+          allocation.products =
+            newProducts;
+
+          allocation.totalItems =
+            newProducts.length;
+
+          allocation.totalQuantity =
+            totalQuantity;
+
+          if (
+            notes !== undefined
+          ) {
+            allocation.notes =
+              (
+                notes || ""
+              )
+                .toString()
+                .trim();
+          }
+
+          allocation.updatedBy =
+            userId || "";
+
+          allocation.updatedAt =
+            new Date();
+
+          await allocation.save({
+            session,
+          });
+
+          updatedAllocation =
+            allocation;
+        }
+      );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Allocation updated and stock adjusted successfully.",
+
+          data:
+            updatedAllocation,
+        });
+    } catch (error) {
+      console.error(
+        "EDIT ALLOCATION ERROR:",
+        error
+      );
+
+      return res
+        .status(
+          error.statusCode ||
+            500
+        )
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to update allocation.",
+        });
+    } finally {
+      await session.endSession();
+    }
+  }
+);
+// ======================================================
+// CANCEL ALLOCATION
+// PUT /api/allocations/:allocationId/cancel
+//
+// ADMIN ONLY
+//
+// No hard delete.
+//
+// Allowed only when:
+// - status = POSTED
+// - no sold quantity
+// - no returned quantity
+//
+// Entire allocated quantity returns to warehouse.
+// ======================================================
+
+app.put(
+  "/api/allocations/:allocationId/cancel",
+  authenticateToken,
+  async (req, res) => {
+    const session =
+      await mongoose.startSession();
+
+    try {
+      let cancelledAllocation =
+        null;
+
+      await session.withTransaction(
+        async () => {
+          const farmId =
+            req.user.farmId;
+
+          const userId =
+            req.user.userId;
+
+          if (
+            req.user.role !==
+            "admin"
+          ) {
+            const error =
+              new Error(
+                "Only admin can cancel allocation."
+              );
+
+            error.statusCode =
+              403;
+
+            throw error;
+          }
+
+          const allocationId = (
+            req.params
+              .allocationId ||
+            ""
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
+
+          const allocation =
+            await Allocation.findOne({
+              farmId,
+              allocationId,
+            }).session(session);
+
+          if (!allocation) {
+            const error =
+              new Error(
+                "Allocation not found."
+              );
+
+            error.statusCode =
+              404;
+
+            throw error;
+          }
+
+          if (
+            allocation.status ===
+            "CANCELLED"
+          ) {
+            const error =
+              new Error(
+                "Allocation is already cancelled."
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
+
+          if (
+            allocation.status !==
+            "POSTED"
+          ) {
+            const error =
+              new Error(
+                `${allocation.status} allocation cannot be cancelled.`
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
+
+          // ==============================================
+          // SOLD QTY FOR THIS ALLOCATION
+          // ==============================================
+
+          const soldMap =
+            await getSoldQuantityForAllocation({
+              farmId,
+              salesmanId:
+                allocation
+                  .salesmanId,
+              allocationId:
+                allocation
+                  .allocationId,
+              session,
+            });
+
+          // ==============================================
+          // MUST HAVE ZERO SALE / ZERO RETURN
+          // ==============================================
+
+          for (
+            const item of
+            allocation.products
+          ) {
+            const productId = (
+              item.productId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+            const soldQty =
+              Number(
+                soldMap.get(
+                  productId
+                ) || 0
+              );
+
+            const returnedQty =
+              Number(
+                item
+                  .returnedQuantity
+              ) || 0;
+
+            if (
+              soldQty > 0
+            ) {
+              const error =
+                new Error(
+                  `${item.productName} already has sold quantity ${soldQty}. Allocation cannot be cancelled.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            if (
+              returnedQty > 0
+            ) {
+              const error =
+                new Error(
+                  `${item.productName} already has return activity. Allocation cannot be cancelled.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+          }
+
+          // ==============================================
+          // RESTORE STOCK
+          // ==============================================
+
+          for (
+            const item of
+            allocation.products
+          ) {
+            const quantity =
+              Number(
+                item.quantity
+              ) || 0;
+
+            if (
+              quantity <= 0
+            ) {
+              continue;
+            }
+
+            const updateResult =
+              await Product.updateOne(
+                {
+                  farmId,
+                  productId:
+                    item.productId,
+                },
+
+                {
+                  $inc: {
+                    stock:
+                      quantity,
+                  },
+
+                  $set: {
+                    updatedAt:
+                      new Date(),
+                  },
+                },
+
+                {
+                  session,
+                }
+              );
+
+            if (
+              updateResult
+                .matchedCount !==
+              1
+            ) {
+              const error =
+                new Error(
+                  `Unable to restore ${item.productName}. Product not found.`
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
+
+            const stockId =
+              await generateStockId();
+
+            await StockTransaction.create(
+              [
+                {
+                  farmId,
+
+                  stockId,
+
+                  productId:
+                    item.productId,
+
+                  productName:
+                    item.productName,
+
+                  transactionType:
+                    "ALLOCATION_CANCEL",
+
+                  referenceType:
+                    "ALLOCATION",
+
+                  referenceId:
+                    allocation
+                      .allocationId,
+
+                  referenceNo:
+                    allocation
+                      .allocationNo,
+
+                  quantityIn:
+                    quantity,
+
+                  quantityOut:
+                    0,
+
+                  rate:
+                    0,
+
+                  godown:
+                    "Main Godown",
+
+                  createdBy:
+                    userId ||
+                    "",
+                },
+              ],
+
+              {
+                session,
+              }
+            );
+          }
+
+          // ==============================================
+          // MARK CANCELLED
+          // ==============================================
+
+          allocation.status =
+            "CANCELLED";
+
+          allocation.cancelledBy =
+            userId || "";
+
+          allocation.cancelledAt =
+            new Date();
+
+          allocation.updatedBy =
+            userId || "";
+
+          allocation.updatedAt =
+            new Date();
+
+          await allocation.save({
+            session,
+          });
+
+          cancelledAllocation =
+            allocation;
+        }
+      );
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+
+          message:
+            "Allocation cancelled and stock restored successfully.",
+
+          data:
+            cancelledAllocation,
+        });
+    } catch (error) {
+      console.error(
+        "CANCEL ALLOCATION ERROR:",
+        error
+      );
+
+      return res
+        .status(
+          error.statusCode ||
+            500
+        )
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to cancel allocation.",
+        });
+    } finally {
       await session.endSession();
     }
   }
@@ -10964,18 +14956,98 @@ app.get(
       }
 
 
-      // ==================================================
-      // SALESMAN SALES
-      //
-      // IMPORTANT:
-      // Current admin sales are NOT deducted here.
-      //
-      // Later when Salesman Sale is connected,
-      // only sales created by this salesman will be
-      // deducted from his allocated stock.
-      // ==================================================
+    // ==================================================
+// SALESMAN POSTED SALES
+//
+// ONLY SALES CREATED BY THIS SALESMAN
+// CANCELLED SALES ARE NOT INCLUDED
+// ADMIN SALES ARE NOT INCLUDED
+// ==================================================
 
-      let totalSold = 0;
+const salesmanSales =
+  await Sale.find({
+    farmId: farmId,
+
+    salesmanId:
+      salesmanId,
+
+    createdRole:
+      "salesman",
+
+    status:
+      "POSTED",
+  })
+    .select(
+      "products"
+    )
+    .lean();
+
+
+// ==================================================
+// ADD SOLD QUANTITY PRODUCT-WISE
+// ==================================================
+
+for (
+  const sale of
+  salesmanSales
+) {
+  const saleProducts =
+    Array.isArray(
+      sale.products
+    )
+      ? sale.products
+      : [];
+
+  for (
+    const item of
+    saleProducts
+  ) {
+    const productId =
+      (
+        item.productId ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+
+    if (!productId) {
+      continue;
+    }
+
+    // ------------------------------------------------
+    // Product was sold but allocation record may
+    // no longer appear in current productMap.
+    // This should normally not happen, but keep the
+    // API safe.
+    // ------------------------------------------------
+
+    if (
+      !productMap.has(
+        productId
+      )
+    ) {
+      continue;
+    }
+
+    const soldQty =
+      Number(
+        item.quantity
+      ) || 0;
+
+    productMap
+      .get(productId)
+      .sold +=
+        soldQty;
+  }
+}
+
+
+// ==================================================
+// TOTAL SOLD
+// ==================================================
+
+let totalSold = 0;
 
 
       // ==================================================
@@ -10999,8 +15071,11 @@ app.get(
         totalSold +=
           row.sold;
 
-
-        products.push(row);
+if (
+  row.available > 0
+) {
+  products.push(row);
+}
       }
 
 
@@ -11260,17 +15335,14 @@ app.get(
       // CREDIT SALES FILTER
       // ==================================================
 
-      const saleFilter = {
+    const saleFilter = {
 
-        farmId:
-          farmId,
+  farmId:
+    farmId,
 
-        status:
-          "POSTED",
-
-        paymentMode:
-          "Credit",
-      };
+  status:
+    "POSTED",
+};
 
 
       if (
@@ -11289,13 +15361,29 @@ app.get(
       // LOAD CREDIT SALES
       // ==================================================
 
-      const creditSales =
-        await Sale.find(
-          saleFilter
-        )
-          .select(
-            "saleId saleNo saleDate customerId customerName customerMobile route grandTotal salesmanId salesmanName"
-          )
+const creditSales =
+  await Sale.find(
+    saleFilter
+  )
+    .select(
+      [
+        "saleId",
+        "saleNo",
+        "saleDate",
+        "customerId",
+        "customerName",
+        "customerMobile",
+        "route",
+        "grandTotal",
+        "paymentMode",
+        "payments",
+        "paidAmount",
+        "outstandingAmount",
+        "paymentStatus",
+        "salesmanId",
+        "salesmanName",
+      ].join(" ")
+    )
           .sort({
             saleDate: 1,
             createdAt: 1,
@@ -11334,9 +15422,19 @@ app.get(
         await Collection.find(
           collectionFilter
         )
-          .select(
-            "customerId amount paymentMode collectionDate salesmanId salesmanName"
-          )
+       .select(
+  [
+    "collectionId",
+    "receiptNo",
+    "customerId",
+    "amount",
+    "paymentMode",
+    "collectionDate",
+    "salesmanId",
+    "salesmanName",
+    "allocations",
+  ].join(" ")
+)
           .sort({
             collectionDate: 1,
             createdAt: 1,
@@ -11401,23 +15499,24 @@ app.get(
               salesmanName:
                 sale.salesmanName || "",
 
-              totalCreditSales:
-                0,
+                totalCreditSales:
+                  0,
 
-              totalCollected:
-                0,
+                totalCollected:
+                  0,
 
-              outstanding:
-                0,
+                outstanding:
+                  0,
 
-              lastPaymentMode:
-                "",
+                lastPaymentMode:
+                  "",
 
-              lastCollectionDate:
-                null,
+                lastCollectionDate:
+                  null,
 
-              billCount:
-                0,
+                billCount:
+                  0,
+                  bills: [],
             }
           );
         }
@@ -11429,15 +15528,282 @@ app.get(
           );
 
 
-        row.totalCreditSales +=
-          Number(
-            sale.grandTotal
-          ) || 0;
+ const billAmount =
+  Number(
+    sale.grandTotal
+  ) || 0;
+
+const paidAmount =
+  Math.max(
+    0,
+    Number(
+      sale.paidAmount
+    ) || 0
+  );
+
+let outstandingAmount =
+  Number(
+    sale.outstandingAmount
+  );
+
+// ==================================================
+// OLD RECORD COMPATIBILITY
+// ==================================================
+
+if (
+  !Number.isFinite(
+    outstandingAmount
+  )
+) {
+  const oldMode =
+    (
+      sale.paymentMode ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toLowerCase();
+
+  outstandingAmount =
+    oldMode === "credit"
+      ? billAmount
+      : 0;
+}
+
+outstandingAmount =
+  Math.max(
+    0,
+    outstandingAmount
+  );
+
+// ==================================================
+// ONLY CURRENT OUTSTANDING COUNTS
+// ==================================================
+
+row.totalCreditSales +=
+  outstandingAmount;
+
+row.billCount +=
+  1;
+  // ==================================================
+// PAYMENT BREAKUP
+// ==================================================
+
+const payments =
+  Array.isArray(
+    sale.payments
+  )
+    ? sale.payments
+    : [];
+
+let cashAmount = 0;
+let upiAmount = 0;
+let bankAmount = 0;
+let otherAmount = 0;
+
+for (
+  const payment of payments
+) {
+  const mode =
+    (
+      payment.paymentMode ||
+      payment.mode ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toLowerCase();
+
+  const amount =
+    Math.max(
+      0,
+      Number(
+        payment.amount
+      ) || 0
+    );
+
+  if (
+    mode === "cash"
+  ) {
+    cashAmount += amount;
+  }
+
+  else if (
+    [
+      "upi",
+      "phonepe",
+      "google pay",
+      "gpay",
+      "paytm",
+    ].includes(mode)
+  ) {
+    upiAmount += amount;
+  }
+
+  else if (
+    [
+      "bank transfer",
+      "bank",
+      "neft",
+      "rtgs",
+      "imps",
+    ].includes(mode)
+  ) {
+    bankAmount += amount;
+  }
+
+  else {
+    otherAmount += amount;
+  }
+}
 
 
-        row.billCount +=
-          1;
+// ==================================================
+// OLD SINGLE PAYMENT RECORD COMPATIBILITY
+// ==================================================
 
+if (
+  payments.length === 0 &&
+  paidAmount > 0
+) {
+  const singleMode =
+    (
+      sale.paymentMode ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toLowerCase();
+
+  if (
+    singleMode === "cash"
+  ) {
+    cashAmount =
+      paidAmount;
+  }
+
+  else if (
+    [
+      "upi",
+      "phonepe",
+      "google pay",
+      "gpay",
+      "paytm",
+    ].includes(singleMode)
+  ) {
+    upiAmount =
+      paidAmount;
+  }
+
+  else if (
+    [
+      "bank transfer",
+      "bank",
+      "neft",
+      "rtgs",
+      "imps",
+    ].includes(singleMode)
+  ) {
+    bankAmount =
+      paidAmount;
+  }
+
+  else if (
+    paidAmount > 0
+  ) {
+    otherAmount =
+      paidAmount;
+  }
+}
+
+
+// ==================================================
+// BILL DETAIL
+// ==================================================
+
+row.bills.push({
+  saleId:
+    sale.saleId || "",
+
+  saleNo:
+    sale.saleNo || "",
+
+  saleDate:
+    sale.saleDate,
+
+  billAmount:
+    Number(
+      billAmount.toFixed(2)
+    ),
+
+  salePaidAmount:
+    Number(
+      paidAmount.toFixed(2)
+    ),
+
+  initialOutstanding:
+    Number(
+      outstandingAmount.toFixed(2)
+    ),
+
+  collectionApplied:
+    0,
+
+  paidAmount:
+    Number(
+      paidAmount.toFixed(2)
+    ),
+
+  outstandingAmount:
+    Number(
+      outstandingAmount.toFixed(2)
+    ),
+
+  paymentMode:
+    sale.paymentMode || "",
+
+  paymentStatus:
+    (
+      sale.paymentStatus ||
+      (
+        outstandingAmount > 0
+          ? (
+              paidAmount > 0
+                ? "PARTIAL"
+                : "CREDIT"
+            )
+          : "PAID"
+      )
+    )
+      .toString()
+      .trim()
+      .toUpperCase(),
+
+  payments:
+    payments,
+
+  paymentBreakup: {
+    cash:
+      Number(
+        cashAmount.toFixed(2)
+      ),
+
+    upi:
+      Number(
+        upiAmount.toFixed(2)
+      ),
+
+    bank:
+      Number(
+        bankAmount.toFixed(2)
+      ),
+
+    other:
+      Number(
+        otherAmount.toFixed(2)
+      ),
+  },
+});
 
         if (
           !row.route &&
@@ -11467,55 +15833,246 @@ app.get(
       }
 
 
-      // ==================================================
-      // SUBTRACT COLLECTIONS
-      // ==================================================
+ // ==================================================
+// APPLY COLLECTIONS TO CUSTOMER + BILLS
+// FIFO BILL SETTLEMENT
+// ==================================================
 
-      for (
-        const collection of
-        collections
+for (
+  const collection of
+  collections
+) {
+  const customerId =
+    (
+      collection.customerId ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
+
+
+  if (
+    !customerMap.has(
+      customerId
+    )
+  ) {
+    continue;
+  }
+
+
+  const row =
+    customerMap.get(
+      customerId
+    );
+
+
+  const collectionAmount =
+    Math.max(
+      0,
+      Number(
+        collection.amount
+      ) || 0
+    );
+
+
+  row.totalCollected +=
+    collectionAmount;
+
+
+  row.lastPaymentMode =
+    collection.paymentMode || "";
+
+
+  row.lastCollectionDate =
+    collection.collectionDate ||
+    null;
+
+
+  // ==================================================
+  // SAVED ALLOCATIONS
+  // ==================================================
+
+  const savedAllocations =
+    Array.isArray(
+      collection.allocations
+    )
+      ? collection.allocations
+      : [];
+
+
+  if (
+    savedAllocations.length > 0
+  ) {
+    const billMap =
+      new Map(
+        row.bills.map(
+          (bill) => [
+            (
+              bill.saleId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase(),
+
+            bill,
+          ]
+        )
+      );
+
+
+    for (
+      const allocation of
+      savedAllocations
+    ) {
+      const saleId =
+        (
+          allocation.saleId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
+
+      if (
+        !billMap.has(
+          saleId
+        )
       ) {
-
-        const customerId =
-          (
-            collection.customerId ||
-            ""
-          )
-            .toString()
-            .trim()
-            .toUpperCase();
-
-
-        if (
-          !customerMap.has(
-            customerId
-          )
-        ) {
-          continue;
-        }
-
-
-        const row =
-          customerMap.get(
-            customerId
-          );
-
-
-        row.totalCollected +=
-          Number(
-            collection.amount
-          ) || 0;
-
-
-        row.lastPaymentMode =
-          collection.paymentMode || "";
-
-
-        row.lastCollectionDate =
-          collection.collectionDate ||
-          null;
+        continue;
       }
 
+
+      const bill =
+        billMap.get(
+          saleId
+        );
+
+
+      const requestedApplied =
+        Math.max(
+          0,
+          Number(
+            allocation.amountApplied
+          ) || 0
+        );
+
+
+      const currentOutstanding =
+        Math.max(
+          0,
+          Number(
+            bill.outstandingAmount
+          ) || 0
+        );
+
+
+      const applied =
+        Math.min(
+          requestedApplied,
+          currentOutstanding
+        );
+
+
+      bill.collectionApplied +=
+        applied;
+
+
+      bill.outstandingAmount =
+        Math.max(
+          0,
+          currentOutstanding -
+          applied
+        );
+
+
+      bill.paidAmount =
+        Math.min(
+          bill.billAmount,
+          Number(
+            bill.salePaidAmount || 0
+          ) +
+          bill.collectionApplied
+        );
+    }
+
+
+    continue;
+  }
+
+
+  // ==================================================
+  // OLD RECEIPT COMPATIBILITY
+  // NO SAVED BILL ALLOCATIONS -> FIFO
+  // ==================================================
+
+  let remainingCollection =
+    collectionAmount;
+
+
+  for (
+    const bill of row.bills
+  ) {
+    if (
+      remainingCollection <=
+      0.001
+    ) {
+      break;
+    }
+
+
+    const currentOutstanding =
+      Math.max(
+        0,
+        Number(
+          bill.outstandingAmount
+        ) || 0
+      );
+
+
+    if (
+      currentOutstanding <=
+      0.001
+    ) {
+      continue;
+    }
+
+
+    const applied =
+      Math.min(
+        remainingCollection,
+        currentOutstanding
+      );
+
+
+    bill.collectionApplied +=
+      applied;
+
+
+    bill.outstandingAmount =
+      Math.max(
+        0,
+        currentOutstanding -
+        applied
+      );
+
+
+    bill.paidAmount =
+      Math.min(
+        bill.billAmount,
+        Number(
+          bill.salePaidAmount || 0
+        ) +
+        bill.collectionApplied
+      );
+
+
+    remainingCollection -=
+      applied;
+  }
+}
 
       // ==================================================
       // FINAL RESULT
@@ -11529,6 +16086,67 @@ app.get(
         customerMap.values()
       ) {
 
+        // ==================================================
+// FINAL BILL STATUS
+// ==================================================
+
+for (
+  const bill of row.bills
+) {
+  bill.collectionApplied =
+    Number(
+      Math.max(
+        0,
+        Number(
+          bill.collectionApplied
+        ) || 0
+      ).toFixed(2)
+    );
+
+
+  bill.paidAmount =
+    Number(
+      Math.max(
+        0,
+        Number(
+          bill.paidAmount
+        ) || 0
+      ).toFixed(2)
+    );
+
+
+  bill.outstandingAmount =
+    Number(
+      Math.max(
+        0,
+        Number(
+          bill.outstandingAmount
+        ) || 0
+      ).toFixed(2)
+    );
+
+
+  if (
+    bill.outstandingAmount <=
+    0.001
+  ) {
+    bill.paymentStatus =
+      "PAID";
+  }
+
+  else if (
+    bill.paidAmount > 0 ||
+    bill.collectionApplied > 0
+  ) {
+    bill.paymentStatus =
+      "PARTIAL";
+  }
+
+  else {
+    bill.paymentStatus =
+      "CREDIT";
+  }
+}
         row.totalCreditSales =
           Number(
             row.totalCreditSales
@@ -11542,42 +16160,55 @@ app.get(
               .toFixed(2)
           );
 
-
-        row.outstanding =
-          Number(
-            Math.max(
-              0,
-              row.totalCreditSales -
-              row.totalCollected
-            ).toFixed(2)
-          );
-
+row.outstanding =
+  Number(
+    row.bills
+      .reduce(
+        (
+          total,
+          bill
+        ) =>
+          total +
+          Math.max(
+            0,
+            Number(
+              bill.outstandingAmount
+            ) || 0
+          ),
+        0
+      )
+      .toFixed(2)
+  );
 
         // ================================================
         // PAYMENT STATUS
         // ================================================
 
-        if (
-          row.outstanding <= 0
-        ) {
+      if (
+  row.outstanding <=
+  0.001
+) {
+  row.status =
+    "PAID";
+}
 
-          row.status =
-            "PAID";
-        }
+else {
+  const hasPartPayment =
+    row.bills.some(
+      (bill) =>
+        (
+          Number(
+            bill.paidAmount
+          ) || 0
+        ) > 0
+    );
 
-        else if (
-          row.totalCollected > 0
-        ) {
 
-          row.status =
-            "PARTIAL";
-        }
-
-        else {
-
-          row.status =
-            "DUE";
-        }
+  row.status =
+    hasPartPayment
+      ? "PARTIAL"
+      : "DUE";
+}
 
 
         data.push(
@@ -11653,20 +16284,21 @@ app.get(
 // ======================================================
 // ADD COLLECTION
 // ======================================================
+// ======================================================
+// ADD COLLECTION
+// CUSTOMER OUTSTANDING + FIFO BILL SETTLEMENT
+// ======================================================
 
 app.post(
   "/api/collections",
   authenticateToken,
   async (req, res) => {
-
     try {
-
       const farmId =
         req.user.farmId;
 
       const role =
         req.user.role;
-
 
       const {
         customerId,
@@ -11688,19 +16320,14 @@ app.post(
 
 
       const collectionAmount =
-        Number(
-          amount
-        ) || 0;
+        Number(amount) || 0;
 
 
       // ==================================================
-      // VALIDATION
+      // BASIC VALIDATION
       // ==================================================
 
-      if (
-        !normalizedCustomerId
-      ) {
-
+      if (!normalizedCustomerId) {
         return res.status(400).json({
           success: false,
           message:
@@ -11709,10 +16336,7 @@ app.post(
       }
 
 
-      if (
-        collectionAmount <= 0
-      ) {
-
+      if (collectionAmount <= 0) {
         return res.status(400).json({
           success: false,
           message:
@@ -11736,7 +16360,6 @@ app.post(
           paymentMode
         )
       ) {
-
         return res.status(400).json({
           success: false,
           message:
@@ -11751,20 +16374,15 @@ app.post(
 
       const customer =
         await Customer.findOne({
-
-          farmId:
-            farmId,
-
+          farmId,
           customerId:
             normalizedCustomerId,
-
           isActive:
             true,
         });
 
 
       if (!customer) {
-
         return res.status(404).json({
           success: false,
           message:
@@ -11774,17 +16392,14 @@ app.post(
 
 
       // ==================================================
-      // SALESMAN DETAILS
+      // SALESMAN
       // ==================================================
 
       let salesmanId = "";
       let salesmanName = "";
 
 
-      if (
-        role === "salesman"
-      ) {
-
+      if (role === "salesman") {
         const salesman =
           await getCurrentSalesmanForCollection(
             req
@@ -11792,7 +16407,6 @@ app.post(
 
 
         if (!salesman) {
-
           return res.status(404).json({
             success: false,
             message:
@@ -11808,11 +16422,7 @@ app.post(
           salesman.name;
       }
 
-
-      else if (
-        role !== "admin"
-      ) {
-
+      else if (role !== "admin") {
         return res.status(403).json({
           success: false,
           message:
@@ -11822,29 +16432,22 @@ app.post(
 
 
       // ==================================================
-      // CALCULATE CUSTOMER CREDIT SALES
+      // LOAD POSTED SALES
+      //
+      // DO NOT FILTER paymentMode = Credit.
+      // Split/PARTIAL sales must also be included.
       // ==================================================
 
       const saleFilter = {
-
-        farmId:
-          farmId,
-
+        farmId,
         customerId:
           normalizedCustomerId,
-
         status:
           "POSTED",
-
-        paymentMode:
-          "Credit",
       };
 
 
-      if (
-        role === "salesman"
-      ) {
-
+      if (role === "salesman") {
         saleFilter.salesmanId =
           salesmanId;
 
@@ -11858,50 +16461,110 @@ app.post(
           saleFilter
         )
           .select(
-            "grandTotal"
+            [
+              "saleId",
+              "saleNo",
+              "saleDate",
+              "grandTotal",
+              "paymentMode",
+              "paidAmount",
+              "outstandingAmount",
+              "paymentStatus",
+            ].join(" ")
           )
+          .sort({
+            saleDate: 1,
+            createdAt: 1,
+          })
           .lean();
 
 
-      let totalCreditSales =
-        0;
+      // ==================================================
+      // CREATE BILL OUTSTANDING MAP
+      // ==================================================
 
+      const pendingBills = [];
 
-      for (
-        const sale of sales
-      ) {
-
-        totalCreditSales +=
+      for (const sale of sales) {
+        const billAmount =
           Number(
             sale.grandTotal
           ) || 0;
+
+
+        let initialOutstanding =
+          Number(
+            sale.outstandingAmount
+          );
+
+
+        // ================================================
+        // OLD RECORD COMPATIBILITY
+        // ================================================
+
+        if (
+          !Number.isFinite(
+            initialOutstanding
+          )
+        ) {
+          const oldMode =
+            (
+              sale.paymentMode ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toLowerCase();
+
+
+          initialOutstanding =
+            oldMode === "credit"
+              ? billAmount
+              : 0;
+        }
+
+
+        initialOutstanding =
+          Math.max(
+            0,
+            initialOutstanding
+          );
+
+
+        pendingBills.push({
+          saleId:
+            sale.saleId || "",
+
+          saleNo:
+            sale.saleNo || "",
+
+          saleDate:
+            sale.saleDate,
+
+          billAmount,
+
+          initialOutstanding,
+
+          collectionApplied:
+            0,
+
+          remainingOutstanding:
+            initialOutstanding,
+        });
       }
 
 
       // ==================================================
-      // PREVIOUS POSTED COLLECTIONS
+      // LOAD ALL PREVIOUS POSTED COLLECTIONS
       // ==================================================
 
       const previousCollectionFilter = {
-
-        farmId:
-          farmId,
-
+        farmId,
         customerId:
           normalizedCustomerId,
-
         status:
           "POSTED",
       };
-
-
-      if (
-        role === "salesman"
-      ) {
-
-        previousCollectionFilter.salesmanId =
-          salesmanId;
-      }
 
 
       const previousCollections =
@@ -11909,48 +16572,197 @@ app.post(
           previousCollectionFilter
         )
           .select(
-            "amount"
+            [
+              "collectionId",
+              "collectionDate",
+              "amount",
+              "allocations",
+            ].join(" ")
           )
+          .sort({
+            collectionDate: 1,
+            createdAt: 1,
+          })
           .lean();
 
 
-      let alreadyCollected =
-        0;
+      // ==================================================
+      // MAP SALES
+      // ==================================================
 
+      const billMap =
+        new Map();
 
       for (
-        const item of
-        previousCollections
+        const bill of pendingBills
       ) {
-
-        alreadyCollected +=
-          Number(
-            item.amount
-          ) || 0;
+        billMap.set(
+          bill.saleId,
+          bill
+        );
       }
 
 
       // ==================================================
-      // OUTSTANDING
+      // APPLY PREVIOUS COLLECTIONS
+      //
+      // New receipts:
+      //   use saved allocations.
+      //
+      // Old receipts:
+      //   FIFO for compatibility.
       // ==================================================
 
-      const outstanding =
-        Math.max(
-          0,
-          totalCreditSales -
-          alreadyCollected
+      for (
+        const previousCollection of
+        previousCollections
+      ) {
+        const allocations =
+          Array.isArray(
+            previousCollection.allocations
+          )
+            ? previousCollection.allocations
+            : [];
+
+
+        // ================================================
+        // NEW RECEIPT WITH STORED ALLOCATIONS
+        // ================================================
+
+        if (allocations.length > 0) {
+          for (
+            const allocation of
+            allocations
+          ) {
+            const saleId =
+              (
+                allocation.saleId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            if (
+              !billMap.has(
+                saleId
+              )
+            ) {
+              continue;
+            }
+
+
+            const bill =
+              billMap.get(
+                saleId
+              );
+
+
+            const applied =
+              Math.max(
+                0,
+                Number(
+                  allocation.amountApplied
+                ) || 0
+              );
+
+
+            const actualApplied =
+              Math.min(
+                bill.remainingOutstanding,
+                applied
+              );
+
+
+            bill.collectionApplied +=
+              actualApplied;
+
+            bill.remainingOutstanding -=
+              actualApplied;
+          }
+
+
+          continue;
+        }
+
+
+        // ================================================
+        // LEGACY RECEIPT
+        // FIFO
+        // ================================================
+
+        let remainingReceipt =
+          Math.max(
+            0,
+            Number(
+              previousCollection.amount
+            ) || 0
+          );
+
+
+        for (
+          const bill of pendingBills
+        ) {
+          if (
+            remainingReceipt <= 0
+          ) {
+            break;
+          }
+
+
+          if (
+            bill.remainingOutstanding <= 0
+          ) {
+            continue;
+          }
+
+
+          const applied =
+            Math.min(
+              remainingReceipt,
+              bill.remainingOutstanding
+            );
+
+
+          bill.collectionApplied +=
+            applied;
+
+          bill.remainingOutstanding -=
+            applied;
+
+          remainingReceipt -=
+            applied;
+        }
+      }
+
+
+      // ==================================================
+      // CALCULATE CURRENT OUTSTANDING
+      // ==================================================
+
+      let outstanding = 0;
+
+      for (
+        const bill of pendingBills
+      ) {
+        outstanding +=
+          Math.max(
+            0,
+            bill.remainingOutstanding
+          );
+      }
+
+
+      outstanding =
+        Number(
+          outstanding.toFixed(2)
         );
 
 
-      if (
-        outstanding <= 0
-      ) {
-
+      if (outstanding <= 0) {
         return res.status(409).json({
-
-          success:
-            false,
-
+          success: false,
           message:
             "This customer has no pending outstanding.",
         });
@@ -11961,14 +16773,91 @@ app.post(
         collectionAmount >
         outstanding + 0.001
       ) {
-
         return res.status(400).json({
-
-          success:
-            false,
-
+          success: false,
           message:
             `Collection amount cannot exceed outstanding ₹${outstanding.toFixed(2)}.`,
+        });
+      }
+
+
+      // ==================================================
+      // APPLY NEW COLLECTION FIFO
+      // ==================================================
+
+      let remainingCollection =
+        collectionAmount;
+
+      const allocations = [];
+
+
+      for (
+        const bill of pendingBills
+      ) {
+        if (
+          remainingCollection <=
+          0.001
+        ) {
+          break;
+        }
+
+
+        if (
+          bill.remainingOutstanding <=
+          0.001
+        ) {
+          continue;
+        }
+
+
+        const amountApplied =
+          Math.min(
+            remainingCollection,
+            bill.remainingOutstanding
+          );
+
+
+        allocations.push({
+          saleId:
+            bill.saleId,
+
+          saleNo:
+            bill.saleNo,
+
+          saleDate:
+            bill.saleDate,
+
+          billAmount:
+            Number(
+              bill.billAmount.toFixed(2)
+            ),
+
+          amountApplied:
+            Number(
+              amountApplied.toFixed(2)
+            ),
+        });
+
+
+        bill.collectionApplied +=
+          amountApplied;
+
+        bill.remainingOutstanding -=
+          amountApplied;
+
+        remainingCollection -=
+          amountApplied;
+      }
+
+
+      if (
+        remainingCollection >
+        0.001
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Unable to allocate full collection against outstanding bills.",
         });
       }
 
@@ -11988,27 +16877,45 @@ app.post(
 
 
       // ==================================================
-      // SAVE
+      // VALID COLLECTION DATE
+      // ==================================================
+
+      let finalCollectionDate =
+        new Date();
+
+
+      if (collectionDate) {
+        const parsedDate =
+          new Date(
+            collectionDate
+          );
+
+
+        if (
+          !Number.isNaN(
+            parsedDate.getTime()
+          )
+        ) {
+          finalCollectionDate =
+            parsedDate;
+        }
+      }
+
+
+      // ==================================================
+      // SAVE RECEIPT
       // ==================================================
 
       const savedCollection =
         await Collection.create({
+          farmId,
 
-          farmId:
-            farmId,
+          collectionId,
 
-          collectionId:
-            collectionId,
-
-          receiptNo:
-            receiptNo,
+          receiptNo,
 
           collectionDate:
-            collectionDate
-              ? new Date(
-                  collectionDate
-                )
-              : new Date(),
+            finalCollectionDate,
 
           customerId:
             customer.customerId,
@@ -12022,20 +16929,18 @@ app.post(
           route:
             customer.route || "",
 
-          salesmanId:
-            salesmanId,
+          salesmanId,
 
-          salesmanName:
-            salesmanName,
+          salesmanName,
 
           amount:
             Number(
-              collectionAmount
-                .toFixed(2)
+              collectionAmount.toFixed(2)
             ),
 
-          paymentMode:
-            paymentMode,
+          allocations,
+
+          paymentMode,
 
           referenceNo:
             referenceNo
@@ -12053,8 +16958,7 @@ app.post(
             "POSTED",
 
           createdBy:
-            req.user.userId ||
-            "",
+            req.user.userId || "",
 
           createdRole:
             role,
@@ -12067,6 +16971,10 @@ app.post(
         });
 
 
+      // ==================================================
+      // REMAINING OUTSTANDING
+      // ==================================================
+
       const newOutstanding =
         Math.max(
           0,
@@ -12076,9 +16984,7 @@ app.post(
 
 
       return res.status(201).json({
-
-        success:
-          true,
+        success: true,
 
         message:
           "Collection saved successfully.",
@@ -12098,9 +17004,7 @@ app.post(
         },
       });
 
-
     } catch (error) {
-
       console.error(
         "ADD COLLECTION ERROR:",
         error
@@ -12110,7 +17014,6 @@ app.post(
       if (
         error.code === 11000
       ) {
-
         return res.status(409).json({
           success: false,
           message:
@@ -12120,9 +17023,7 @@ app.post(
 
 
       return res.status(500).json({
-
-        success:
-          false,
+        success: false,
 
         message:
           "Unable to save collection.",
@@ -13502,8 +18403,8 @@ const sales =
       "POSTED",
   })
     .select(
-      "saleId saleNo saleDate grandTotal paymentMode"
-    )
+  "saleId saleNo saleDate grandTotal paymentMode payments paidAmount outstandingAmount paymentStatus"
+)
     .lean();
 
 
@@ -13547,14 +18448,67 @@ const sales =
 //   -> SHOW IN LEDGER
 //   -> DOES NOT AFFECT OUTSTANDING
 // ----------------------------------------------
-
 for (
   const sale of sales
 ) {
-  const amount =
+
+  const billAmount =
     Number(
       sale.grandTotal
     ) || 0;
+
+  const paidAmount =
+    Math.max(
+      0,
+      Number(
+        sale.paidAmount
+      ) || 0
+    );
+
+  let outstandingAmount =
+    Number(
+      sale.outstandingAmount
+    );
+
+  // ==================================================
+  // OLD RECORD COMPATIBILITY
+  // ==================================================
+
+  if (
+    !Number.isFinite(
+      outstandingAmount
+    )
+  ) {
+
+    const oldMode =
+      (
+        sale.paymentMode ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    outstandingAmount =
+      oldMode === "credit"
+        ? billAmount
+        : 0;
+  }
+
+  outstandingAmount =
+    Math.max(
+      0,
+      outstandingAmount
+    );
+
+
+  // ==================================================
+  // ONLY OUTSTANDING INCREASES CUSTOMER BALANCE
+  // ==================================================
+
+  totalDebit +=
+    outstandingAmount;
+
 
   const paymentMode =
     (
@@ -13564,17 +18518,38 @@ for (
       .toString()
       .trim();
 
-  const isCredit =
-    paymentMode
-      .toLowerCase() ===
-    "credit";
+
+  const paymentStatus =
+    (
+      sale.paymentStatus ||
+      (
+        outstandingAmount > 0
+          ? "CREDIT"
+          : "PAID"
+      )
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
 
 
-  // Only credit sale increases
-  // customer outstanding
-  if (isCredit) {
-    totalDebit +=
-      amount;
+  let title =
+    `${paymentMode} Sale`;
+
+  if (
+    paymentStatus ===
+    "PARTIAL"
+  ) {
+    title =
+      "Partial Sale";
+  }
+
+  else if (
+    paymentStatus ===
+    "CREDIT"
+  ) {
+    title =
+      "Credit Sale";
   }
 
 
@@ -13592,31 +18567,44 @@ for (
       "SALE",
 
     title:
-      isCredit
-        ? "Credit Sale"
-        : `${paymentMode} Sale`,
+      title,
 
-    // Actual transaction amount
     amount:
-      amount,
+      billAmount,
 
-    // Only credit affects balance
     debit:
-      isCredit
-        ? amount
-        : 0,
+      outstandingAmount,
 
     credit:
       0,
 
+    billAmount:
+      billAmount,
+
+    paidAmount:
+      paidAmount,
+
+    outstandingAmount:
+      outstandingAmount,
+
+    paymentStatus:
+      paymentStatus,
+
     paymentMode:
       paymentMode,
+
+    payments:
+      Array.isArray(
+        sale.payments
+      )
+        ? sale.payments
+        : [],
 
     reference:
       "",
 
     affectsBalance:
-      isCredit,
+      outstandingAmount > 0,
   });
 }
 
@@ -23366,6 +28354,683 @@ app.put(
         success: false,
         message:
           "Unable to update salesman.",
+        error:
+          error.message,
+      });
+    }
+  }
+);
+// ======================================================
+// GET SINGLE PURCHASE
+// GET /api/purchases/:id
+// ======================================================
+
+app.get(
+  "/api/purchases/:id",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const farmId = req.user.farmId;
+
+      const purchase =
+        await Purchase.findOne({
+          _id: req.params.id,
+          farmId: farmId,
+        });
+
+      if (!purchase) {
+        return res.status(404).json({
+          success: false,
+          message: "Purchase not found.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: purchase,
+      });
+
+    } catch (error) {
+      console.error(
+        "GET SINGLE PURCHASE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to load purchase details.",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// ======================================================
+// GET SINGLE ALLOCATION
+// ADMIN -> ANY FARM ALLOCATION
+// SALESMAN -> ONLY OWN ALLOCATION
+// ======================================================
+
+app.get(
+  "/api/allocations/:allocationId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const farmId = req.user.farmId;
+      const role = req.user.role;
+
+      const allocationId = (
+        req.params.allocationId || ""
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+
+      if (!allocationId) {
+        return res.status(400).json({
+          success: false,
+          message: "Allocation ID is required.",
+        });
+      }
+
+      const filter = {
+        farmId,
+        allocationId,
+      };
+
+      if (role === "salesman") {
+        const salesman = await Salesman.findOne({
+          _id: req.user.userId,
+          farmId,
+          isActive: true,
+        }).lean();
+
+        if (!salesman) {
+          return res.status(404).json({
+            success: false,
+            message: "Salesman account not found.",
+          });
+        }
+
+        filter.salesmanId = salesman.salesmanId;
+      } else if (role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to view this allocation.",
+        });
+      }
+
+      const allocation =
+        await Allocation.findOne(filter).lean();
+
+      if (!allocation) {
+        return res.status(404).json({
+          success: false,
+          message: "Allocation not found.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: allocation,
+      });
+    } catch (error) {
+      console.error(
+        "GET SINGLE ALLOCATION ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to load allocation.",
+      });
+    }
+  }
+);
+// ======================================================
+// SALESMAN SALES PERFORMANCE
+// DAY / WEEK / MONTH / YEAR
+// ======================================================
+
+app.get(
+  "/api/dashboard/salesman-performance",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const farmId = req.user.farmId;
+      const role = req.user.role;
+      const userId = req.user.userId;
+
+      // ==================================================
+      // SALESMAN ONLY
+      // ==================================================
+
+      if (role !== "salesman") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Sales performance is available only for salesman login.",
+        });
+      }
+
+      // ==================================================
+      // FIND LOGGED-IN SALESMAN
+      // Never trust salesmanId from frontend
+      // ==================================================
+
+      const salesman =
+        await Salesman.findOne({
+          _id: userId,
+          farmId,
+          isActive: true,
+        })
+          .select(
+            "salesmanId name"
+          )
+          .lean();
+
+      if (!salesman) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Salesman account not found.",
+        });
+      }
+
+      // ==================================================
+      // PERIOD
+      // day | week | month | year
+      // ==================================================
+
+      const allowedPeriods = [
+        "day",
+        "week",
+        "month",
+        "year",
+      ];
+
+      const period = String(
+        req.query.period || "day"
+      )
+        .trim()
+        .toLowerCase();
+
+      if (
+        !allowedPeriods.includes(period)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid period. Use day, week, month or year.",
+        });
+      }
+
+      // ==================================================
+      // DATE RANGE
+      // ==================================================
+
+      const now = new Date();
+
+      let fromDate;
+      let toDate;
+
+      // --------------------------------------------------
+      // DAY
+      // --------------------------------------------------
+
+      if (period === "day") {
+        fromDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          0,
+          0,
+          0
+        );
+
+        toDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          23,
+          59,
+          59,
+          999
+        );
+      }
+
+      // --------------------------------------------------
+      // WEEK
+      // Monday -> Today
+      // --------------------------------------------------
+
+      else if (period === "week") {
+        const dayOfWeek =
+          now.getDay();
+
+        const daysFromMonday =
+          dayOfWeek === 0
+            ? 6
+            : dayOfWeek - 1;
+
+        fromDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() -
+            daysFromMonday,
+          0,
+          0,
+          0,
+          0
+        );
+
+        toDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          23,
+          59,
+          59,
+          999
+        );
+      }
+
+      // --------------------------------------------------
+      // MONTH
+      // First day of month -> Today
+      // --------------------------------------------------
+
+      else if (period === "month") {
+        fromDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          1,
+          0,
+          0,
+          0,
+          0
+        );
+
+        toDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          23,
+          59,
+          59,
+          999
+        );
+      }
+
+      // --------------------------------------------------
+      // YEAR
+      // 1 January -> Today
+      // --------------------------------------------------
+
+      else {
+        fromDate = new Date(
+          now.getFullYear(),
+          0,
+          1,
+          0,
+          0,
+          0,
+          0
+        );
+
+        toDate = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          23,
+          59,
+          59,
+          999
+        );
+      }
+
+      // ==================================================
+      // LOAD POSTED SALES OF LOGGED-IN SALESMAN
+      // ==================================================
+
+      const sales =
+        await Sale.find({
+          farmId,
+
+          salesmanId:
+            salesman.salesmanId,
+
+          createdRole:
+            "salesman",
+
+          status:
+            "POSTED",
+
+          saleDate: {
+            $gte: fromDate,
+            $lte: toDate,
+          },
+        })
+          .select(
+            [
+              "saleId",
+              "saleNo",
+              "saleDate",
+              "customerId",
+              "customerName",
+              "route",
+              "products",
+              "totalQuantity",
+              "grandTotal",
+            ].join(" ")
+          )
+          .sort({
+            saleDate: -1,
+            createdAt: -1,
+          })
+          .lean();
+
+      // ==================================================
+      // OVERALL SUMMARY
+      // ==================================================
+
+      let salesAmount = 0;
+      let totalQuantity = 0;
+
+      const uniqueCustomers =
+        new Set();
+
+      for (const sale of sales) {
+        salesAmount +=
+          Number(
+            sale.grandTotal
+          ) || 0;
+
+        totalQuantity +=
+          Number(
+            sale.totalQuantity
+          ) || 0;
+
+        const customerId =
+          String(
+            sale.customerId || ""
+          )
+            .trim()
+            .toUpperCase();
+
+        if (customerId) {
+          uniqueCustomers.add(
+            customerId
+          );
+        }
+      }
+
+      // ==================================================
+      // CUSTOMER-WISE PERFORMANCE
+      // ==================================================
+
+      const customerMap =
+        new Map();
+
+      for (const sale of sales) {
+        const customerId =
+          String(
+            sale.customerId || ""
+          )
+            .trim()
+            .toUpperCase();
+
+        if (!customerId) {
+          continue;
+        }
+
+        if (
+          !customerMap.has(
+            customerId
+          )
+        ) {
+          customerMap.set(
+            customerId,
+            {
+              customerId:
+                sale.customerId || "",
+
+              customerName:
+                sale.customerName || "",
+
+              route:
+                sale.route || "",
+
+              billCount:
+                0,
+
+              totalQuantity:
+                0,
+
+              salesAmount:
+                0,
+
+              productsMap:
+                new Map(),
+            }
+          );
+        }
+
+        const customer =
+          customerMap.get(
+            customerId
+          );
+
+        customer.billCount += 1;
+
+        customer.totalQuantity +=
+          Number(
+            sale.totalQuantity
+          ) || 0;
+
+        customer.salesAmount +=
+          Number(
+            sale.grandTotal
+          ) || 0;
+
+        // ================================================
+        // PRODUCT-WISE SALES FOR CUSTOMER
+        // ================================================
+
+        for (
+          const product of
+          sale.products || []
+        ) {
+          const productId =
+            String(
+              product.productId || ""
+            )
+              .trim()
+              .toUpperCase();
+
+          if (!productId) {
+            continue;
+          }
+
+          if (
+            !customer.productsMap.has(
+              productId
+            )
+          ) {
+            customer.productsMap.set(
+              productId,
+              {
+                productId:
+                  product.productId || "",
+
+                productName:
+                  product.productName || "",
+
+                variant:
+                  product.variant || "",
+
+                unit:
+                  product.unit || "",
+
+                quantity:
+                  0,
+
+                salesAmount:
+                  0,
+              }
+            );
+          }
+
+          const productSummary =
+            customer.productsMap.get(
+              productId
+            );
+
+          productSummary.quantity +=
+            Number(
+              product.quantity
+            ) || 0;
+
+          productSummary.salesAmount +=
+            Number(
+              product.amount
+            ) || 0;
+        }
+      }
+
+      // ==================================================
+      // CONVERT MAP TO API RESPONSE
+      // ==================================================
+
+      const customers =
+        Array.from(
+          customerMap.values()
+        )
+          .map(
+            (customer) => ({
+              customerId:
+                customer.customerId,
+
+              customerName:
+                customer.customerName,
+
+              route:
+                customer.route,
+
+              billCount:
+                customer.billCount,
+
+              totalQuantity:
+                Number(
+                  customer.totalQuantity
+                    .toFixed(2)
+                ),
+
+              salesAmount:
+                Number(
+                  customer.salesAmount
+                    .toFixed(2)
+                ),
+
+              products:
+                Array.from(
+                  customer.productsMap
+                    .values()
+                )
+                  .map(
+                    (product) => ({
+                      ...product,
+
+                      quantity:
+                        Number(
+                          product.quantity
+                            .toFixed(2)
+                        ),
+
+                      salesAmount:
+                        Number(
+                          product.salesAmount
+                            .toFixed(2)
+                        ),
+                    })
+                  )
+                  .sort(
+                    (a, b) =>
+                      b.quantity -
+                      a.quantity
+                  ),
+            })
+          )
+          .sort(
+            (a, b) =>
+              b.salesAmount -
+              a.salesAmount
+          );
+
+      // ==================================================
+      // RESPONSE
+      // ==================================================
+
+      return res.status(200).json({
+        success: true,
+
+        data: {
+          period,
+
+          from:
+            fromDate
+              .toISOString(),
+
+          to:
+            toDate
+              .toISOString(),
+
+          salesman: {
+            salesmanId:
+              salesman.salesmanId,
+
+            salesmanName:
+              salesman.name,
+          },
+
+          summary: {
+            salesAmount:
+              Number(
+                salesAmount
+                  .toFixed(2)
+              ),
+
+            quantity:
+              Number(
+                totalQuantity
+                  .toFixed(2)
+              ),
+
+            bills:
+              sales.length,
+
+            customers:
+              uniqueCustomers.size,
+          },
+
+          customers,
+        },
+      });
+
+    } catch (error) {
+      console.error(
+        "GET SALESMAN PERFORMANCE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+
+        message:
+          "Unable to load salesman sales performance.",
+
         error:
           error.message,
       });
