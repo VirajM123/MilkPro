@@ -690,29 +690,70 @@ else
                                         color: Color(0xFF64748B),
                                       ),
 
-                                      onSelected: (value) {
-                                        if (value == 'edit') {
-                                          _showEditRouteDialog(route);
-                                        }
-                                      },
+                                    onSelected: (value) {
+  if (value == 'edit') {
+    _showEditRouteDialog(
+      route,
+    );
+  }
 
-                                      itemBuilder: (context) {
-                                        return const [
-                                          PopupMenuItem<String>(
-                                            value: 'edit',
-                                            child: Row(
-                                              children: [
-                                                Icon(
-                                                  Icons.edit_outlined,
-                                                  size: 17,
-                                                ),
-                                                SizedBox(width: 8),
-                                                Text('Edit Route'),
-                                              ],
-                                            ),
-                                          ),
-                                        ];
-                                      },
+  if (value == 'delete') {
+    _deleteRoute(
+      route,
+    );
+  }
+},
+
+                                    itemBuilder: (context) {
+  return const [
+    PopupMenuItem<String>(
+      value: 'edit',
+      child: Row(
+        children: [
+          Icon(
+            Icons.edit_outlined,
+            size: 17,
+            color:
+                AppColors.primary,
+          ),
+          SizedBox(
+            width: 8,
+          ),
+          Text(
+            'Edit Route',
+          ),
+        ],
+      ),
+    ),
+
+    PopupMenuDivider(),
+
+    PopupMenuItem<String>(
+      value: 'delete',
+      child: Row(
+        children: [
+          Icon(
+            Icons
+                .delete_outline_rounded,
+            size: 17,
+            color:
+                AppColors.error,
+          ),
+          SizedBox(
+            width: 8,
+          ),
+          Text(
+            'Delete Route',
+            style: TextStyle(
+              color:
+                  AppColors.error,
+            ),
+          ),
+        ],
+      ),
+    ),
+  ];
+},
                                     ),
                                   ),
                                 ],
@@ -799,6 +840,126 @@ else
       ),
     );
   }
+  Future<void> _deleteRoute(
+  RouteItem route,
+) async {
+  if (route.id.trim().isEmpty) {
+    _showMessage(
+      'Route database ID is missing.',
+    );
+    return;
+  }
+
+  final confirmed =
+      await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text(
+          'Delete Route?',
+        ),
+
+        content: Text(
+          'Are you sure you want to delete "${route.name}"?\n\n'
+          'A route assigned to customers or used in transactions cannot be deleted.',
+        ),
+
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(
+                dialogContext,
+                false,
+              );
+            },
+            child:
+                const Text(
+              'Cancel',
+            ),
+          ),
+
+          ElevatedButton.icon(
+            style:
+                ElevatedButton.styleFrom(
+              backgroundColor:
+                  AppColors.error,
+              foregroundColor:
+                  Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(
+                dialogContext,
+                true,
+              );
+            },
+            icon: const Icon(
+              Icons
+                  .delete_outline_rounded,
+            ),
+            label:
+                const Text(
+              'Delete',
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true ||
+      !mounted) {
+    return;
+  }
+
+  try {
+    final response =
+        await http.delete(
+      Uri.parse(
+        ApiConfig.routeById(
+          route.id,
+        ),
+      ),
+
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(
+          response.body,
+        ) as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode ==
+            200 &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Route deleted successfully.',
+      );
+
+      await _loadRoutes();
+    } else {
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Unable to delete route.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to connect to backend.',
+    );
+  }
+}
 
 void _showMessage(String message) {
   ScaffoldMessenger.of(context)

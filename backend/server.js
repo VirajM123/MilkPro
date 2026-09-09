@@ -4455,6 +4455,8 @@ app.put(
           farmId: req.user.farmId,
         });
 
+        const oldRouteName =
+  route ? route.routeName : "";
 
       if (!route) {
         return res.status(404).json({
@@ -4532,7 +4534,30 @@ app.put(
 
       await route.save();
 
+if (
+  oldRouteName &&
+  oldRouteName !==
+    route.routeName
+) {
+  await Customer.updateMany(
+    {
+      farmId:
+        req.user.farmId,
 
+      route:
+        oldRouteName,
+    },
+    {
+      $set: {
+        route:
+          route.routeName,
+
+        updatedAt:
+          new Date(),
+      },
+    }
+  );
+}
       return res.status(200).json({
         success: true,
 
@@ -4557,6 +4582,128 @@ app.put(
   }
 );
 
+// ======================================================
+// DELETE ROUTE
+// ADMIN ONLY
+// SAFE DELETE
+// ======================================================
+
+app.delete(
+  "/api/routes/:id",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      // ==================================================
+      // ADMIN ONLY
+      // ==================================================
+
+      if (req.user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only administrator can delete routes.",
+        });
+      }
+
+      const farmId =
+        req.user.farmId;
+
+      // ==================================================
+      // FIND ROUTE
+      // ==================================================
+
+      const route =
+        await RouteMaster.findOne({
+          _id: req.params.id,
+          farmId: farmId,
+        });
+
+      if (!route) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Route not found.",
+        });
+      }
+
+      // ==================================================
+      // CHECK CUSTOMERS
+      //
+      // Customers currently store route NAME.
+      // ==================================================
+
+      const customerUsingRoute =
+        await Customer.exists({
+          farmId: farmId,
+          route: route.routeName,
+        });
+
+      if (customerUsingRoute) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This route is assigned to customers. Reassign those customers before deleting the route.",
+        });
+      }
+
+      // ==================================================
+      // CHECK ALLOCATION HISTORY
+      // ==================================================
+
+      const allocationUsingRoute =
+        await Allocation.exists({
+          farmId: farmId,
+          $or: [
+            {
+              routeId:
+                route.routeId,
+            },
+            {
+              routeName:
+                route.routeName,
+            },
+          ],
+        });
+
+      if (allocationUsingRoute) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This route has allocation history and cannot be deleted. Please make the route inactive instead.",
+        });
+      }
+
+      // ==================================================
+      // DELETE
+      // ==================================================
+
+      await RouteMaster.deleteOne({
+        _id: route._id,
+        farmId: farmId,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Route deleted successfully.",
+      });
+
+    } catch (error) {
+      console.error(
+        "DELETE ROUTE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to delete route.",
+        error:
+          error.message,
+      });
+    }
+  }
+);
 // ======================================================
 // GET PRODUCTS
 // ======================================================
@@ -4823,6 +4970,169 @@ app.put(
 );
 
 // ======================================================
+// DELETE PRODUCT
+// ADMIN ONLY
+// SAFE DELETE - BLOCK IF PRODUCT HAS HISTORY
+// ======================================================
+
+app.delete(
+  "/api/products/:id",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      // ----------------------------------------------
+      // ADMIN ONLY
+      // ----------------------------------------------
+
+      if (req.user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only administrator can delete products.",
+        });
+      }
+
+      const farmId =
+        req.user.farmId;
+
+      // ----------------------------------------------
+      // FIND PRODUCT IN CURRENT FARM
+      // ----------------------------------------------
+
+      const product =
+        await Product.findOne({
+          _id: req.params.id,
+          farmId: farmId,
+        });
+
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Product not found.",
+        });
+      }
+
+      // ----------------------------------------------
+      // STOCK MUST BE ZERO
+      // ----------------------------------------------
+
+      if (
+        Number(product.stock || 0) !== 0
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Product has stock available. Make stock zero before deleting it.",
+        });
+      }
+
+      const productId =
+        product.productId;
+
+      // ----------------------------------------------
+      // CHECK SALES
+      // ----------------------------------------------
+
+      const usedInSale =
+        await Sale.exists({
+          farmId: farmId,
+          "products.productId":
+            productId,
+        });
+
+      // ----------------------------------------------
+      // CHECK PURCHASES
+      // ----------------------------------------------
+
+      const usedInPurchase =
+        await Purchase.exists({
+          farmId: farmId,
+          "products.productId":
+            productId,
+        });
+
+      // ----------------------------------------------
+      // CHECK STOCK LEDGER
+      // ----------------------------------------------
+
+      const usedInStock =
+        await StockTransaction.exists({
+          farmId: farmId,
+          productId: productId,
+        });
+
+      // ----------------------------------------------
+      // CHECK ALLOCATION
+      // ----------------------------------------------
+
+      const usedInAllocation =
+        await Allocation.exists({
+          farmId: farmId,
+          "products.productId":
+            productId,
+        });
+
+      // ----------------------------------------------
+      // CHECK CUSTOMER SPECIAL RATE
+      // ----------------------------------------------
+
+      const usedInCustomerRate =
+        await CustomerRate.exists({
+          farmId: farmId,
+          productId: productId,
+        });
+
+      // ----------------------------------------------
+      // BLOCK USED PRODUCT
+      // ----------------------------------------------
+
+      if (
+        usedInSale ||
+        usedInPurchase ||
+        usedInStock ||
+        usedInAllocation ||
+        usedInCustomerRate
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This product has transaction/history records and cannot be deleted. Please make the product inactive instead.",
+        });
+      }
+
+      // ----------------------------------------------
+      // DELETE UNUSED PRODUCT
+      // ----------------------------------------------
+
+      await Product.deleteOne({
+        _id: product._id,
+        farmId: farmId,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Product deleted successfully.",
+      });
+
+    } catch (error) {
+      console.error(
+        "DELETE PRODUCT ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to delete product.",
+        error:
+          error.message,
+      });
+    }
+  }
+);
+// ======================================================
 // GET SUPPLIERS
 // ======================================================
 
@@ -5065,6 +5375,122 @@ app.put(
         success: false,
         message:
           "Unable to update supplier.",
+      });
+    }
+  }
+);
+
+// ======================================================
+// DELETE SUPPLIER
+// ADMIN ONLY
+// SAFE DELETE
+// ======================================================
+
+app.delete(
+  "/api/suppliers/:id",
+  authenticateToken,
+  async (req, res) => {
+    try {
+
+      // ==================================================
+      // ADMIN ONLY
+      // ==================================================
+
+      if (req.user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only administrator can delete suppliers.",
+        });
+      }
+
+      const farmId =
+        req.user.farmId;
+
+      // ==================================================
+      // FIND SUPPLIER IN CURRENT FARM
+      // ==================================================
+
+      const supplier =
+        await Supplier.findOne({
+          _id: req.params.id,
+          farmId: farmId,
+        });
+
+      if (!supplier) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Supplier not found.",
+        });
+      }
+
+      const supplierId =
+        supplier.supplierId;
+
+      // ==================================================
+      // CHECK PURCHASE HISTORY
+      // ==================================================
+
+      const usedInPurchase =
+        await Purchase.exists({
+          farmId: farmId,
+          supplierId: supplierId,
+        });
+
+      // ==================================================
+      // CHECK PAYMENT HISTORY
+      // ==================================================
+
+      const usedInPayment =
+        await Payment.exists({
+          farmId: farmId,
+          supplierId: supplierId,
+        });
+
+      // ==================================================
+      // BLOCK DELETE IF TRANSACTION HISTORY EXISTS
+      // ==================================================
+
+      if (
+        usedInPurchase ||
+        usedInPayment
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This supplier has purchase/payment history and cannot be deleted. Please make the supplier inactive instead.",
+        });
+      }
+
+      // ==================================================
+      // DELETE UNUSED SUPPLIER
+      // ==================================================
+
+      await Supplier.deleteOne({
+        _id: supplier._id,
+        farmId: farmId,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Supplier deleted successfully.",
+      });
+
+    } catch (error) {
+
+      console.error(
+        "DELETE SUPPLIER ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to delete supplier.",
+        error:
+          error.message,
       });
     }
   }
@@ -6318,6 +6744,19 @@ app.get(
         farmId:
           farmId,
       };
+      const customerId =
+  (
+    req.query.customerId ||
+    ""
+  )
+    .toString()
+    .trim()
+    .toUpperCase();
+
+if (customerId) {
+  filter.customerId =
+    customerId;
+}
 
 
       // ==================================================
@@ -22056,6 +22495,674 @@ if (salesman) {
         message:
           "Unable to load dashboard summary.",
 
+        error:
+          error.message,
+      });
+    }
+  }
+);
+// ======================================================
+// CURRENT USER PROFILE
+// ADMIN + SALESMAN
+// ======================================================
+
+app.get(
+  "/api/profile",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        farmId,
+        role,
+      } = req.user;
+
+      let user = null;
+
+      if (role === "admin") {
+        user = await Register.findOne({
+          _id: userId,
+          farmId,
+        })
+          .select(
+            "_id role farmId adminId name mobile email username businessName address city state pin isActive"
+          )
+          .lean();
+      } else if (role === "salesman") {
+
+  user = await Salesman.findOne({
+    _id: userId,
+    farmId,
+  })
+    .select(
+      "_id role farmId salesmanId name mobile email username businessName permissions isActive"
+    )
+    .lean();
+
+  if (user) {
+
+    const route =
+      await RouteMaster.findOne({
+        farmId,
+        salesmanId:
+          user.salesmanId,
+      })
+        .select(
+          "routeId routeName"
+        )
+        .lean();
+
+    user.routeId =
+      route?.routeId || "";
+
+    user.routeName =
+      route?.routeName || "";
+  }
+} else {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Invalid user role.",
+        });
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Profile not found.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: user,
+      });
+
+    } catch (error) {
+      console.error(
+        "GET PROFILE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to load profile.",
+        error:
+          error.message,
+      });
+    }
+  }
+);
+
+// ======================================================
+// UPDATE CURRENT USER PROFILE
+// ======================================================
+
+app.put(
+  "/api/profile",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        farmId,
+        role,
+      } = req.user;
+
+      const {
+        name,
+        mobile,
+        email,
+        username,
+        businessName,
+        address,
+        city,
+        state,
+        pin,
+      } = req.body;
+
+      if (
+        !name ||
+        !name.toString().trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Name is required.",
+        });
+      }
+
+      if (
+        !mobile ||
+        mobile.toString().trim().length !== 10
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Enter a valid 10-digit mobile number.",
+        });
+      }
+
+      if (
+        !username ||
+        !username.toString().trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Username is required.",
+        });
+      }
+
+      const normalizedUsername =
+        username.toString().trim();
+
+      // ==================================================
+      // CHECK USERNAME IN ADMIN MASTER
+      // ==================================================
+
+      const existingAdmin =
+        await Register.findOne({
+          username: {
+            $regex: new RegExp(
+              `^${escapeRegex(normalizedUsername)}$`,
+              "i"
+            ),
+          },
+          _id: {
+            $ne: userId,
+          },
+        });
+
+      // ==================================================
+      // CHECK USERNAME IN SALESMAN MASTER
+      // ==================================================
+
+      const existingSalesman =
+        await Salesman.findOne({
+          username: {
+            $regex: new RegExp(
+              `^${escapeRegex(normalizedUsername)}$`,
+              "i"
+            ),
+          },
+          _id: {
+            $ne: userId,
+          },
+        });
+
+      if (
+        existingAdmin ||
+        existingSalesman
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Username is already in use.",
+        });
+      }
+
+      let user = null;
+
+      if (role === "admin") {
+        user = await Register.findOne({
+          _id: userId,
+          farmId,
+        });
+      } else if (role === "salesman") {
+        user = await Salesman.findOne({
+          _id: userId,
+          farmId,
+        });
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Profile not found.",
+        });
+      }
+
+      user.name =
+        name.toString().trim();
+
+      user.mobile =
+        mobile.toString().trim();
+
+      user.email =
+        (email || "")
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      user.username =
+        normalizedUsername;
+
+      user.businessName =
+        (businessName || "")
+          .toString()
+          .trim();
+
+      if (role === "admin") {
+        user.address =
+          (address || "")
+            .toString()
+            .trim();
+
+        user.city =
+          (city || "")
+            .toString()
+            .trim();
+
+        user.state =
+          (state || "")
+            .toString()
+            .trim();
+
+        user.pin =
+          (pin || "")
+            .toString()
+            .trim();
+      }
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Profile updated successfully.",
+        data: {
+          id: user._id,
+          role,
+          farmId: user.farmId,
+          adminId:
+            role === "admin"
+              ? user.adminId
+              : null,
+          salesmanId:
+            role === "salesman"
+              ? user.salesmanId
+              : null,
+          name:
+            user.name,
+          mobile:
+            user.mobile,
+          email:
+            user.email,
+          username:
+            user.username,
+          businessName:
+            user.businessName,
+          address:
+            role === "admin"
+              ? user.address
+              : "",
+          city:
+            role === "admin"
+              ? user.city
+              : "",
+          state:
+            role === "admin"
+              ? user.state
+              : "",
+          pin:
+            role === "admin"
+              ? user.pin
+              : "",
+        },
+      });
+
+    } catch (error) {
+      console.error(
+        "UPDATE PROFILE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to update profile.",
+        error:
+          error.message,
+      });
+    }
+  }
+);
+// ======================================================
+// CHANGE CURRENT USER PASSWORD
+// ======================================================
+
+app.put(
+  "/api/profile/password",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const {
+        userId,
+        farmId,
+        role,
+      } = req.user;
+
+      const {
+        currentPassword,
+        newPassword,
+      } = req.body;
+
+      if (
+        !currentPassword ||
+        !newPassword
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Current password and new password are required.",
+        });
+      }
+
+      if (
+        newPassword
+          .toString()
+          .length < 6
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "New password must contain at least 6 characters.",
+        });
+      }
+
+      let user = null;
+
+      if (role === "admin") {
+        user = await Register.findOne({
+          _id: userId,
+          farmId,
+        });
+      } else if (role === "salesman") {
+        user = await Salesman.findOne({
+          _id: userId,
+          farmId,
+        });
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "User not found.",
+        });
+      }
+
+      const passwordMatched =
+        await bcrypt.compare(
+          currentPassword.toString(),
+          user.password
+        );
+
+      if (!passwordMatched) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Current password is incorrect.",
+        });
+      }
+
+      const samePassword =
+        await bcrypt.compare(
+          newPassword.toString(),
+          user.password
+        );
+
+      if (samePassword) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "New password must be different from current password.",
+        });
+      }
+
+      user.password =
+        await bcrypt.hash(
+          newPassword.toString(),
+          10
+        );
+
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Password changed successfully.",
+      });
+
+    } catch (error) {
+      console.error(
+        "CHANGE PASSWORD ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to change password.",
+        error:
+          error.message,
+      });
+    }
+  }
+);
+
+// ======================================================
+// UPDATE SALESMAN
+// ADMIN ONLY
+// ======================================================
+
+app.put(
+  "/api/salesmen/:salesmanId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+
+      if (req.user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only administrator can update salesman.",
+        });
+      }
+
+      const farmId =
+        req.user.farmId;
+
+      const salesmanId =
+        req.params.salesmanId
+          .toString()
+          .trim()
+          .toUpperCase();
+
+      const {
+        name,
+        mobile,
+        email,
+        username,
+        isActive,
+      } = req.body;
+
+      const salesman =
+        await Salesman.findOne({
+          farmId,
+          salesmanId,
+        });
+
+      if (!salesman) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Salesman not found.",
+        });
+      }
+
+      if (name !== undefined) {
+        const value =
+          name.toString().trim();
+
+        if (!value) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Salesman name is required.",
+          });
+        }
+
+        salesman.name =
+          value;
+      }
+
+      if (mobile !== undefined) {
+        const value =
+          mobile.toString().trim();
+
+        if (value.length !== 10) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Enter a valid 10-digit mobile number.",
+          });
+        }
+
+        salesman.mobile =
+          value;
+      }
+
+      if (email !== undefined) {
+        salesman.email =
+          email
+            .toString()
+            .trim()
+            .toLowerCase();
+      }
+
+      // ================================================
+      // USERNAME
+      // ================================================
+
+      if (username !== undefined) {
+
+        const value =
+          username
+            .toString()
+            .trim();
+
+        if (!value) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Username is required.",
+          });
+        }
+
+        const existingAdmin =
+          await Register.findOne({
+            username: {
+              $regex: new RegExp(
+                `^${escapeRegex(value)}$`,
+                "i"
+              ),
+            },
+          });
+
+        const existingSalesman =
+          await Salesman.findOne({
+            username: {
+              $regex: new RegExp(
+                `^${escapeRegex(value)}$`,
+                "i"
+              ),
+            },
+
+            _id: {
+              $ne: salesman._id,
+            },
+          });
+
+        if (
+          existingAdmin ||
+          existingSalesman
+        ) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "Username is already in use.",
+          });
+        }
+
+        salesman.username =
+          value;
+      }
+
+      if (
+        typeof isActive ===
+        "boolean"
+      ) {
+        salesman.isActive =
+          isActive;
+      }
+
+      await salesman.save();
+
+      return res.status(200).json({
+        success: true,
+
+        message:
+          "Salesman updated successfully.",
+
+        data: {
+          _id:
+            salesman._id,
+
+          farmId:
+            salesman.farmId,
+
+          salesmanId:
+            salesman.salesmanId,
+
+          name:
+            salesman.name,
+
+          mobile:
+            salesman.mobile,
+
+          email:
+            salesman.email,
+
+          username:
+            salesman.username,
+
+          businessName:
+            salesman.businessName,
+
+          permissions:
+            salesman.permissions,
+
+          isActive:
+            salesman.isActive,
+        },
+      });
+
+    } catch (error) {
+
+      console.error(
+        "UPDATE SALESMAN ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Unable to update salesman.",
         error:
           error.message,
       });

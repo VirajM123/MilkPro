@@ -620,6 +620,120 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     }
   }
 
+Future<void> _cancelPayment(_PaymentEntry payment) async {
+  if (payment.status.toUpperCase() == 'CANCELLED') {
+    return;
+  }
+
+  final paymentIdentifier = payment.paymentId.trim().isNotEmpty
+      ? payment.paymentId.trim()
+      : payment.paymentNo.trim();
+
+  if (paymentIdentifier.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Payment identifier not found.'),
+      ),
+    );
+    return;
+  }
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Cancel Payment?'),
+        content: Text(
+          'Are you sure you want to cancel payment '
+          '${payment.paymentNo} of '
+          '₹${payment.amount.toStringAsFixed(2)} '
+          'for ${payment.supplier}?\n\n'
+          'The payment will not be deleted. '
+          'It will be marked as cancelled.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext, false);
+            },
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(dialogContext, true);
+            },
+            child: const Text('Cancel Payment'),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true || !mounted) {
+    return;
+  }
+
+  try {
+    final response = await http.put(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/api/payments/'
+        '$paymentIdentifier/cancel',
+      ),
+      headers: _headers,
+    );
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (_) {
+      decoded = null;
+    }
+
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        decoded is! Map ||
+        decoded['success'] != true) {
+      throw Exception(
+        decoded is Map
+            ? (decoded['message'] ?? 'Unable to cancel payment.')
+                .toString()
+            : 'Unable to cancel payment.',
+      );
+    }
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          decoded['message']?.toString() ??
+              'Payment cancelled successfully.',
+        ),
+      ),
+    );
+
+    await _loadPaymentData();
+  } catch (error) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error
+              .toString()
+              .replaceFirst('Exception: ', ''),
+        ),
+      ),
+    );
+  }
+}
+
   @override
   Widget build(
     BuildContext context,
@@ -1171,52 +1285,66 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                         ),
                       ),
 
-                      Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment
-                                .end,
-                        children: [
-                          Text(
-                            '₹${item.amount.toStringAsFixed(0)}',
-                            style:
-                                TextStyle(
-                              color:
-                                  item.status
-                                              .toUpperCase() ==
-                                          'CANCELLED'
-                                      ? Colors
-                                          .red
-                                      : moduleGreen,
-                              fontWeight:
-                                  FontWeight
-                                      .w900,
-                            ),
-                          ),
+                   Column(
+  crossAxisAlignment: CrossAxisAlignment.end,
+  children: [
+    Text(
+      '₹${item.amount.toStringAsFixed(0)}',
+      style: TextStyle(
+        color: item.status.toUpperCase() == 'CANCELLED'
+            ? Colors.red
+            : moduleGreen,
+        fontWeight: FontWeight.w900,
+      ),
+    ),
 
-                          Text(
-                            item.status
-                                        .toUpperCase() ==
-                                    'CANCELLED'
-                                ? 'Cancelled'
-                                : 'Paid',
-                            style:
-                                TextStyle(
-                              fontSize:
-                                  9,
-                              fontWeight:
-                                  FontWeight
-                                      .w700,
-                              color:
-                                  item.status
-                                              .toUpperCase() ==
-                                          'CANCELLED'
-                                      ? Colors
-                                          .red
-                                      : moduleGreen,
-                            ),
-                          ),
-                        ],
-                      ),
+    Text(
+      item.status.toUpperCase() == 'CANCELLED'
+          ? 'Cancelled'
+          : 'Paid',
+      style: TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w700,
+        color: item.status.toUpperCase() == 'CANCELLED'
+            ? Colors.red
+            : moduleGreen,
+      ),
+    ),
+
+    if (item.status.toUpperCase() != 'CANCELLED')
+      PopupMenuButton<String>(
+        padding: EdgeInsets.zero,
+        iconSize: 20,
+        tooltip: 'Payment options',
+        onSelected: (value) {
+          if (value == 'cancel') {
+            _cancelPayment(item);
+          }
+        },
+        itemBuilder: (context) => const [
+          PopupMenuItem<String>(
+            value: 'cancel',
+            child: Row(
+              children: [
+                Icon(
+                  Icons.cancel_outlined,
+                  color: Colors.red,
+                  size: 20,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Cancel Payment',
+                  style: TextStyle(
+                    color: Colors.red,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+  ],
+),
                     ],
                   ),
                 ),

@@ -246,6 +246,127 @@ Future<void> _updateProduct(
   }
 }
 
+Future<void> _deleteProduct(
+  ProductModel product,
+) async {
+  if (!_canManageProducts) {
+    _showMessage(
+      'Only an administrator can delete products.',
+    );
+    return;
+  }
+
+  if (product.id.trim().isEmpty) {
+    _showMessage(
+      'Product database ID is missing.',
+    );
+    return;
+  }
+
+  final confirmed =
+      await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text(
+          'Delete Product?',
+        ),
+        content: Text(
+          'Are you sure you want to delete "${product.name}"?\n\n'
+          'A product with existing transactions cannot be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(
+              dialogContext,
+              false,
+            ),
+            child:
+                const Text(
+              'Cancel',
+            ),
+          ),
+          ElevatedButton.icon(
+            style:
+                ElevatedButton.styleFrom(
+              backgroundColor:
+                  AppColors.error,
+              foregroundColor:
+                  Colors.white,
+            ),
+            onPressed: () =>
+                Navigator.pop(
+              dialogContext,
+              true,
+            ),
+            icon: const Icon(
+              Icons.delete_outline,
+            ),
+            label:
+                const Text(
+              'Delete',
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true ||
+      !mounted) {
+    return;
+  }
+
+  try {
+    final response =
+        await http.delete(
+      Uri.parse(
+        ApiConfig.productById(
+          product.id,
+        ),
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(
+          response.body,
+        ) as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode ==
+            200 &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Product deleted successfully.',
+      );
+
+      await _loadProducts();
+    } else {
+      _showMessage(
+        data['message']
+                ?.toString() ??
+            'Unable to delete product.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to connect to backend.',
+    );
+  }
+}
+
 void _showMessage(String message) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
@@ -574,18 +695,82 @@ Future<void> _loadProducts() async {
                     ? AppColors.warning
                     : AppColors.success,
               ),
-              if (_canManageProducts) ...[
-                const SizedBox(height: 4),
-                TextButton.icon(
-                  onPressed: () => _showProductDialog(product: product),
-                  icon: const Icon(Icons.edit_outlined, size: 15),
-                  label: const Text('Edit'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                  ),
-                ),
-              ],
+           if (_canManageProducts) ...[
+  const SizedBox(
+    height: 4,
+  ),
+
+  PopupMenuButton<String>(
+    tooltip:
+        'Product actions',
+    icon: const Icon(
+      Icons.more_vert_rounded,
+      color:
+          AppColors.textSecondary,
+    ),
+    onSelected: (value) {
+      if (value == 'edit') {
+        _showProductDialog(
+          product: product,
+        );
+      }
+
+      if (value == 'delete') {
+        _deleteProduct(
+          product,
+        );
+      }
+    },
+    itemBuilder: (context) => [
+      const PopupMenuItem<String>(
+        value: 'edit',
+        child: Row(
+          children: [
+            Icon(
+              Icons.edit_outlined,
+              color:
+                  AppColors.primary,
+              size: 19,
+            ),
+            SizedBox(
+              width: 10,
+            ),
+            Text(
+              'Edit Product',
+            ),
+          ],
+        ),
+      ),
+
+      const PopupMenuDivider(),
+
+      const PopupMenuItem<String>(
+        value: 'delete',
+        child: Row(
+          children: [
+            Icon(
+              Icons
+                  .delete_outline_rounded,
+              color:
+                  AppColors.error,
+              size: 19,
+            ),
+            SizedBox(
+              width: 10,
+            ),
+            Text(
+              'Delete Product',
+              style: TextStyle(
+                color:
+                    AppColors.error,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+],
             ],
           ),
         ],
@@ -612,6 +797,11 @@ Future<void> _loadProducts() async {
     final priceController = TextEditingController(
       text: product?.price.toStringAsFixed(0),
     );
+    final lowStockController = TextEditingController(
+  text: product?.lowStockLevel.toStringAsFixed(0) ?? '10',
+);
+
+var isActive = product?.isActive ?? true;
     final categoryController = TextEditingController(
       text: product?.category ?? 'Dairy',
     );
@@ -722,11 +912,13 @@ Future<void> _loadProducts() async {
   category:
       categoryController.text.trim(),
 
-  lowStockLevel:
-      product?.lowStockLevel ?? 20,
+lowStockLevel:
+    double.parse(
+      lowStockController.text.trim(),
+    ),
 
-  isActive:
-      product?.isActive ?? true,
+isActive:
+    isActive,
 ),
                 );
               },

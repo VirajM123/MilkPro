@@ -358,6 +358,120 @@
       }
     }
 
+// ============================================================
+// DELETE SUPPLIER
+// ============================================================
+
+Future<void> _confirmDeleteSupplier(
+  SupplierItem supplier,
+) async {
+  if (supplier.id.isEmpty) {
+    _showMessage(
+      'Supplier database ID is missing.',
+    );
+    return;
+  }
+
+  final confirmed =
+      await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text(
+          'Delete Supplier',
+        ),
+        content: Text(
+          'Are you sure you want to delete '
+          '"${supplier.supplierName}"?\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(
+              context,
+              false,
+            ),
+            child: const Text(
+              'Cancel',
+            ),
+          ),
+          ElevatedButton(
+            style:
+                ElevatedButton.styleFrom(
+              backgroundColor:
+                  AppColors.error,
+              foregroundColor:
+                  Colors.white,
+            ),
+            onPressed: () =>
+                Navigator.pop(
+              context,
+              true,
+            ),
+            child: const Text(
+              'Delete',
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true ||
+      !mounted) {
+    return;
+  }
+
+  await _deleteSupplier(supplier);
+}
+
+Future<void> _deleteSupplier(
+  SupplierItem supplier,
+) async {
+  try {
+    final response =
+        await http.delete(
+      Uri.parse(
+        '${ApiConfig.suppliers}/${supplier.id}',
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final data =
+        jsonDecode(response.body)
+            as Map<String, dynamic>;
+
+    if (!mounted) return;
+
+    if (response.statusCode == 200 &&
+        data['success'] == true) {
+      _showMessage(
+        data['message']?.toString() ??
+            'Supplier deleted successfully.',
+      );
+
+      await _loadSuppliers();
+    } else {
+      _showMessage(
+        data['message']?.toString() ??
+            'Unable to delete supplier.',
+      );
+    }
+  } catch (error) {
+    if (!mounted) return;
+
+    _showMessage(
+      'Unable to delete supplier.',
+    );
+  }
+}
+
     // ============================================================
     // MESSAGE
     // ============================================================
@@ -843,22 +957,39 @@
                         ),
                       ),
 
-                      TextButton.icon(
-                        onPressed: () =>
-                            _showEditSupplierDialog(
-                          supplier,
-                        ),
-                        icon:
-                            const Icon(
-                          Icons
-                              .edit_outlined,
-                          size: 16,
-                        ),
-                        label:
-                            const Text(
-                          'Edit',
-                        ),
-                      ),
+               Row(
+  mainAxisSize:
+      MainAxisSize.min,
+  children: [
+    TextButton.icon(
+      onPressed: () =>
+          _showEditSupplierDialog(
+        supplier,
+      ),
+      icon: const Icon(
+        Icons.edit_outlined,
+        size: 16,
+      ),
+      label: const Text(
+        'Edit',
+      ),
+    ),
+
+    IconButton(
+      tooltip:
+          'Delete Supplier',
+      onPressed: () =>
+          _confirmDeleteSupplier(
+        supplier,
+      ),
+      icon: const Icon(
+        Icons.delete_outline_rounded,
+        size: 19,
+        color: AppColors.error,
+      ),
+    ),
+  ],
+),
                     ],
                   ),
                 ],
