@@ -37,8 +37,6 @@ abstract final class AppFeatures {
     icon: Icons.local_shipping_outlined,
     route: '/suppliers',
     permission: AppPermission.suppliersView,
-    salesmanVisible: false,
-    adminOnly: true,
   );
   static const customers = AppFeature(
     title: 'Customers',
@@ -52,8 +50,6 @@ abstract final class AppFeatures {
     icon: Icons.price_change_outlined,
     route: '/customer-rates',
     permission: AppPermission.customerRatesManage,
-    salesmanVisible: false,
-    adminOnly: true,
   );
   static const allocation = AppFeature(
     title: 'Allocation',
@@ -96,7 +92,6 @@ abstract final class AppFeatures {
     route: '/purchase',
     permission: AppPermission.purchaseView,
     assetPath: 'assets/img/PurchaseSideNav.png',
-    salesmanVisible: false,
   );
   static const reports = AppFeature(
     title: 'Reports',
@@ -104,7 +99,6 @@ abstract final class AppFeatures {
     route: '/reports',
     permission: AppPermission.reportsView,
     assetPath: 'assets/img/ReportsQui.png',
-    salesmanVisible: false,
   );
   static const payments = AppFeature(
     title: 'Payments',
@@ -112,7 +106,6 @@ abstract final class AppFeatures {
     route: '/payments',
     permission: AppPermission.paymentsView,
     assetPath: 'assets/img/PaymentsSideNav.png',
-    salesmanVisible: false,
   );
   static const ledger = AppFeature(
     title: 'Ledger',
@@ -120,7 +113,6 @@ abstract final class AppFeatures {
     route: '/ledger',
     permission: AppPermission.ledgerView,
     assetPath: 'assets/img/LedgerSideNav.png',
-    salesmanVisible: false,
   );
   static const expenses = AppFeature(
     title: 'Expenses',
@@ -128,7 +120,6 @@ abstract final class AppFeatures {
     route: '/expenses',
     permission: AppPermission.expensesView,
     assetPath: 'assets/img/ExpenseQui.png',
-    salesmanVisible: false,
   );
 
 static const all = <AppFeature>[

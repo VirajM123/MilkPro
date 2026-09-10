@@ -638,7 +638,7 @@ Future<void> _saveRates() async {
 
   @override
   Widget build(BuildContext context) {
-    if (UiSession.instance.role != UserRole.admin) {
+    if (!UiSession.instance.can(AppPermission.customerRatesManage)) {
       return const AccessDeniedScreen();
     }
 

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../../models/access_models.dart';
 import '../../models/report_model.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/excel_service.dart';
 import '../../services/report_pdf_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 
 class ReportDetailScreen extends StatefulWidget {
   const ReportDetailScreen({
@@ -65,6 +68,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(AppPermission.reportsView)) {
+      return const AccessDeniedScreen();
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: PremiumAppBar(

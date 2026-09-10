@@ -1,10 +1,10 @@
 class ApiConfig {
-  static const String baseUrl =
-      'https://milkpro.onrender.com';
+  // static const String baseUrl =
+  //     'https://milkpro.onrender.com';
 
 
-// static const String baseUrl =
-//       'http://localhost:5000';
+static const String baseUrl =
+      'http://localhost:5000';
   // Authentication
   static const String register =
       '$baseUrl/api/auth/register';
@@ -96,6 +96,14 @@ static String productById(
     String customerId,
   ) =>
       '$ledger?type=customer&partyId=$customerId';
+
+  // Allocations
+  static const String allocations =
+      '$baseUrl/api/allocations';
+
+  // Common Salesman Permissions
+  static const String salesmanDefaultPermissions =
+      '$baseUrl/api/settings/salesman-permissions';
 
   // Current session
   static String token = '';

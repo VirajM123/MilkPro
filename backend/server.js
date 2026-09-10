@@ -23,6 +23,7 @@ mongoose
   .then(() => {
     console.log("MongoDB Connected Successfully");
     console.log("Database:", mongoose.connection.name);
+    runSalesmanPermissionMigration();
   })
   .catch((error) => {
     console.error("MongoDB Connection Failed");
@@ -123,6 +124,11 @@ const registerSchema = new mongoose.Schema(
       default: true,
     },
 
+    salesmanDefaultPermissions: {
+      type: [String],
+      default: [],
+    },
+
     createdAt: {
       type: Date,
       default: Date.now,
@@ -198,13 +204,19 @@ const salesmanSchema = new mongoose.Schema(
       trim: true,
     },
     // ======================================================
-// SALESMAN FEATURE PERMISSIONS
-// ======================================================
+    // SALESMAN FEATURE PERMISSIONS
+    // ======================================================
 
-permissions: {
-  type: [String],
-  default: [],
-},
+    permissionMode: {
+      type: String,
+      enum: ["inherit", "custom"],
+      default: "inherit",
+    },
+
+    permissions: {
+      type: [String],
+      default: [],
+    },
 
     isActive: {
       type: Boolean,
@@ -2936,6 +2948,215 @@ function authenticateToken(req, res, next) {
 
 
 // ======================================================
+// CENTRAL PERMISSION & ACCESS CONTROL LAYER
+// ======================================================
+
+function getEffectiveSalesmanPermissions(salesman, farmAdmin) {
+  if (!salesman) return [];
+  const mode =
+    salesman.permissionMode ||
+    (Array.isArray(salesman.permissions) && salesman.permissions.length > 0
+      ? "custom"
+      : "inherit");
+
+  if (mode === "custom") {
+    return Array.isArray(salesman.permissions) ? salesman.permissions : [];
+  }
+
+  return Array.isArray(farmAdmin?.salesmanDefaultPermissions)
+    ? farmAdmin.salesmanDefaultPermissions
+    : [];
+}
+
+async function runSalesmanPermissionMigration() {
+  try {
+    // 1. Existing salesmen that have permissions but no permissionMode -> set to custom
+    await Salesman.updateMany(
+      {
+        permissionMode: { $exists: false },
+        "permissions.0": { $exists: true },
+      },
+      {
+        $set: { permissionMode: "custom" },
+      }
+    );
+
+    // 2. Remaining salesmen with no permissionMode -> set to inherit
+    await Salesman.updateMany(
+      {
+        permissionMode: { $exists: false },
+      },
+      {
+        $set: { permissionMode: "inherit" },
+      }
+    );
+  } catch (error) {
+    console.error("SALESMAN PERMISSION MIGRATION ERROR:", error.message);
+  }
+}
+
+async function loadAccessContext(req, res, next) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization token is required.",
+      });
+    }
+
+    const { userId, farmId, role } = req.user;
+
+    if (!farmId) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid session farm context.",
+      });
+    }
+
+    if (role === "admin") {
+      req.access = {
+        role: "admin",
+        isAdmin: true,
+        isSalesman: false,
+        farmId: farmId,
+        userId: userId,
+        salesmanId: null,
+        permissions: new Set(VALID_SALESMAN_PERMISSIONS),
+      };
+      return next();
+    }
+
+    if (role === "salesman") {
+      const salesman = await Salesman.findOne({
+        _id: userId,
+        farmId: farmId,
+        isActive: true,
+      });
+
+      if (!salesman) {
+        return res.status(403).json({
+          success: false,
+          message: "Salesman account is inactive or not found.",
+        });
+      }
+
+      const mode =
+        salesman.permissionMode ||
+        (Array.isArray(salesman.permissions) && salesman.permissions.length > 0
+          ? "custom"
+          : "inherit");
+
+      let farmAdmin = null;
+      if (mode === "inherit") {
+        farmAdmin = await Register.findOne({
+          farmId: farmId,
+          isActive: true,
+        }).select("salesmanDefaultPermissions");
+      }
+
+      const effectivePermissions = getEffectiveSalesmanPermissions(
+        salesman,
+        farmAdmin
+      );
+
+      req.access = {
+        role: "salesman",
+        isAdmin: false,
+        isSalesman: true,
+        farmId: farmId,
+        userId: userId,
+        salesman: salesman,
+        salesmanId: salesman.salesmanId,
+        permissionMode: mode,
+        permissions: new Set(effectivePermissions),
+      };
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: "Invalid user role.",
+    });
+  } catch (error) {
+    console.error("LOAD ACCESS CONTEXT ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to verify access permissions.",
+    });
+  }
+}
+
+function hasPermission(req, permission) {
+  if (!req.access) return false;
+  if (req.access.isAdmin) return true;
+  return req.access.permissions && req.access.permissions.has(permission);
+}
+
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!req.access) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization context is required.",
+      });
+    }
+
+    if (hasPermission(req, permission)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: `Permission denied. Requires ${permission}.`,
+    });
+  };
+}
+
+function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    if (!req.access) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization context is required.",
+      });
+    }
+
+    if (req.access.isAdmin) {
+      return next();
+    }
+
+    const granted = permissions.some((perm) => hasPermission(req, perm));
+    if (granted) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: "Permission denied. Required feature access missing.",
+    });
+  };
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.access) {
+    return res.status(401).json({
+      success: false,
+      message: "Authorization context is required.",
+    });
+  }
+
+  if (req.access.isAdmin) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    message: "Administrative privileges required.",
+  });
+}
+
+
+// ======================================================
 // TEST API
 // ======================================================
 
@@ -3264,7 +3485,8 @@ app.post("/api/auth/register", async (req, res) => {
 
         businessName:
           farmAdmin.businessName,
-           permissions: [],
+        permissionMode: "inherit",
+        permissions: [],
 
         isActive:
           true,
@@ -3508,6 +3730,25 @@ app.post("/api/auth/login", async (req, res) => {
     // LOGIN RESPONSE
     // ==================================================
 
+    let effectivePermissions = [];
+    if (role === "salesman") {
+      let farmAdmin = null;
+      const mode =
+        user.permissionMode ||
+        (Array.isArray(user.permissions) && user.permissions.length > 0
+          ? "custom"
+          : "inherit");
+
+      if (mode === "inherit") {
+        farmAdmin = await Register.findOne({
+          farmId: user.farmId,
+          isActive: true,
+        }).select("salesmanDefaultPermissions");
+      }
+
+      effectivePermissions = getEffectiveSalesmanPermissions(user, farmAdmin);
+    }
+
     return res.status(200).json({
 
       success: true,
@@ -3552,11 +3793,10 @@ app.post("/api/auth/login", async (req, res) => {
 
         businessName:
           user.businessName,
-          permissions:
-  role === "salesman" &&
-  Array.isArray(user.permissions)
-    ? user.permissions
-    : [],
+        permissions:
+          role === "salesman"
+            ? effectivePermissions
+            : [],
       },
     });
 
@@ -3603,6 +3843,18 @@ app.post("/api/auth/login", async (req, res) => {
 app.get(
   "/api/customers",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission(
+    "customersView",
+    "customersCreate",
+    "customersEdit",
+    "customerRatesManage",
+    "salesView",
+    "salesCreate",
+    "collectionView",
+    "collectionCreate",
+    "ledgerView"
+  ),
   async (req, res) => {
 
     try {
@@ -3817,6 +4069,8 @@ app.get(
 app.post(
   "/api/customers",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("customersCreate"),
   async (req, res) => {
 
     try {
@@ -3854,7 +4108,34 @@ app.post(
 
 
       const farmId =
-        req.user.farmId;
+        req.access.farmId;
+
+
+      if (req.access.isSalesman) {
+        if (!route || !route.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: "Assigned route is required.",
+          });
+        }
+
+        const assignedRoute = await RouteMaster.findOne({
+          farmId: farmId,
+          salesmanId: req.access.salesmanId,
+          isActive: true,
+          $or: [
+            { routeName: route.trim() },
+            { routeId: route.trim().toUpperCase() },
+          ],
+        });
+
+        if (!assignedRoute) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only assign customers to your assigned routes.",
+          });
+        }
+      }
 
 
       // Duplicate mobile only inside same farm
@@ -3949,6 +4230,8 @@ app.post(
 app.put(
   "/api/customers/:id",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("customersEdit"),
   async (req, res) => {
 
     try {
@@ -3968,7 +4251,7 @@ app.put(
             req.params.id,
 
           farmId:
-            req.user.farmId,
+            req.access.farmId,
         });
 
 
@@ -3978,6 +4261,47 @@ app.put(
           message:
             "Customer not found.",
         });
+      }
+
+
+      if (req.access.isSalesman) {
+        // Customer must belong to one of salesman's assigned active routes
+        const currentSalesmanRoute = await RouteMaster.findOne({
+          farmId: req.access.farmId,
+          salesmanId: req.access.salesmanId,
+          isActive: true,
+          $or: [
+            { routeName: customer.route },
+            { routeId: customer.route },
+          ],
+        });
+
+        if (!currentSalesmanRoute) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only edit customers belonging to your assigned routes.",
+          });
+        }
+
+        // If route is changed, target route must also belong to this salesman
+        if (route !== undefined && route.trim()) {
+          const targetRoute = await RouteMaster.findOne({
+            farmId: req.access.farmId,
+            salesmanId: req.access.salesmanId,
+            isActive: true,
+            $or: [
+              { routeName: route.trim() },
+              { routeId: route.trim().toUpperCase() },
+            ],
+          });
+
+          if (!targetRoute) {
+            return res.status(403).json({
+              success: false,
+              message: "You can only assign customers to your assigned routes.",
+            });
+          }
+        }
       }
 
 
@@ -4043,6 +4367,8 @@ app.put(
 app.delete(
   "/api/customers/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     try {
@@ -4107,12 +4433,14 @@ app.delete(
 app.get(
   "/api/salesmen",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     try {
 
       const farmId =
-        req.user.farmId;
+        req.access.farmId;
 
 
       const salesmen =
@@ -4121,11 +4449,17 @@ app.get(
             farmId,
         })
           .select(
-            "_id role farmId salesmanId name mobile email username businessName permissions isActive createdAt"
+            "_id role farmId salesmanId name mobile email username businessName permissions permissionMode isActive createdAt"
           )
           .sort({
             name: 1,
           });
+
+
+      const farmAdmin = await Register.findOne({
+        farmId: farmId,
+        isActive: true,
+      }).select("salesmanDefaultPermissions").lean();
 
 
       // ==================================================
@@ -4150,6 +4484,10 @@ app.get(
                   )
                   .lean();
 
+              const effectivePermissions = getEffectiveSalesmanPermissions(
+                salesman,
+                farmAdmin
+              );
 
               return {
                 _id:
@@ -4179,10 +4517,17 @@ app.get(
                 businessName:
                   salesman.businessName,
 
+                permissionMode:
+                  salesman.permissionMode ||
+                  (Array.isArray(salesman.permissions) && salesman.permissions.length > 0
+                    ? "custom"
+                    : "inherit"),
+
                 permissions:
-                  Array.isArray(
-                    salesman.permissions
-                  )
+                  effectivePermissions,
+
+                customPermissions:
+                  Array.isArray(salesman.permissions)
                     ? salesman.permissions
                     : [],
 
@@ -4242,18 +4587,27 @@ app.get(
 app.get(
   "/api/salesmen/:salesmanId",
   authenticateToken,
+  loadAccessContext,
   async (req, res) => {
 
     try {
 
       const farmId =
-        req.user.farmId;
+        req.access.farmId;
 
       const salesmanId =
         req.params.salesmanId
           .toString()
           .trim()
           .toUpperCase();
+
+
+      if (req.access.isSalesman && salesmanId !== req.access.salesmanId) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to view another salesman's details.",
+        });
+      }
 
 
       const salesman =
@@ -4265,7 +4619,7 @@ app.get(
             salesmanId,
         })
           .select(
-            "_id role farmId salesmanId name mobile email username businessName permissions isActive createdAt"
+            "_id role farmId salesmanId name mobile email username businessName permissions permissionMode isActive createdAt"
           );
 
 
@@ -4294,6 +4648,15 @@ app.get(
           )
           .lean();
 
+      const farmAdmin = await Register.findOne({
+        farmId: farmId,
+        isActive: true,
+      }).select("salesmanDefaultPermissions").lean();
+
+      const effectivePermissions = getEffectiveSalesmanPermissions(
+        salesman,
+        farmAdmin
+      );
 
       return res.status(200).json({
         success:
@@ -4327,10 +4690,17 @@ app.get(
           businessName:
             salesman.businessName,
 
+          permissionMode:
+            salesman.permissionMode ||
+            (Array.isArray(salesman.permissions) && salesman.permissions.length > 0
+              ? "custom"
+              : "inherit"),
+
           permissions:
-            Array.isArray(
-              salesman.permissions
-            )
+            effectivePermissions,
+
+          customPermissions:
+            Array.isArray(salesman.permissions)
               ? salesman.permissions
               : [],
 
@@ -4377,30 +4747,14 @@ app.get(
 app.put(
   "/api/salesmen/:salesmanId/permissions",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     try {
 
-      // ================================================
-      // ADMIN ONLY
-      // ================================================
-
-      if (
-        req.user.role !== "admin"
-      ) {
-
-        return res.status(403).json({
-          success:
-            false,
-
-          message:
-            "Only administrator can change salesman access.",
-        });
-      }
-
-
       const farmId =
-        req.user.farmId;
+        req.access.farmId;
 
 
       const salesmanId =
@@ -4412,77 +4766,8 @@ app.put(
 
       const {
         permissions,
+        permissionMode,
       } = req.body;
-
-
-      // ================================================
-      // VALIDATE ARRAY
-      // ================================================
-
-      if (
-        !Array.isArray(
-          permissions
-        )
-      ) {
-
-        return res.status(400).json({
-          success:
-            false,
-
-          message:
-            "Permissions must be an array.",
-        });
-      }
-
-
-      // ================================================
-      // NORMALIZE / REMOVE DUPLICATES
-      // ================================================
-
-      const normalizedPermissions =
-        [
-          ...new Set(
-            permissions
-              .map(
-                (permission) =>
-                  permission
-                    ?.toString()
-                    .trim()
-              )
-              .filter(
-                (permission) =>
-                  permission
-              )
-          ),
-        ];
-
-
-      // ================================================
-      // BLOCK UNKNOWN PERMISSIONS
-      // ================================================
-
-      const invalidPermissions =
-        normalizedPermissions.filter(
-          (permission) =>
-            !VALID_SALESMAN_PERMISSIONS.includes(
-              permission
-            )
-        );
-
-
-      if (
-        invalidPermissions.length >
-        0
-      ) {
-
-        return res.status(400).json({
-          success:
-            false,
-
-          message:
-            `Invalid permission: ${invalidPermissions.join(", ")}`,
-        });
-      }
 
 
       // ================================================
@@ -4511,12 +4796,51 @@ app.put(
       }
 
 
-      salesman.permissions =
-        normalizedPermissions;
+      if (permissionMode === "inherit") {
+        salesman.permissionMode = "inherit";
+      } else if (permissionMode === "custom" || Array.isArray(permissions)) {
+        salesman.permissionMode = "custom";
 
+        if (!Array.isArray(permissions)) {
+          return res.status(400).json({
+            success: false,
+            message: "Permissions must be an array for custom access.",
+          });
+        }
+
+        const normalizedPermissions = [
+          ...new Set(
+            permissions
+              .map((permission) => permission?.toString().trim())
+              .filter((permission) => Boolean(permission))
+          ),
+        ];
+
+        const invalidPermissions = normalizedPermissions.filter(
+          (permission) => !VALID_SALESMAN_PERMISSIONS.includes(permission)
+        );
+
+        if (invalidPermissions.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid permission: ${invalidPermissions.join(", ")}`,
+          });
+        }
+
+        salesman.permissions = normalizedPermissions;
+      }
 
       await salesman.save();
 
+      const farmAdmin = await Register.findOne({
+        farmId: farmId,
+        isActive: true,
+      }).select("salesmanDefaultPermissions").lean();
+
+      const effectivePermissions = getEffectiveSalesmanPermissions(
+        salesman,
+        farmAdmin
+      );
 
       return res.status(200).json({
         success:
@@ -4532,8 +4856,14 @@ app.put(
           name:
             salesman.name,
 
+          permissionMode:
+            salesman.permissionMode,
+
           permissions:
-            salesman.permissions,
+            effectivePermissions,
+
+          customPermissions:
+            Array.isArray(salesman.permissions) ? salesman.permissions : [],
 
           isActive:
             salesman.isActive,
@@ -4563,6 +4893,118 @@ app.put(
   }
 );
 
+
+// ======================================================
+// COMMON SALESMAN ACCESS SETTINGS (ADMIN ONLY)
+// ======================================================
+
+app.get(
+  "/api/settings/salesman-permissions",
+  authenticateToken,
+  loadAccessContext,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const farmId = req.access.farmId;
+
+      const farmAdmin = await Register.findOne({
+        farmId: farmId,
+        isActive: true,
+      }).select("salesmanDefaultPermissions").lean();
+
+      if (!farmAdmin) {
+        return res.status(404).json({
+          success: false,
+          message: "Farm registration not found.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          permissions: Array.isArray(farmAdmin.salesmanDefaultPermissions)
+            ? farmAdmin.salesmanDefaultPermissions
+            : [],
+        },
+      });
+    } catch (error) {
+      console.error("GET COMMON SALESMAN PERMISSIONS ERROR:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to load common salesman permissions.",
+        error: error.message,
+      });
+    }
+  }
+);
+
+app.put(
+  "/api/settings/salesman-permissions",
+  authenticateToken,
+  loadAccessContext,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const farmId = req.access.farmId;
+      const { permissions } = req.body;
+
+      if (!Array.isArray(permissions)) {
+        return res.status(400).json({
+          success: false,
+          message: "Permissions must be an array.",
+        });
+      }
+
+      const normalizedPermissions = [
+        ...new Set(
+          permissions
+            .map((p) => p?.toString().trim())
+            .filter((p) => Boolean(p))
+        ),
+      ];
+
+      const invalidPermissions = normalizedPermissions.filter(
+        (p) => !VALID_SALESMAN_PERMISSIONS.includes(p)
+      );
+
+      if (invalidPermissions.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid permission: ${invalidPermissions.join(", ")}`,
+        });
+      }
+
+      const updatedFarm = await Register.findOneAndUpdate(
+        { farmId: farmId, isActive: true },
+        { $set: { salesmanDefaultPermissions: normalizedPermissions } },
+        { new: true }
+      ).select("salesmanDefaultPermissions").lean();
+
+      if (!updatedFarm) {
+        return res.status(404).json({
+          success: false,
+          message: "Farm registration not found.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Common salesman permissions saved successfully.",
+        data: {
+          permissions: updatedFarm.salesmanDefaultPermissions || [],
+        },
+      });
+    } catch (error) {
+      console.error("UPDATE COMMON SALESMAN PERMISSIONS ERROR:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to save common salesman permissions.",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // ======================================================
 // GET ROUTES
 // ======================================================
@@ -4570,12 +5012,28 @@ app.put(
 app.get(
   "/api/routes",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission(
+    "routesView",
+    "customersCreate",
+    "customersEdit",
+    "allocationView",
+    "salesCreate",
+    "customersView"
+  ),
   async (req, res) => {
     try {
+      const routeFilter = {
+        farmId: req.user.farmId,
+      };
+
+      if (req.access && req.access.isSalesman) {
+        routeFilter.salesmanId = req.access.salesmanId;
+        routeFilter.isActive = true;
+      }
+
       const routes =
-        await RouteMaster.find({
-          farmId: req.user.farmId,
-        })
+        await RouteMaster.find(routeFilter)
         .sort({
           createdAt: -1,
         });
@@ -4607,6 +5065,8 @@ app.get(
 app.post(
   "/api/routes",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const {
@@ -4772,6 +5232,8 @@ app.post(
 app.put(
   "/api/routes/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const {
@@ -4924,6 +5386,8 @@ if (
 app.delete(
   "/api/routes/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       // ==================================================
@@ -5044,17 +5508,17 @@ app.delete(
 app.get(
   "/api/products",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission(
+    "productsView",
+    "allocationView",
+    "salesView",
+    "salesCreate",
+    "returnsManage",
+    "purchaseView"
+  ),
   async (req, res) => {
     try {
-
-      if (req.user.role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Product master is available only to admin.",
-        });
-      }
-
       const products =
         await Product.find({
           farmId:
@@ -5100,6 +5564,8 @@ app.get(
 app.post(
   "/api/products",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const {
@@ -5225,6 +5691,8 @@ app.post(
 app.put(
   "/api/products/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const {
@@ -5333,6 +5801,8 @@ app.put(
 app.delete(
   "/api/products/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       // ----------------------------------------------
@@ -5494,6 +5964,8 @@ app.delete(
 app.get(
   "/api/suppliers",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("suppliersView", "purchaseView"),
   async (req, res) => {
     try {
       const suppliers =
@@ -5531,6 +6003,8 @@ app.get(
 app.post(
   "/api/suppliers",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const {
@@ -5643,6 +6117,8 @@ app.post(
 app.put(
   "/api/suppliers/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const supplier =
@@ -5744,6 +6220,8 @@ app.put(
 app.delete(
   "/api/suppliers/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
 
@@ -5857,6 +6335,8 @@ app.delete(
 app.get(
   "/api/purchases",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("purchaseView"),
   async (req, res) => {
     try {
       const purchases =
@@ -5904,6 +6384,8 @@ app.get(
 app.post(
   "/api/purchases",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     const session =
@@ -6362,6 +6844,8 @@ app.post(
 app.put(
   "/api/purchases/:id",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     const session =
@@ -7058,6 +7542,8 @@ app.put(
 app.put(
   "/api/purchases/:id/cancel",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     const session =
@@ -7335,6 +7821,8 @@ app.put(
 app.get(
   "/api/customer-rates/:customerId",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("customerRatesManage", "salesCreate", "salesView"),
   async (req, res) => {
     try {
       const farmId = req.user.farmId;
@@ -7362,6 +7850,21 @@ app.get(
           success: false,
           message: "Customer not found.",
         });
+      }
+
+      if (req.access && req.access.isSalesman) {
+        const salesmanRoute = await RouteMaster.findOne({
+          farmId: farmId,
+          routeName: customer.route,
+          salesmanId: req.access.salesmanId,
+          isActive: true,
+        });
+        if (!salesmanRoute) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only view rates for customers on your assigned routes.",
+          });
+        }
       }
 
 
@@ -7500,6 +8003,8 @@ app.get(
 app.post(
   "/api/customer-rates",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("customerRatesManage"),
   async (req, res) => {
     try {
 
@@ -7568,6 +8073,21 @@ app.post(
           message:
             "Selected customer not found.",
         });
+      }
+
+      if (req.access && req.access.isSalesman) {
+        const salesmanRoute = await RouteMaster.findOne({
+          farmId: farmId,
+          routeName: customer.route,
+          salesmanId: req.access.salesmanId,
+          isActive: true,
+        });
+        if (!salesmanRoute) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only manage rates for customers on your assigned routes.",
+          });
+        }
       }
 
 
@@ -7773,6 +8293,8 @@ app.post(
 app.get(
   "/api/sales",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("salesView"),
   async (req, res) => {
 
     try {
@@ -7919,6 +8441,8 @@ if (customerId) {
 app.post(
   "/api/sales",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("salesCreate"),
   async (req, res) => {
 
     const session =
@@ -9194,6 +9718,8 @@ products:
 app.put(
   "/api/sales/:id",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("salesCreate"),
   async (req, res) => {
     const session =
       await mongoose.startSession();
@@ -10404,6 +10930,8 @@ sale.products =
 app.put(
   "/api/sales/:id/cancel",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("salesCreate"),
   async (req, res) => {
 
     const session =
@@ -11035,6 +11563,8 @@ async function getSoldQuantityForAllocation({
 app.get(
   "/api/allocations",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("allocationView", "returnsManage"),
   async (req, res) => {
 
     try {
@@ -11751,6 +12281,8 @@ creditSales:
 app.get(
   "/api/allocations/:allocationId",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("allocationView", "returnsManage"),
   async (req, res) => {
     try {
       const farmId =
@@ -11941,6 +12473,8 @@ app.get(
 app.post(
   "/api/allocations",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
 
     const session =
@@ -12649,6 +13183,8 @@ const allocation =
 app.put(
   "/api/allocations/:allocationId",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     const session =
       await mongoose.startSession();
@@ -13634,6 +14170,8 @@ app.put(
 app.put(
   "/api/allocations/:allocationId/cancel",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     const session =
       await mongoose.startSession();
@@ -13989,6 +14527,8 @@ app.put(
 app.put(
   "/api/allocations/:allocationId/return",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("returnsManage"),
   async (req, res) => {
 
     const session =
@@ -14779,6 +15319,8 @@ await StockTransaction.create(
 app.get(
   "/api/salesman-stock/my",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("salesCreate", "salesView", "allocationView"),
   async (req, res) => {
 
     try {
@@ -15190,6 +15732,15 @@ if (
 app.get(
   "/api/stock",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission(
+    "productsView",
+    "allocationView",
+    "salesView",
+    "salesCreate",
+    "returnsManage",
+    "purchaseView"
+  ),
   async (req, res) => {
     try {
       const stock =
@@ -15279,6 +15830,8 @@ async function getCurrentSalesmanForCollection(
 app.get(
   "/api/collections/outstanding",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("collectionView", "collectionCreate"),
   async (req, res) => {
 
     try {
@@ -16292,6 +16845,8 @@ else {
 app.post(
   "/api/collections",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("collectionCreate"),
   async (req, res) => {
     try {
       const farmId =
@@ -16388,6 +16943,21 @@ app.post(
           message:
             "Customer not found.",
         });
+      }
+
+      if (req.access && req.access.isSalesman) {
+        const salesmanRoute = await RouteMaster.findOne({
+          farmId: farmId,
+          routeName: customer.route,
+          salesmanId: req.access.salesmanId,
+          isActive: true,
+        });
+        if (!salesmanRoute) {
+          return res.status(403).json({
+            success: false,
+            message: "You can only record collections for customers on your assigned routes.",
+          });
+        }
       }
 
 
@@ -17046,6 +17616,8 @@ app.post(
 app.get(
   "/api/collections",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("collectionView"),
   async (req, res) => {
 
     try {
@@ -17289,6 +17861,8 @@ app.get(
 app.put(
   "/api/collections/:collectionId/cancel",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("collectionCreate"),
   async (req, res) => {
 
     try {
@@ -17469,24 +18043,12 @@ app.put(
 app.get(
   "/api/payments/outstanding",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("paymentsView"),
   async (req, res) => {
     try {
       const farmId =
         req.user.farmId;
-
-      // ================================================
-      // PAYMENT IS CURRENTLY ADMIN SIDE
-      // ================================================
-
-      if (
-        req.user.role !== "admin"
-      ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Only admin can view supplier payments.",
-        });
-      }
 
       // ================================================
       // LOAD CREDIT PURCHASES
@@ -17747,20 +18309,12 @@ app.get(
 app.post(
   "/api/payments",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const farmId =
         req.user.farmId;
-
-      if (
-        req.user.role !== "admin"
-      ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Only admin can record supplier payments.",
-        });
-      }
 
       const {
         supplierId,
@@ -18084,20 +18638,12 @@ app.post(
 app.get(
   "/api/payments",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("paymentsView"),
   async (req, res) => {
     try {
       const farmId =
         req.user.farmId;
-
-      if (
-        req.user.role !== "admin"
-      ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Only admin can view supplier payments.",
-        });
-      }
 
       const filter = {
         farmId,
@@ -18214,20 +18760,12 @@ app.get(
 app.put(
   "/api/payments/:paymentId/cancel",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
       const farmId =
         req.user.farmId;
-
-      if (
-        req.user.role !== "admin"
-      ) {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Only admin can cancel supplier payments.",
-        });
-      }
 
       const paymentId =
         (
@@ -18309,6 +18847,8 @@ app.put(
 app.get(
   "/api/ledger",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("ledgerView"),
   async (req, res) => {
     try {
       const farmId =
@@ -18382,6 +18922,21 @@ app.get(
           });
         }
 
+        if (req.access && req.access.isSalesman) {
+          const salesmanRoute = await RouteMaster.findOne({
+            farmId: farmId,
+            routeName: customer.route,
+            salesmanId: req.access.salesmanId,
+            isActive: true,
+          });
+          if (!salesmanRoute) {
+            return res.status(403).json({
+              success: false,
+              message: "You can only view ledger for customers on your assigned routes.",
+            });
+          }
+        }
+
 
         // ----------------------------------------------
         // CREDIT SALES ONLY
@@ -18403,7 +18958,27 @@ const sales =
       "POSTED",
   })
     .select(
-  "saleId saleNo saleDate grandTotal paymentMode payments paidAmount outstandingAmount paymentStatus"
+  [
+    "saleId",
+    "saleNo",
+    "saleDate",
+    "customerId",
+    "customerName",
+    "grandTotal",
+    "totalQuantity",
+
+    "paymentMode",
+    "payments",
+    "paidAmount",
+    "outstandingAmount",
+    "paymentStatus",
+
+    "products",
+
+    "salesmanId",
+    "salesmanName",
+    "createdRole",
+  ].join(" ")
 )
     .lean();
 
@@ -18422,16 +18997,34 @@ const sales =
             status:
               "POSTED",
           })
-            .select(
-              "collectionId receiptNo collectionDate amount paymentMode referenceNo"
-            )
+          .select(
+  [
+    "collectionId",
+    "receiptNo",
+    "collectionDate",
+    "amount",
+    "paymentMode",
+    "referenceNo",
+    "salesmanId",
+    "salesmanName",
+    "allocations",
+  ].join(" ")
+)
             .lean();
 
 
         const entries = [];
 
-        let totalDebit = 0;
-        let totalCredit = 0;
+     let totalDebit = 0;
+let totalCredit = 0;
+
+let totalSales = 0;
+let totalPaidAtBilling = 0;
+
+let totalCash = 0;
+let totalUpi = 0;
+let totalBank = 0;
+let totalOther = 0;
 
 
         // ----------------------------------------------
@@ -18464,6 +19057,79 @@ for (
         sale.paidAmount
       ) || 0
     );
+
+    // ==================================================
+// SALES SUMMARY TOTAL
+// ==================================================
+
+totalSales +=
+  billAmount;
+
+totalPaidAtBilling +=
+  paidAmount;
+
+
+// ==================================================
+// PAYMENT BREAKUP AT BILLING
+// CASH / UPI / BANK
+// ==================================================
+
+const salePayments =
+  Array.isArray(
+    sale.payments
+  )
+    ? sale.payments
+    : [];
+
+for (
+  const payment of
+  salePayments
+) {
+  const mode =
+    (
+      payment.mode ||
+      payment.paymentMode ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toLowerCase();
+
+  const paymentAmount =
+    Math.max(
+      0,
+      Number(
+        payment.amount
+      ) || 0
+    );
+
+  if (
+    mode === "cash"
+  ) {
+    totalCash +=
+      paymentAmount;
+  }
+
+  else if (
+    mode === "upi"
+  ) {
+    totalUpi +=
+      paymentAmount;
+  }
+
+  else if (
+    mode === "bank transfer" ||
+    mode === "bank"
+  ) {
+    totalBank +=
+      paymentAmount;
+  }
+
+  else {
+    totalOther +=
+      paymentAmount;
+  }
+}
 
   let outstandingAmount =
     Number(
@@ -18554,58 +19220,101 @@ for (
 
 
   entries.push({
-    id:
-      sale.saleId,
+  id: sale.saleId,
 
-    referenceNo:
-      sale.saleNo,
+  referenceNo: sale.saleNo,
 
-    date:
-      sale.saleDate,
+  date: sale.saleDate,
 
-    type:
-      "SALE",
+  type: "SALE",
 
-    title:
-      title,
+  title: title,
 
-    amount:
-      billAmount,
+  amount: billAmount,
 
-    debit:
-      outstandingAmount,
+  debit: outstandingAmount,
 
-    credit:
-      0,
+  credit: 0,
 
-    billAmount:
-      billAmount,
+  // ==================================================
+  // BILL INFORMATION
+  // ==================================================
 
-    paidAmount:
-      paidAmount,
+  billAmount: billAmount,
 
-    outstandingAmount:
-      outstandingAmount,
+  totalQuantity:
+    Number(sale.totalQuantity) || 0,
 
-    paymentStatus:
-      paymentStatus,
+  // ==================================================
+  // PAYMENT INFORMATION
+  // ==================================================
 
-    paymentMode:
-      paymentMode,
+  paidAmount: paidAmount,
 
-    payments:
-      Array.isArray(
-        sale.payments
-      )
-        ? sale.payments
-        : [],
+  outstandingAmount:
+    outstandingAmount,
 
-    reference:
-      "",
+  paymentStatus:
+    paymentStatus,
 
-    affectsBalance:
-      outstandingAmount > 0,
-  });
+  paymentMode:
+    paymentMode,
+
+  payments:
+    Array.isArray(sale.payments)
+      ? sale.payments
+      : [],
+
+  // ==================================================
+  // SALESMAN INFORMATION
+  // ==================================================
+
+  salesmanId:
+    sale.salesmanId || "",
+
+  salesmanName:
+    sale.salesmanName ||
+    (
+      sale.createdRole === "admin"
+        ? "Admin"
+        : ""
+    ),
+
+  // ==================================================
+  // PRODUCTS
+  // ==================================================
+
+  products:
+    Array.isArray(sale.products)
+      ? sale.products.map((product) => ({
+          productId:
+            product.productId || "",
+
+          productName:
+            product.productName || "",
+
+          variant:
+            product.variant || "",
+
+          unit:
+            product.unit || "",
+
+          quantity:
+            Number(product.quantity) || 0,
+
+          rate:
+            Number(product.rate) || 0,
+
+          amount:
+            Number(product.amount) || 0,
+        }))
+      : [],
+
+  reference: "",
+
+  affectsBalance:
+    outstandingAmount > 0,
+});
 }
 
         // ----------------------------------------------
@@ -18623,6 +19332,48 @@ for (
 
           totalCredit +=
             amount;
+            // ==================================================
+// COLLECTION PAYMENT MODE BREAKUP
+// ==================================================
+
+const collectionMode =
+  (
+    collection.paymentMode ||
+    ""
+  )
+    .toString()
+    .trim()
+    .toLowerCase();
+
+if (
+  collectionMode === "cash"
+) {
+  totalCash +=
+    amount;
+}
+
+else if (
+  collectionMode === "upi" ||
+  collectionMode === "phonepe" ||
+  collectionMode === "google pay" ||
+  collectionMode === "paytm"
+) {
+  totalUpi +=
+    amount;
+}
+
+else if (
+  collectionMode === "bank transfer" ||
+  collectionMode === "bank"
+) {
+  totalBank +=
+    amount;
+}
+
+else {
+  totalOther +=
+    amount;
+}
 entries.push({
   id:
     collection.collectionId,
@@ -18649,12 +19400,21 @@ entries.push({
     amount,
 
   paymentMode:
-    collection.paymentMode ||
-    "",
+    collection.paymentMode || "",
 
   reference:
-    collection.referenceNo ||
-    "",
+    collection.referenceNo || "",
+
+  salesmanId:
+    collection.salesmanId || "",
+
+  salesmanName:
+    collection.salesmanName || "",
+
+  allocations:
+    Array.isArray(collection.allocations)
+      ? collection.allocations
+      : [],
 });
         }
 
@@ -18719,28 +19479,120 @@ entries.push({
               customer.route ||
               "",
 
-            totalDebit:
-              Number(
-                totalDebit
-                  .toFixed(2)
-              ),
+ // ==================================================
+// OLD LEDGER TOTALS
+// KEEP FOR EXISTING FLUTTER COMPATIBILITY
+// ==================================================
 
-            totalCredit:
-              Number(
-                totalCredit
-                  .toFixed(2)
-              ),
+totalDebit:
+  Number(
+    totalDebit
+      .toFixed(2)
+  ),
 
-            balance:
-              Number(
-                (
-                  totalDebit -
-                  totalCredit
-                ).toFixed(2)
-              ),
+totalCredit:
+  Number(
+    totalCredit
+      .toFixed(2)
+  ),
 
-            transactions:
-              entries.reverse(),
+
+// ==================================================
+// COMPLETE CUSTOMER SALES SUMMARY
+// ==================================================
+
+totalSales:
+  Number(
+    totalSales
+      .toFixed(2)
+  ),
+
+totalPaidAtBilling:
+  Number(
+    totalPaidAtBilling
+      .toFixed(2)
+  ),
+
+totalCollections:
+  Number(
+    totalCredit
+      .toFixed(2)
+  ),
+
+totalReceived:
+  Number(
+    (
+      totalPaidAtBilling +
+      totalCredit
+    ).toFixed(2)
+  ),
+
+
+// ==================================================
+// OUTSTANDING
+// ==================================================
+
+balance:
+  Number(
+    (
+      totalDebit -
+      totalCredit
+    ).toFixed(2)
+  ),
+
+outstanding:
+  Number(
+    (
+      totalDebit -
+      totalCredit
+    ).toFixed(2)
+  ),
+
+
+// ==================================================
+// PAYMENT MODE BREAKUP
+// ==================================================
+
+paymentBreakup: {
+
+  cash:
+    Number(
+      totalCash
+        .toFixed(2)
+    ),
+
+  online:
+    Number(
+      totalUpi
+        .toFixed(2)
+    ),
+
+  upi:
+    Number(
+      totalUpi
+        .toFixed(2)
+    ),
+
+  bank:
+    Number(
+      totalBank
+        .toFixed(2)
+    ),
+
+  other:
+    Number(
+      totalOther
+        .toFixed(2)
+    ),
+},
+
+
+// ==================================================
+// LEDGER ENTRIES
+// ==================================================
+
+transactions:
+  entries.reverse(),
           },
         });
       }
@@ -18750,6 +19602,13 @@ entries.push({
       // SUPPLIER LEDGER
       // CREDIT PURCHASES + PAYMENTS
       // ==================================================
+
+      if (!req.access || !req.access.isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "Only admin can view supplier ledger.",
+        });
+      }
 
       const supplier =
         await Supplier.findOne({
@@ -19048,6 +19907,8 @@ entries.push({
 app.get(
   "/api/reports/sales",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
   async (req, res) => {
     try {
 
@@ -19223,8 +20084,11 @@ app.get(
       if (
         role === "salesman"
       ) {
-        saleFilter.salesmanId =
-          userId;
+        const sid = (req.access && req.access.salesmanId) ? req.access.salesmanId : userId;
+        saleFilter.$or = [
+          { salesmanId: sid },
+          { createdBy: userId },
+        ];
       }
 
 
@@ -20148,6 +21012,8 @@ app.get(
 app.get(
   "/api/reports/purchase",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
   async (req, res) => {
     try {
 
@@ -21333,6 +22199,8 @@ app.get(
 app.get(
   "/api/reports/stock",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
   async (req, res) => {
     try {
 
@@ -22566,6 +23434,8 @@ app.get(
 app.get(
   "/api/reports/outstanding",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
   async (req, res) => {
     try {
 
@@ -23852,6 +24722,8 @@ app.get(
 app.get(
   "/api/reports/trends",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
   async (req, res) => {
     try {
 
@@ -25115,6 +25987,8 @@ app.get(
 app.get(
   "/api/expenses",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("expensesView"),
   async (req, res) => {
     try {
       const farmId =
@@ -25186,6 +26060,8 @@ app.get(
 app.post(
   "/api/expenses",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("expensesView"),
   async (req, res) => {
     try {
       const farmId =
@@ -25402,6 +26278,8 @@ app.post(
 app.put(
   "/api/expenses/:id/cancel",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("expensesView"),
   async (req, res) => {
     try {
       const farmId =
@@ -25528,6 +26406,8 @@ app.put(
 app.get(
   "/api/reports/operations",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
   async (req, res) => {
     try {
       const farmId =
@@ -26733,6 +27613,7 @@ app.get(
 app.get(
   "/api/dashboard/summary",
   authenticateToken,
+  loadAccessContext,
   async (req, res) => {
     try {
       const farmId =
@@ -27700,6 +28581,7 @@ if (salesman) {
 app.get(
   "/api/profile",
   authenticateToken,
+  loadAccessContext,
   async (req, res) => {
     try {
       const {
@@ -27726,11 +28608,22 @@ app.get(
     farmId,
   })
     .select(
-      "_id role farmId salesmanId name mobile email username businessName permissions isActive"
+      "_id role farmId salesmanId name mobile email username businessName permissions permissionMode isActive"
     )
     .lean();
 
   if (user) {
+    const farmAdmin = await Register.findOne({
+      farmId,
+      isActive: true,
+    }).select("salesmanDefaultPermissions").lean();
+
+    user.permissionMode =
+      user.permissionMode ||
+      (Array.isArray(user.permissions) && user.permissions.length > 0
+        ? "custom"
+        : "inherit");
+    user.permissions = getEffectiveSalesmanPermissions(user, farmAdmin);
 
     const route =
       await RouteMaster.findOne({
@@ -27794,6 +28687,7 @@ app.get(
 app.put(
   "/api/profile",
   authenticateToken,
+  loadAccessContext,
   async (req, res) => {
     try {
       const {
@@ -28029,6 +28923,7 @@ app.put(
 app.put(
   "/api/profile/password",
   authenticateToken,
+  loadAccessContext,
   async (req, res) => {
     try {
       const {
@@ -28154,19 +29049,13 @@ app.put(
 app.put(
   "/api/salesmen/:salesmanId",
   authenticateToken,
+  loadAccessContext,
+  requireAdmin,
   async (req, res) => {
     try {
 
-      if (req.user.role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          message:
-            "Only administrator can update salesman.",
-        });
-      }
-
       const farmId =
-        req.user.farmId;
+        req.access.farmId;
 
       const salesmanId =
         req.params.salesmanId
@@ -28368,6 +29257,8 @@ app.put(
 app.get(
   "/api/purchases/:id",
   authenticateToken,
+  loadAccessContext,
+  requirePermission("purchaseView"),
   async (req, res) => {
     try {
       const farmId = req.user.farmId;
@@ -28415,6 +29306,8 @@ app.get(
 app.get(
   "/api/allocations/:allocationId",
   authenticateToken,
+  loadAccessContext,
+  requireAnyPermission("allocationView", "returnsManage"),
   async (req, res) => {
     try {
       const farmId = req.user.farmId;
@@ -28496,6 +29389,7 @@ app.get(
 app.get(
   "/api/dashboard/salesman-performance",
   authenticateToken,
+  loadAccessContext,
   async (req, res) => {
     try {
       const farmId = req.user.farmId;

@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 import '../returns/return_settlement_screen.dart';
 import 'assign_allocation_page.dart';
 
@@ -72,39 +75,53 @@ Map<String, String> get _apiHeaders {
     'Authorization': 'Bearer ${ApiConfig.token}',
   };
 }
-Future<void> _loadAllocationData() async {
-  if (_loadingAllocationData) {
-    return;
+  Future<void> _safeLoad(Future<void> Function() loader, String name) async {
+    try {
+      await loader();
+    } catch (e) {
+      debugPrint('AllocationScreen: Optional load of $name failed: $e');
+    }
   }
 
-  setState(() {
-    _loadingAllocationData = true;
-  });
-
-  try {
-    await Future.wait([
-      _loadSalesmen(),
-      _loadRoutes(),
-      _loadProducts(),
-      _loadCustomers(),
-      _loadAllocations(),
-    ]);
-  } catch (error) {
-    if (!mounted) {
+  Future<void> _loadAllocationData() async {
+    if (_loadingAllocationData) {
       return;
     }
 
-    _showApiMessage(
-      'Unable to load allocation data: $error',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _loadingAllocationData = false;
-      });
+    setState(() {
+      _loadingAllocationData = true;
+    });
+
+    try {
+      // 1. ALWAYS load allocations first
+      await _loadAllocations();
+
+      // 2. Only if Admin, load supporting master data for Assign/Edit Allocation
+      // Any failure in supporting data must NEVER cancel or clear allocations
+      if (UiSession.instance.role == UserRole.admin) {
+        await Future.wait([
+          _safeLoad(_loadSalesmen, 'salesmen'),
+          _safeLoad(_loadRoutes, 'routes'),
+          _safeLoad(_loadProducts, 'products'),
+          _safeLoad(_loadCustomers, 'customers'),
+        ]);
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      _showApiMessage(
+        'Unable to load allocation data: $error',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingAllocationData = false;
+        });
+      }
     }
   }
-}
 
 Future<void> _loadSalesmen() async {
   final response = await http.get(
@@ -355,11 +372,24 @@ Future<void> _loadCustomers() async {
         allocation['allocationDate'];
 
     if (rawDate != null) {
-      allocationDate =
-          DateTime.tryParse(
-            rawDate.toString(),
-          )?.toLocal() ??
-          DateTime.now();
+      final str = rawDate.toString().trim();
+      final parsed = DateTime.tryParse(str);
+      if (parsed != null) {
+        if (str.length == 10 && !str.contains('T')) {
+          final parts = str.split('-');
+          if (parts.length == 3) {
+            allocationDate = DateTime(
+              int.parse(parts[0]),
+              int.parse(parts[1]),
+              int.parse(parts[2]),
+            );
+          } else {
+            allocationDate = parsed.toLocal();
+          }
+        } else {
+          allocationDate = parsed.toLocal();
+        }
+      }
     }
 
     final products =
@@ -653,6 +683,11 @@ int get _totalPending =>
   // ============================================================
 
 Future<void> _openAssignAllocation() async {
+  if (UiSession.instance.role != UserRole.admin) {
+    _showApiMessage('Only an administrator can assign allocations.');
+    return;
+  }
+
   if (_loadingAllocationData) {
     return;
   }
@@ -721,6 +756,11 @@ AssignAllocationPage(
 Future<void> _cancelAllocation(
   _AllocationGroup group,
 ) async {
+  if (UiSession.instance.role != UserRole.admin) {
+    _showApiMessage('Only an administrator can cancel allocations.');
+    return;
+  }
+
   if (group.items.isEmpty) {
     return;
   }
@@ -898,6 +938,11 @@ Future<void> _cancelAllocation(
 Future<void> _openEditAllocation(
   _AllocationGroup group,
 ) async {
+  if (UiSession.instance.role != UserRole.admin) {
+    _showApiMessage('Only an administrator can edit allocations.');
+    return;
+  }
+
   if (_loadingAllocationData ||
       group.items.isEmpty) {
     return;
@@ -1116,34 +1161,45 @@ Future<void> _openEditAllocation(
 
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(AppPermission.allocationView)) {
+      return const AccessDeniedScreen();
+    }
+
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: PremiumAppBar(
         title: 'Allocation',
         subtitle: 'Daily route and product allocation',
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: IconButton.filled(
-              tooltip: 'Assign allocation',
-              onPressed: _openAssignAllocation,
-              icon: const Icon(Icons.add_rounded),
-            ),
-          ),
-        ],
+        actions: UiSession.instance.role == UserRole.admin
+            ? [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: IconButton.filled(
+                    tooltip: 'Assign allocation',
+                    onPressed: _openAssignAllocation,
+                    icon: const Icon(Icons.add_rounded),
+                  ),
+                ),
+              ]
+            : null,
       ),
       body: SafeArea(
         top: false,
-        child: ListView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 30),
-          children: [
-            _buildDateSelector(),
-            const SizedBox(height: 14),
-            _buildStatistics(),
-            const SizedBox(height: 20),
-            _buildAllocationSection(),
-          ],
+        child: RefreshIndicator(
+          onRefresh: _loadAllocationData,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 30),
+            children: [
+              _buildDateSelector(),
+              const SizedBox(height: 14),
+              _buildStatistics(),
+              const SizedBox(height: 20),
+              _buildAllocationSection(),
+            ],
+          ),
         ),
       ),
     );
@@ -1683,7 +1739,8 @@ for (final item in group.items) {
           iconColor: primaryBlue,
       collapsedIconColor: const Color(0xFF647590),
 
-trailing: PopupMenuButton<String>(
+trailing: UiSession.instance.role == UserRole.admin
+    ? PopupMenuButton<String>(
   tooltip: 'Allocation actions',
   position: PopupMenuPosition.under,
   color: Colors.white,
@@ -1764,7 +1821,8 @@ trailing: PopupMenuButton<String>(
       ),
     ];
   },
-),
+)
+    : null,
 
 leading: Container(
             width: 44,
@@ -2103,10 +2161,11 @@ Wrap(
               ),
             ),
           ),
-          SizedBox(
-            width: 34,
-            height: 34,
-            child: PopupMenuButton<String>(
+          if (UiSession.instance.can(AppPermission.returnsManage))
+            SizedBox(
+              width: 34,
+              height: 34,
+              child: PopupMenuButton<String>(
               padding: EdgeInsets.zero,
               tooltip: '',
               position: PopupMenuPosition.under,
@@ -2448,20 +2507,22 @@ _summaryLine(
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 14),
-          ElevatedButton.icon(
-            onPressed: _openAssignAllocation,
-            icon: const Icon(Icons.add_rounded, size: 18),
-            label: const Text('Assign Allocation'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryBlue,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          if (UiSession.instance.role == UserRole.admin) ...[
+            const SizedBox(height: 14),
+            ElevatedButton.icon(
+              onPressed: _openAssignAllocation,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Assign Allocation'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryBlue,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

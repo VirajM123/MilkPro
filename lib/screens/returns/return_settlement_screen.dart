@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
+import '../common/access_denied_screen.dart';
 
 
 class ReturnSettlementScreen extends StatefulWidget {
@@ -603,6 +606,10 @@ List<Map<String, dynamic>>
 
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(AppPermission.returnsManage)) {
+      return const AccessDeniedScreen();
+    }
+
     if (_selectedAllocation == null) {
       return _buildAllocationSelectionScreen();
     }

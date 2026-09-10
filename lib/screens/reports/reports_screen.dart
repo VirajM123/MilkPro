@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../models/report_model.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/report_demo_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
-import '../../models/report_model.dart';
-import '../../providers/report_demo_provider.dart';
+import '../common/access_denied_screen.dart';
 import 'report_detail_screen.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -149,8 +152,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   List<_ReportGroup> get _visibleGroups {
     final query = _query.trim().toLowerCase();
-    if (query.isEmpty) return _groups;
-    return _groups
+    final canViewPurchase = UiSession.instance.can(AppPermission.purchaseView);
+    final baseGroups = _groups.where((g) {
+      if (g.title == 'Purchase Reports' && !canViewPurchase) return false;
+      return true;
+    }).toList();
+
+    if (query.isEmpty) return baseGroups;
+    return baseGroups
         .map(
           (group) => group.copyWith(
             reports: group.reports
@@ -168,6 +177,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(AppPermission.reportsView)) {
+      return const AccessDeniedScreen();
+    }
     return Scaffold(
       appBar: const PremiumAppBar(
         title: 'Reports',

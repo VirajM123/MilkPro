@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 
 class RoutesScreen extends StatefulWidget {
@@ -138,7 +140,8 @@ void initState() {
         ),
 
         actions: [
-          Padding(
+          if (UiSession.instance.role == UserRole.admin)
+            Padding(
             padding: const EdgeInsets.only(right: 12, top: 9, bottom: 9),
             child: Material(
               color: primaryBlue,
@@ -676,7 +679,8 @@ else
                                     ),
                                   ),
 
-                                  SizedBox(
+                                  if (UiSession.instance.role == UserRole.admin)
+                                    SizedBox(
                                     width: 28,
                                     height: 20,
                                     child: PopupMenuButton<String>(

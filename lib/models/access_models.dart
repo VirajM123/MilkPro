@@ -124,6 +124,7 @@ const permissionGroups = <PermissionGroup>[
     PermissionOption(AppPermission.customersView, 'View customers'),
     PermissionOption(AppPermission.customersCreate, 'Add customer'),
     PermissionOption(AppPermission.customersEdit, 'Edit customer'),
+    PermissionOption(AppPermission.customerRatesManage, 'Customer rates'),
   ]),
   PermissionGroup('Sales', [
     PermissionOption(AppPermission.salesView, 'View sales'),

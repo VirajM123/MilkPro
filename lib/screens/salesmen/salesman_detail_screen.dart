@@ -8,6 +8,7 @@ import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import 'manage_access_screen.dart';
 
@@ -669,6 +670,10 @@ class _SalesmanDetailScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (UiSession.instance.role != UserRole.admin) {
+      return const AccessDeniedScreen();
+    }
+
     return Scaffold(
       appBar: const PremiumAppBar(
         title: 'Salesman Details',

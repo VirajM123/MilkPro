@@ -5,7 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 import '../common/simple_screen_widgets.dart';
 
 class ExpensesScreen extends StatefulWidget {
@@ -375,6 +378,9 @@ class _ExpensesScreenState
   Widget build(
     BuildContext context,
   ) {
+    if (!UiSession.instance.can(AppPermission.expensesView)) {
+      return const AccessDeniedScreen();
+    }
     return SimpleModuleScaffold(
       title: 'Expenses',
 

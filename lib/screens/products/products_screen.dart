@@ -9,6 +9,7 @@ import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 
 enum _StockFilter { all, available, low }
 
@@ -512,6 +513,10 @@ Future<void> _loadProducts() async {
 }
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(AppPermission.productsView)) {
+      return const AccessDeniedScreen();
+    }
+
   final categories = <String>{
   'All',
   ..._productList

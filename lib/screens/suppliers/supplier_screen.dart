@@ -5,7 +5,10 @@
   import 'package:http/http.dart' as http;
 
   import '../../config/api_config.dart';
+  import '../../models/access_models.dart';
+  import '../../providers/auth_provider.dart';
   import '../../theme/app_colors.dart';
+  import '../common/access_denied_screen.dart';
 
   class SupplierScreen extends StatefulWidget {
     const SupplierScreen({super.key});
@@ -185,6 +188,11 @@
     // ============================================================
 
     Future<void> _showAddSupplierDialog() async {
+      if (UiSession.instance.role != UserRole.admin) {
+        _showMessage('Only an administrator can add suppliers.');
+        return;
+      }
+
       final result =
           await showDialog<SupplierItem>(
         context: context,
@@ -269,6 +277,11 @@
     Future<void> _showEditSupplierDialog(
       SupplierItem supplier,
     ) async {
+      if (UiSession.instance.role != UserRole.admin) {
+        _showMessage('Only an administrator can edit suppliers.');
+        return;
+      }
+
       final result =
           await showDialog<SupplierItem>(
         context: context,
@@ -365,6 +378,11 @@
 Future<void> _confirmDeleteSupplier(
   SupplierItem supplier,
 ) async {
+  if (UiSession.instance.role != UserRole.admin) {
+    _showMessage('Only an administrator can delete suppliers.');
+    return;
+  }
+
   if (supplier.id.isEmpty) {
     _showMessage(
       'Supplier database ID is missing.',
@@ -492,6 +510,14 @@ Future<void> _deleteSupplier(
 
     @override
     Widget build(BuildContext context) {
+      final canView = UiSession.instance.can(AppPermission.suppliersView) ||
+          UiSession.instance.can(AppPermission.purchaseView);
+      if (!canView) {
+        return const AccessDeniedScreen();
+      }
+
+      final isAdmin = UiSession.instance.role == UserRole.admin;
+
       return Scaffold(
         backgroundColor:
             AppColors.background,
@@ -538,37 +564,39 @@ Future<void> _deleteSupplier(
             ],
           ),
 
-          actions: [
-            Padding(
-              padding:
-                  const EdgeInsets.only(
-                right: 12,
-              ),
-              child:
-                  ElevatedButton.icon(
-                onPressed:
-                    _showAddSupplierDialog,
+          actions: isAdmin
+              ? [
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(
+                      right: 12,
+                    ),
+                    child:
+                        ElevatedButton.icon(
+                      onPressed:
+                          _showAddSupplierDialog,
 
-                icon: const Icon(
-                  Icons.add_rounded,
-                  size: 18,
-                ),
+                      icon: const Icon(
+                        Icons.add_rounded,
+                        size: 18,
+                      ),
 
-                label: const Text(
-                  'Add',
-                ),
+                      label: const Text(
+                        'Add',
+                      ),
 
-                style:
-                    ElevatedButton.styleFrom(
-                  backgroundColor:
-                      AppColors.primary,
-                  foregroundColor:
-                      Colors.white,
-                  elevation: 0,
-                ),
-              ),
-            ),
-          ],
+                      style:
+                          ElevatedButton.styleFrom(
+                        backgroundColor:
+                            AppColors.primary,
+                        foregroundColor:
+                            Colors.white,
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ]
+              : null,
         ),
 
         body: RefreshIndicator(
@@ -957,7 +985,8 @@ Future<void> _deleteSupplier(
                         ),
                       ),
 
-               Row(
+               if (UiSession.instance.role == UserRole.admin)
+                 Row(
   mainAxisSize:
       MainAxisSize.min,
   children: [
@@ -1138,20 +1167,22 @@ Future<void> _deleteSupplier(
               ),
             ),
 
-            const SizedBox(height: 15),
+            if (UiSession.instance.role == UserRole.admin) ...[
+              const SizedBox(height: 15),
 
-            ElevatedButton.icon(
-              onPressed:
-                  _showAddSupplierDialog,
-              icon:
-                  const Icon(
-                Icons.add_rounded,
+              ElevatedButton.icon(
+                onPressed:
+                    _showAddSupplierDialog,
+                icon:
+                    const Icon(
+                  Icons.add_rounded,
+                ),
+                label:
+                    const Text(
+                  'Add Supplier',
+                ),
               ),
-              label:
-                  const Text(
-                'Add Supplier',
-              ),
-            ),
+            ],
           ],
         ),
       );

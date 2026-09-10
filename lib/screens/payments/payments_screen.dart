@@ -5,7 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 import '../common/simple_screen_widgets.dart';
 
 class PaymentsScreen extends StatefulWidget {
@@ -738,6 +741,10 @@ Future<void> _cancelPayment(_PaymentEntry payment) async {
   Widget build(
     BuildContext context,
   ) {
+    if (!UiSession.instance.can(AppPermission.paymentsView)) {
+      return const AccessDeniedScreen();
+    }
+
     final payableSuppliers =
         _suppliers
             .where(
@@ -842,9 +849,10 @@ Future<void> _cancelPayment(_PaymentEntry payment) async {
             ),
           )
         else ...[
-          SimpleSection(
-            title:
-                'Pay Supplier',
+          if (UiSession.instance.role == UserRole.admin) ...[
+            SimpleSection(
+              title:
+                  'Pay Supplier',
             child: Form(
               key: _formKey,
               child: Column(
@@ -1170,6 +1178,7 @@ Future<void> _cancelPayment(_PaymentEntry payment) async {
           const SizedBox(
             height: 16,
           ),
+        ],
 
           const Text(
             'Recent supplier payments',
@@ -1311,7 +1320,8 @@ Future<void> _cancelPayment(_PaymentEntry payment) async {
       ),
     ),
 
-    if (item.status.toUpperCase() != 'CANCELLED')
+    if (UiSession.instance.role == UserRole.admin &&
+        item.status.toUpperCase() != 'CANCELLED')
       PopupMenuButton<String>(
         padding: EdgeInsets.zero,
         iconSize: 20,

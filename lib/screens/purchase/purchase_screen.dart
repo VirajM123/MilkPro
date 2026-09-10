@@ -5,7 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
+import '../common/access_denied_screen.dart';
 
 class PurchaseScreen extends StatefulWidget {
   const PurchaseScreen({super.key});
@@ -1170,6 +1173,10 @@ Future<void> _savePurchase() async {
 
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(AppPermission.purchaseView)) {
+      return const AccessDeniedScreen();
+    }
+
     if (!_isCreatingPurchase) return _buildPurchaseHistory();
 
     return _buildPurchaseForm();
@@ -1363,40 +1370,42 @@ Future<void> _savePurchase() async {
             ..._savedPurchases.map(_buildSavedPurchaseCard),
         ],
       ),
-      floatingActionButton: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Material(
-            color: Colors.white,
-            elevation: 5,
-            borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              onTap: _openNewPurchase,
-              borderRadius: BorderRadius.circular(12),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 17, vertical: 14),
-                child: Text(
-                  'New Purchase',
-                  style: TextStyle(
-                    color: primaryBlue,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
+      floatingActionButton: UiSession.instance.role != UserRole.admin
+          ? null
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Material(
+                  color: Colors.white,
+                  elevation: 5,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    onTap: _openNewPurchase,
+                    borderRadius: BorderRadius.circular(12),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 17, vertical: 14),
+                      child: Text(
+                        'New Purchase',
+                        style: TextStyle(
+                          color: primaryBlue,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 10),
+                FloatingActionButton(
+                  heroTag: 'new-purchase',
+                  onPressed: _openNewPurchase,
+                  backgroundColor: primaryBlue,
+                  foregroundColor: Colors.white,
+                  shape: const CircleBorder(),
+                  child: const Icon(Icons.add_rounded, size: 33),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 10),
-          FloatingActionButton(
-            heroTag: 'new-purchase',
-            onPressed: _openNewPurchase,
-            backgroundColor: primaryBlue,
-            foregroundColor: Colors.white,
-            shape: const CircleBorder(),
-            child: const Icon(Icons.add_rounded, size: 33),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1609,8 +1618,7 @@ Widget _buildSavedPurchaseCard(
                     width: 8,
                   ),
 
-                  if (!purchase
-                      .isCancelled)
+                  if (UiSession.instance.role == UserRole.admin && !purchase.isCancelled)
                     InkWell(
                       onTap: () {
                         _editPurchase(
@@ -1639,14 +1647,12 @@ Widget _buildSavedPurchaseCard(
                       ),
                     ),
 
-                  if (!purchase
-                      .isCancelled)
+                  if (UiSession.instance.role == UserRole.admin && !purchase.isCancelled)
                     const SizedBox(
                       width: 8,
                     ),
 
-                  if (!purchase
-                      .isCancelled)
+                  if (UiSession.instance.role == UserRole.admin && !purchase.isCancelled)
                     InkWell(
                       onTap: () {
                         _cancelPurchase(

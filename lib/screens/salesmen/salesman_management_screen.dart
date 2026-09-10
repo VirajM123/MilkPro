@@ -5,8 +5,11 @@ import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
+import 'common_salesman_access_screen.dart';
 import 'manage_access_screen.dart';
 import 'salesman_detail_screen.dart';
 
@@ -31,8 +34,7 @@ class _SalesmanManagementScreenState
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (ApiConfig.token != null &&
-            ApiConfig.token!.isNotEmpty)
+        if (ApiConfig.token.isNotEmpty)
           'Authorization': 'Bearer ${ApiConfig.token}',
       };
 
@@ -216,6 +218,10 @@ class _SalesmanManagementScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (UiSession.instance.role != UserRole.admin) {
+      return const AccessDeniedScreen();
+    }
+
     final all = _salesmen;
 
     return Scaffold(
@@ -231,6 +237,8 @@ class _SalesmanManagementScreenState
           padding:
               const EdgeInsets.fromLTRB(16, 8, 16, 28),
           children: [
+            _commonAccessCard(),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
@@ -296,6 +304,77 @@ class _SalesmanManagementScreenState
             else
               ..._filtered.map(_card),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _commonAccessCard() {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: AppColors.primary.withValues(alpha: 0.18),
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () async {
+          final bool? updated = await Navigator.of(context).push<bool>(
+            MaterialPageRoute<bool>(
+              builder: (_) => const CommonSalesmanAccessScreen(),
+            ),
+          );
+          if (updated == true && mounted) {
+            _loadSalesmen();
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: AppColors.primarySoft,
+                foregroundColor: AppColors.primary,
+                child: const Icon(
+                  Icons.shield_outlined,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'COMMON SALESMAN ACCESS',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Default access for salesmen using inherited permissions',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Manage >',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

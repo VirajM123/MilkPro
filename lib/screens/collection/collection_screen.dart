@@ -6,6 +6,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
 import '../allocation/allocation_screen.dart';
@@ -968,7 +970,7 @@ Widget _collectionBillCard(
         // ACTIONS
         // ==========================================
 
-        if (!isPaid)
+        if (!isPaid && UiSession.instance.can(AppPermission.collectionCreate))
           SizedBox(
             width:
                 double.infinity,
@@ -1582,6 +1584,14 @@ void _showBillDetails(
   }
 
   void _showCollectionEntry(_CustomerCollection customer) {
+    if (!UiSession.instance.can(AppPermission.collectionCreate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You do not have permission to record collections.'),
+        ),
+      );
+      return;
+    }
     final amountController = TextEditingController();
     String paymentMode = 'Cash';
     showModalBottomSheet<void>(

@@ -9,7 +9,6 @@ import '../../theme/app_colors.dart';
 import '../../models/access_models.dart';
 import '../../models/sale_model.dart';
 import '../../providers/auth_provider.dart';
-import '../returns/return_settlement_screen.dart';
 import 'sales_bill_preview_screen.dart';
 
 class SalesScreen extends StatefulWidget {
@@ -3037,6 +3036,9 @@ _paymentMode =
   }
 
   Widget _buildCreateSaleAction() {
+    if (!UiSession.instance.can(AppPermission.salesCreate)) {
+      return const SizedBox.shrink();
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -3077,6 +3079,10 @@ _paymentMode =
   }
 
   Future<void> _editSale(SaleModel sale) async {
+    if (!UiSession.instance.can(AppPermission.salesCreate)) {
+      _showMessage('You do not have permission to edit sales.');
+      return;
+    }
     if (sale.isCancelled) {
       _showMessage('Cancelled sale cannot be edited.');
       return;
@@ -3234,6 +3240,10 @@ _paymentMode =
   }
 
   void _openCreateSale() {
+    if (!UiSession.instance.can(AppPermission.salesCreate)) {
+      _showMessage('You do not have permission to create sales.');
+      return;
+    }
     setState(() {
       // ==========================================================
       // NEW SALE MODE

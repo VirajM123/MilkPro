@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 
 class AssignAllocationPage extends StatefulWidget {
   const AssignAllocationPage({
@@ -636,6 +639,10 @@ if (response.statusCode !=
 
   @override
   Widget build(BuildContext context) {
+    if (UiSession.instance.role != UserRole.admin) {
+      return const AccessDeniedScreen();
+    }
+
     return Scaffold(
      appBar: PremiumAppBar(
   title:

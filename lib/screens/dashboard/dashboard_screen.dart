@@ -2577,24 +2577,29 @@ Widget _customerPreview() {
                       () => _openFromDrawer(feature),
                       assetPath: feature.assetPath,
                     ),
-                  if (admin) ...[
+                  if (user.can(AppPermission.customerRatesManage) || admin) ...[
                     _drawerHeading('MANAGEMENT'),
-                    _drawerTile(
-                      Icons.price_change_outlined,
-                      'Customer Rates',
-                      () => _openFromDrawer(AppFeatures.customerRates),
-                    ),
-                    _drawerTile(
-                      Icons.badge_outlined,
-                      'Salesmen',
-                      _openSalesmenFromDrawer,
-                      assetPath: 'assets/img/TotalSalesmanAllocation.png',
-                    ),
-                    _drawerTile(
-                      Icons.admin_panel_settings_outlined,
-                      'Feature Access',
-                      _openSalesmenFromDrawer,
-                    ),
+                    if (user.can(AppPermission.customerRatesManage))
+                      _drawerTile(
+                        Icons.price_change_outlined,
+                        'Customer Rates',
+                        () => _openFromDrawer(AppFeatures.customerRates),
+                      ),
+                    if (admin) ...[
+                      _drawerTile(
+                        Icons.badge_outlined,
+                        'Salesmen',
+                        _openSalesmenFromDrawer,
+                        assetPath: 'assets/img/TotalSalesmanAllocation.png',
+                      ),
+                      _drawerTile(
+                        Icons.admin_panel_settings_outlined,
+                        'Feature Access',
+                        _openSalesmenFromDrawer,
+                      ),
+                    ],
+                  ],
+                  if (user.can(AppPermission.reportsView)) ...[
                     _drawerHeading('REPORTS'),
                     _drawerTile(
                       Icons.analytics_outlined,
@@ -2602,18 +2607,22 @@ Widget _customerPreview() {
                       () => _openFromDrawer(AppFeatures.reports),
                       assetPath: AppFeatures.reports.assetPath,
                     ),
+                  ],
+                  if (user.can(AppPermission.expensesView) || admin) ...[
                     _drawerHeading('SYSTEM'),
-                    _drawerTile(
-                      Icons.account_balance_wallet_outlined,
-                      'Expenses',
-                      () => _openFromDrawer(AppFeatures.expenses),
-                      assetPath: AppFeatures.expenses.assetPath,
-                    ),
-                    _drawerTile(
-                      Icons.settings_outlined,
-                      'Settings',
-                      () => _openNamedFromDrawer('/settings'),
-                    ),
+                    if (user.can(AppPermission.expensesView))
+                      _drawerTile(
+                        Icons.account_balance_wallet_outlined,
+                        'Expenses',
+                        () => _openFromDrawer(AppFeatures.expenses),
+                        assetPath: AppFeatures.expenses.assetPath,
+                      ),
+                    if (admin)
+                      _drawerTile(
+                        Icons.settings_outlined,
+                        'Settings',
+                        () => _openNamedFromDrawer('/settings'),
+                      ),
                   ],
                   _drawerTile(
                     Icons.person_outline_rounded,

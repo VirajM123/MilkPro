@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
+import '../../models/access_models.dart';
 import '../../models/customer_model.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../common/simple_screen_widgets.dart';
 import 'customer_detail_screen.dart';
@@ -1111,6 +1113,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
     _currentBalanceFor(
   customer,
 );
+    final canEdit = UiSession.instance.can(AppPermission.customersEdit);
+    final canDelete = UiSession.instance.role == UserRole.admin;
     return Container(
       margin: const EdgeInsets.only(bottom: 13),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 5),
@@ -1224,58 +1228,62 @@ Text(
               ),
               const SizedBox(width: 3),
 
-              PopupMenuButton<String>(
-                tooltip: 'Customer actions',
-                icon: const Icon(
-                  Icons.more_vert_rounded,
-                  color: AppColors.textSecondary,
+              if (canEdit || canDelete)
+                PopupMenuButton<String>(
+                  tooltip: 'Customer actions',
+                  icon: const Icon(
+                    Icons.more_vert_rounded,
+                    color: AppColors.textSecondary,
+                  ),
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      _editCustomer(customer);
+                    }
+
+                    if (value == 'delete') {
+                      _deleteCustomer(customer);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (canEdit)
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.edit_outlined,
+                              size: 20,
+                              color: AppColors.primary,
+                            ),
+                            SizedBox(width: 10),
+                            Text('Edit Customer'),
+                          ],
+                        ),
+                      ),
+
+                    if (canEdit && canDelete)
+                      const PopupMenuDivider(),
+
+                    if (canDelete)
+                      const PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline_rounded,
+                              size: 20,
+                              color: AppColors.error,
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Delete Customer',
+                              style: TextStyle(color: AppColors.error),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
-                onSelected: (value) {
-                  if (value == 'edit') {
-                    _editCustomer(customer);
-                  }
-
-                  if (value == 'delete') {
-                    _deleteCustomer(customer);
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem<String>(
-                    value: 'edit',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.edit_outlined,
-                          size: 20,
-                          color: AppColors.primary,
-                        ),
-                        SizedBox(width: 10),
-                        Text('Edit Customer'),
-                      ],
-                    ),
-                  ),
-
-                  const PopupMenuDivider(),
-
-                  const PopupMenuItem<String>(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.delete_outline_rounded,
-                          size: 20,
-                          color: AppColors.error,
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'Delete Customer',
-                          style: TextStyle(color: AppColors.error),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1377,18 +1385,23 @@ Text(
             'Try changing your search or status filter.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
           ),
-          const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: _addCustomer,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Add Customer'),
-          ),
+          if (UiSession.instance.can(AppPermission.customersCreate)) ...[
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: _addCustomer,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add Customer'),
+            ),
+          ],
         ],
       ),
     );
   }
 
   Widget _buildAddCustomerBanner() {
+    if (!UiSession.instance.can(AppPermission.customersCreate)) {
+      return const SizedBox.shrink();
+    }
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(

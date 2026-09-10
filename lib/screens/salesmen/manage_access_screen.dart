@@ -5,8 +5,10 @@ import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
+import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
+import '../common/access_denied_screen.dart';
 
 class ManageAccessScreen extends StatefulWidget {
   const ManageAccessScreen({
@@ -25,7 +27,12 @@ class _ManageAccessScreenState
     extends State<ManageAccessScreen> {
   final Set<AppPermission> _selected =
       <AppPermission>{};
+  final Set<AppPermission> _inherited =
+      <AppPermission>{};
+  final Set<AppPermission> _custom =
+      <AppPermission>{};
 
+  String _permissionMode = 'inherit';
   String _query = '';
 
   bool _loading = true;
@@ -40,8 +47,7 @@ class _ManageAccessScreenState
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (ApiConfig.token != null &&
-            ApiConfig.token!.isNotEmpty)
+        if (ApiConfig.token.isNotEmpty)
           'Authorization':
               'Bearer ${ApiConfig.token}',
       };
@@ -94,10 +100,18 @@ class _ManageAccessScreenState
         body['data'] as Map,
       );
 
+      final mode = (data['permissionMode'] ?? 'inherit')
+          .toString()
+          .toLowerCase();
+      _permissionMode =
+          mode == 'custom' ? 'custom' : 'inherit';
+
       final permissions =
           data['permissions'];
+      final customPermissions =
+          data['customPermissions'];
 
-      final Set<AppPermission> loadedPermissions =
+      final Set<AppPermission> loadedEffective =
           <AppPermission>{};
 
       if (permissions is List) {
@@ -108,7 +122,25 @@ class _ManageAccessScreenState
           for (final value
               in AppPermission.values) {
             if (value.name == permissionName) {
-              loadedPermissions.add(value);
+              loadedEffective.add(value);
+              break;
+            }
+          }
+        }
+      }
+
+      final Set<AppPermission> loadedCustom =
+          <AppPermission>{};
+
+      if (customPermissions is List) {
+        for (final permission in customPermissions) {
+          final permissionName =
+              permission.toString().trim();
+
+          for (final value
+              in AppPermission.values) {
+            if (value.name == permissionName) {
+              loadedCustom.add(value);
               break;
             }
           }
@@ -126,9 +158,25 @@ class _ManageAccessScreenState
                     widget.salesmanId)
                 .toString();
 
+        _inherited
+          ..clear()
+          ..addAll(loadedEffective);
+
+        _custom
+          ..clear()
+          ..addAll(
+            loadedCustom.isNotEmpty
+                ? loadedCustom
+                : loadedEffective,
+          );
+
         _selected
           ..clear()
-          ..addAll(loadedPermissions);
+          ..addAll(
+            _permissionMode == 'custom'
+                ? _custom
+                : _inherited,
+          );
 
         _loading = false;
       });
@@ -146,6 +194,27 @@ class _ManageAccessScreenState
     }
   }
 
+  void _setPermissionMode(String mode) {
+    if (_permissionMode == mode) return;
+
+    setState(() {
+      _permissionMode = mode;
+
+      if (mode == 'custom') {
+        if (_custom.isEmpty && _inherited.isNotEmpty) {
+          _custom.addAll(_inherited);
+        }
+        _selected
+          ..clear()
+          ..addAll(_custom);
+      } else {
+        _selected
+          ..clear()
+          ..addAll(_inherited);
+      }
+    });
+  }
+
   // ============================================================
   // SAVE ACCESS TO MONGODB
   // ============================================================
@@ -158,22 +227,26 @@ class _ManageAccessScreenState
         _saving = true;
       });
 
-      final permissions = _selected
-          .map(
-            (permission) =>
-                permission.name,
-          )
-          .toList()
-        ..sort();
+      final Map<String, dynamic> payload = {
+        'permissionMode': _permissionMode,
+      };
+
+      if (_permissionMode == 'custom') {
+        payload['permissions'] = _selected
+            .map(
+              (permission) =>
+                  permission.name,
+            )
+            .toList()
+          ..sort();
+      }
 
       final response = await http.put(
         Uri.parse(
           '${ApiConfig.baseUrl}/api/salesmen/${widget.salesmanId}/permissions',
         ),
         headers: _headers,
-        body: jsonEncode({
-          'permissions': permissions,
-        }),
+        body: jsonEncode(payload),
       );
 
       final Map<String, dynamic> body =
@@ -252,6 +325,10 @@ class _ManageAccessScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (UiSession.instance.role != UserRole.admin) {
+      return const AccessDeniedScreen();
+    }
+
     final query =
         _query.trim().toLowerCase();
 
@@ -288,8 +365,21 @@ class _ManageAccessScreenState
                   _profileCard(),
 
                   const SizedBox(
-                    height: 16,
+                    height: 14,
                   ),
+
+                  _permissionModeSelector(),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  if (_permissionMode == 'inherit') ...[
+                    _inheritedBanner(),
+                    const SizedBox(
+                      height: 4,
+                    ),
+                  ],
 
                   const AppSectionTitle(
                     title:
@@ -321,21 +411,28 @@ class _ManageAccessScreenState
                       Expanded(
                         child:
                             OutlinedButton(
-                          onPressed:
-                              _saving
-                                  ? null
-                                  : () {
-                                      setState(
-                                        () {
-                                          _selected
-                                            ..clear()
-                                            ..addAll(
-                                              AppPermission
-                                                  .values,
-                                            );
-                                        },
-                                      );
+                          onPressed: (_saving ||
+                                  _permissionMode ==
+                                      'inherit')
+                              ? null
+                              : () {
+                                  setState(
+                                    () {
+                                      _selected
+                                        ..clear()
+                                        ..addAll(
+                                          AppPermission
+                                              .values,
+                                        );
+                                      _custom
+                                        ..clear()
+                                        ..addAll(
+                                          AppPermission
+                                              .values,
+                                        );
                                     },
+                                  );
+                                },
                           child:
                               const Text(
                             'Enable All',
@@ -350,17 +447,20 @@ class _ManageAccessScreenState
                       Expanded(
                         child:
                             OutlinedButton(
-                          onPressed:
-                              _saving
-                                  ? null
-                                  : () {
-                                      setState(
-                                        () {
-                                          _selected
-                                              .clear();
-                                        },
-                                      );
+                          onPressed: (_saving ||
+                                  _permissionMode ==
+                                      'inherit')
+                              ? null
+                              : () {
+                                  setState(
+                                    () {
+                                      _selected
+                                          .clear();
+                                      _custom
+                                          .clear();
                                     },
+                                  );
+                                },
                           child:
                               const Text(
                             'Disable All',
@@ -482,13 +582,204 @@ class _ManageAccessScreenState
             ),
 
             StatusChip(
-              label:
-                  '${_selected.length} enabled',
-              color:
-                  AppColors.success,
+              label: _permissionMode == 'inherit'
+                  ? 'Inherited (${_selected.length})'
+                  : 'Custom (${_selected.length})',
+              color: _permissionMode == 'inherit'
+                  ? AppColors.primary
+                  : AppColors.success,
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // PERMISSION MODE SELECTOR
+  // ============================================================
+
+  Widget _permissionModeSelector() {
+    final isInherit = _permissionMode == 'inherit';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'PERMISSION SOURCE',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .7,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: _saving
+                        ? null
+                        : () => _setPermissionMode('inherit'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isInherit
+                            ? AppColors.primary
+                            : AppColors.primarySoft
+                                .withValues(alpha: 0.3),
+                        borderRadius:
+                            BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isInherit
+                              ? AppColors.primary
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.groups_rounded,
+                            size: 16,
+                            color: isInherit
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Use Common Access',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: isInherit
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: _saving
+                        ? null
+                        : () => _setPermissionMode('custom'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: !isInherit
+                            ? AppColors.primary
+                            : AppColors.primarySoft
+                                .withValues(alpha: 0.3),
+                        borderRadius:
+                            BorderRadius.circular(10),
+                        border: Border.all(
+                          color: !isInherit
+                              ? AppColors.primary
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.tune_rounded,
+                            size: 16,
+                            color: !isInherit
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Custom Access',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: !isInherit
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // INHERITED BANNER
+  // ============================================================
+
+  Widget _inheritedBanner() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.primary,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Inherited from Common Salesman Access',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Permissions below are managed by the Common Salesman Access template. Switches are view-only. Select "Custom Access" above to customize permissions for this specific salesman.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.black87,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -565,11 +856,14 @@ class _ManageAccessScreenState
                   title: Text(
                     item.label,
                     style:
-                        const TextStyle(
+                        TextStyle(
                       fontSize: 13,
                       fontWeight:
                           FontWeight
                               .w600,
+                      color: _permissionMode == 'inherit'
+                          ? Colors.black54
+                          : Colors.black87,
                     ),
                   ),
 
@@ -578,26 +872,34 @@ class _ManageAccessScreenState
                     item.permission,
                   ),
 
-                  onChanged:
-                      _saving
-                          ? null
-                          : (enabled) {
-                              setState(
-                                () {
-                                  if (enabled) {
-                                    _selected
-                                        .add(
-                                      item.permission,
-                                    );
-                                  } else {
-                                    _selected
-                                        .remove(
-                                      item.permission,
-                                    );
-                                  }
-                                },
-                              );
+                  onChanged: (_saving ||
+                          _permissionMode == 'inherit')
+                      ? null
+                      : (enabled) {
+                          setState(
+                            () {
+                              if (enabled) {
+                                _selected
+                                    .add(
+                                  item.permission,
+                                );
+                                _custom
+                                    .add(
+                                  item.permission,
+                                );
+                              } else {
+                                _selected
+                                    .remove(
+                                  item.permission,
+                                );
+                                _custom
+                                    .remove(
+                                  item.permission,
+                                );
+                              }
                             },
+                          );
+                        },
                 ),
             ],
           ),
