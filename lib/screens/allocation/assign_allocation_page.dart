@@ -611,7 +611,7 @@ if (response.statusCode !=
         return;
       }
 
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(_date);
     } catch (error) {
       if (!mounted) {
         return;

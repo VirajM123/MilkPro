@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/data_sync_service.dart';
 import '../../theme/app_colors.dart';
 import '../common/access_denied_screen.dart';
 
@@ -24,7 +26,8 @@ class ReturnSettlementScreen extends StatefulWidget {
   State<ReturnSettlementScreen> createState() => _ReturnSettlementScreenState();
 }
 
-class _ReturnSettlementScreenState extends State<ReturnSettlementScreen> {
+class _ReturnSettlementScreenState extends State<ReturnSettlementScreen>
+    with WidgetsBindingObserver {
   static const Color primaryBlue = AppColors.primary;
   static const Color darkBlue = AppColors.primaryDeep;
   static const Color pageBackground = AppColors.background;
@@ -41,6 +44,9 @@ DateTime _listDate =
 bool _isSaving = false;
 
 bool _isLoadingAllocations = false;
+bool _isSyncing = false;
+Timer? _pollTimer;
+int _returnsRequestToken = 0;
 
 String _allocationLoadError = '';
 
@@ -72,11 +78,13 @@ final List<Map<String, dynamic>>
 void initState() {
   super.initState();
 
+  WidgetsBinding.instance.addObserver(this);
+  DataSyncService.instance.addListener(_onDataSyncChanged);
+
   _selectedAllocation =
       widget.allocation;
 
   if (_selectedAllocation != null) {
-
     final rawDate =
         _selectedAllocation!['date'];
 
@@ -88,15 +96,90 @@ void initState() {
       _selectedAllocation!,
     );
   } else {
-
     _loadAllocations();
+
+    _pollTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (mounted &&
+          _selectedAllocation == null &&
+          !_isLoadingAllocations &&
+          !_isSyncing) {
+        _loadAllocationsSilent();
+      }
+    });
+  }
+}
+
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed &&
+      mounted &&
+      _selectedAllocation == null &&
+      !_isLoadingAllocations &&
+      !_isSyncing) {
+    _loadAllocationsSilent();
+  }
+}
+
+void _onDataSyncChanged() {
+  final event = DataSyncService.instance.lastEventType;
+  if (event == SyncEventType.allocation ||
+      event == SyncEventType.returnSettlement ||
+      event == SyncEventType.sale ||
+      event == SyncEventType.all) {
+    if (mounted &&
+        _selectedAllocation == null &&
+        !_isLoadingAllocations &&
+        !_isSyncing) {
+      _loadAllocationsSilent();
+    }
+  }
+}
+
+Future<void> _loadAllocationsSilent() async {
+  if (_isLoadingAllocations || !mounted) return;
+  try {
+    await _loadAllocations();
+  } catch (e) {
+    debugPrint('Returns silent sync error: $e');
+  }
+}
+
+Future<void> _handleManualSync() async {
+  if (_isSyncing || _isLoadingAllocations) return;
+  setState(() => _isSyncing = true);
+  try {
+    await _loadAllocations();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Synced successfully'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to sync. Please try again.'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isSyncing = false);
+    }
   }
 }
 Future<void> _loadAllocations() async {
-
   if (_isLoadingAllocations) {
     return;
   }
+
+  final int requestToken = ++_returnsRequestToken;
 
   setState(() {
     _isLoadingAllocations = true;
@@ -332,19 +415,15 @@ Future<void> _loadAllocations() async {
     }
 
 
-    if (!mounted) {
+    if (!mounted || requestToken != _returnsRequestToken) {
       return;
     }
 
-
     setState(() {
-
       _allocations
         ..clear()
         ..addAll(loaded);
-
-      _isLoadingAllocations =
-          false;
+      _isLoadingAllocations = false;
     });
 
 
@@ -382,6 +461,10 @@ Future<void> _loadAllocations() async {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    DataSyncService.instance.removeListener(_onDataSyncChanged);
+
     reasonController.dispose();
     remarksController.dispose();
     soldController.dispose();
@@ -715,7 +798,7 @@ List<Map<String, dynamic>>
           const Positioned(
             left: 62,
             top: 23,
-            right: 18,
+            right: 56,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -737,6 +820,30 @@ List<Map<String, dynamic>>
                   ),
                 ),
               ],
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: 12,
+            child: IconButton(
+              tooltip: _isSyncing ? 'Syncing...' : 'Sync',
+              onPressed: (_isSyncing || _isLoadingAllocations)
+                  ? null
+                  : _handleManualSync,
+              icon: _isSyncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.sync_rounded,
+                      size: 28,
+                      color: Colors.white,
+                    ),
             ),
           ),
         ],
@@ -2165,6 +2272,9 @@ Future<void> _saveSettlement({
     setState(() {
       _selectedAllocation = null;
     });
+
+    await _loadAllocations();
+    DataSyncService.instance.notifyReturnChanged();
   } catch (error) {
     if (!mounted) return;
 

@@ -8274,6 +8274,406 @@ app.post(
 );
 
 // ======================================================
+// HELPER
+// CHECK PREVIOUS UNSETTLED SALESMAN ALLOCATION
+//
+// Rule:
+// A salesman cannot create a sale for a newer business
+// date while an older allocation still has quantity that
+// has not been sold or returned/reconciled.
+//
+// Remaining = Allocated - Sold - Returned
+//
+// Sales are consumed FIFO, same as GET /api/allocations.
+// ======================================================
+
+async function getPreviousPendingAllocation({
+  farmId,
+  salesmanId,
+  businessDate,
+  session = null,
+}) {
+
+  const normalizedSalesmanId =
+    (salesmanId || "")
+      .toString()
+      .trim()
+      .toUpperCase();
+
+  if (!normalizedSalesmanId) {
+    return null;
+  }
+
+
+  // ------------------------------------------------------
+  // NORMALIZE CURRENT BUSINESS DATE
+  // ------------------------------------------------------
+
+  const currentDate =
+    businessDate
+      ? new Date(businessDate)
+      : new Date();
+
+
+  if (
+    Number.isNaN(
+      currentDate.getTime()
+    )
+  ) {
+
+    const error =
+      new Error(
+        "Invalid sale date."
+      );
+
+    error.statusCode = 400;
+
+    throw error;
+  }
+
+
+  const currentDayStart =
+    new Date(currentDate);
+
+  currentDayStart.setHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+
+  // ------------------------------------------------------
+  // LOAD ALL ACTIVE / RETURNED ALLOCATIONS
+  // OLDEST FIRST
+  // ------------------------------------------------------
+
+  const allocationQuery =
+    Allocation.find({
+
+      farmId,
+
+      salesmanId:
+        normalizedSalesmanId,
+
+      status: {
+        $in: [
+          "POSTED",
+          "RETURNED",
+        ],
+      },
+
+    })
+      .sort({
+        allocationDate: 1,
+        createdAt: 1,
+      })
+      .lean();
+
+
+  if (session) {
+    allocationQuery.session(
+      session
+    );
+  }
+
+
+  const allocations =
+    await allocationQuery;
+
+
+  if (
+    allocations.length === 0
+  ) {
+    return null;
+  }
+
+
+  // ------------------------------------------------------
+  // LOAD ALL POSTED SALESMAN SALES
+  //
+  // We intentionally use the same FIFO logic as the
+  // allocation API so calculated balances remain identical.
+  // ------------------------------------------------------
+
+  const salesQuery =
+    Sale.find({
+
+      farmId,
+
+      salesmanId:
+        normalizedSalesmanId,
+
+      createdRole:
+        "salesman",
+
+      status:
+        "POSTED",
+
+    })
+      .select(
+        "products saleDate createdAt"
+      )
+      .sort({
+        saleDate: 1,
+        createdAt: 1,
+      })
+      .lean();
+
+
+  if (session) {
+    salesQuery.session(
+      session
+    );
+  }
+
+
+  const sales =
+    await salesQuery;
+
+
+  // ------------------------------------------------------
+  // TOTAL SOLD PRODUCT-WISE
+  // ------------------------------------------------------
+
+  const remainingSoldMap =
+    new Map();
+
+
+  for (
+    const sale of sales
+  ) {
+
+    const saleProducts =
+      Array.isArray(
+        sale.products
+      )
+        ? sale.products
+        : [];
+
+
+    for (
+      const item of saleProducts
+    ) {
+
+      const productId =
+        (
+          item.productId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
+
+      if (!productId) {
+        continue;
+      }
+
+
+      const quantity =
+        Number(
+          item.quantity
+        ) || 0;
+
+
+      remainingSoldMap.set(
+
+        productId,
+
+        (
+          remainingSoldMap.get(
+            productId
+          ) || 0
+        ) +
+        quantity
+
+      );
+    }
+  }
+
+
+  // ------------------------------------------------------
+  // CONSUME SALES AGAINST ALLOCATIONS FIFO
+  // AND FIND AN OLDER ALLOCATION WITH PENDING STOCK
+  // ------------------------------------------------------
+
+  for (
+    const allocation of allocations
+  ) {
+
+    const allocationDate =
+      new Date(
+        allocation.allocationDate ||
+        allocation.createdAt
+      );
+
+
+    if (
+      Number.isNaN(
+        allocationDate.getTime()
+      )
+    ) {
+      continue;
+    }
+
+
+    const allocationDay =
+      new Date(
+        allocationDate
+      );
+
+    allocationDay.setHours(
+      0,
+      0,
+      0,
+      0
+    );
+
+
+    const products =
+      Array.isArray(
+        allocation.products
+      )
+        ? allocation.products
+        : [];
+
+
+    for (
+      const item of products
+    ) {
+
+      const productId =
+        (
+          item.productId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
+
+      if (!productId) {
+        continue;
+      }
+
+
+      const allocatedQty =
+        Number(
+          item.quantity
+        ) || 0;
+
+
+      const returnedQty =
+        Number(
+          item.returnedQuantity
+        ) || 0;
+
+
+      const usableQty =
+        Math.max(
+          0,
+          allocatedQty -
+          returnedQty
+        );
+
+
+      const remainingSold =
+        remainingSoldMap.get(
+          productId
+        ) || 0;
+
+
+      const soldForAllocation =
+        Math.min(
+          usableQty,
+          remainingSold
+        );
+
+
+      remainingSoldMap.set(
+
+        productId,
+
+        Math.max(
+          0,
+          remainingSold -
+          soldForAllocation
+        )
+
+      );
+
+
+      const remainingQty =
+        Math.max(
+          0,
+          allocatedQty -
+          returnedQty -
+          soldForAllocation
+        );
+
+
+      // --------------------------------------------------
+      // ONLY BLOCK IF ALLOCATION IS BEFORE CURRENT SALE DAY
+      // --------------------------------------------------
+
+      if (
+        allocationDay <
+          currentDayStart &&
+        remainingQty >
+          0.000001
+      ) {
+
+        return {
+
+          allocationId:
+            allocation
+              .allocationId,
+
+          allocationNo:
+            allocation
+              .allocationNo,
+
+          allocationDate:
+            allocation
+              .allocationDate,
+
+          salesmanId:
+            allocation
+              .salesmanId,
+
+          salesmanName:
+            allocation
+              .salesmanName,
+
+          productId,
+
+          productName:
+            item.productName ||
+            productId,
+
+          unit:
+            item.unit || "",
+
+          allocatedQty,
+
+          soldQty:
+            soldForAllocation,
+
+          returnedQty,
+
+          remainingQty,
+
+        };
+      }
+    }
+  }
+
+
+  return null;
+}
+
+// ======================================================
 // SALES
 // TRN_SALE
 // ======================================================
@@ -8686,7 +9086,74 @@ if (role === "salesman") {
               throw error;
             }
           }
+// ==================================================
+// BLOCK NEW SALE IF PREVIOUS ALLOCATION IS UNSETTLED
+//
+// Yesterday/older allocation must first be completely
+// sold/returned/reconciled before today's billing.
+// ==================================================
 
+if (
+  role === "salesman"
+) {
+
+  const pendingAllocation =
+    await getPreviousPendingAllocation({
+
+      farmId,
+
+      salesmanId:
+        salesman.salesmanId,
+
+      businessDate:
+        saleDate ||
+        new Date(),
+
+      session,
+
+    });
+
+
+  if (pendingAllocation) {
+
+    const pendingDate =
+      new Date(
+        pendingAllocation
+          .allocationDate
+      );
+
+
+    const formattedDate =
+      Number.isNaN(
+        pendingDate.getTime()
+      )
+        ? ""
+        : pendingDate
+            .toISOString()
+            .slice(
+              0,
+              10
+            );
+
+
+    const error =
+      new Error(
+        `Previous allocation is not settled. ` +
+        `${pendingAllocation.productName} has ` +
+        `${pendingAllocation.remainingQty} ` +
+        `${pendingAllocation.unit || ""} pending ` +
+        `from allocation ${pendingAllocation.allocationNo}` +
+        `${formattedDate ? ` dated ${formattedDate}` : ""}. ` +
+        `Please complete the allocation return/reconciliation before creating today's bill.`
+      );
+
+
+    error.statusCode =
+      409;
+
+    throw error;
+  }
+}
 
           // ==================================================
           // BUILD SALESMAN STOCK MAP

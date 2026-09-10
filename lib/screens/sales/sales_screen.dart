@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -9,7 +10,9 @@ import '../../theme/app_colors.dart';
 import '../../models/access_models.dart';
 import '../../models/sale_model.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/data_sync_service.dart';
 import 'sales_bill_preview_screen.dart';
+import 'sales_report_preview_screen.dart';
 
 class SalesScreen extends StatefulWidget {
   const SalesScreen({super.key});
@@ -18,7 +21,7 @@ class SalesScreen extends StatefulWidget {
   State<SalesScreen> createState() => _SalesScreenState();
 }
 
-class _SalesScreenState extends State<SalesScreen> {
+class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   static const Color _primary = AppColors.primary;
   static const Color _dark = AppColors.textPrimary;
   static const Color _muted = AppColors.textSecondary;
@@ -74,6 +77,9 @@ class _SalesScreenState extends State<SalesScreen> {
   bool _loadingProducts = false;
   bool _loadingSales = false;
   bool _savingSale = false;
+  bool _syncing = false;
+  Timer? _pollTimer;
+  int _salesRequestToken = 0;
   // ============================================================
 // CURRENT USER
 // ============================================================
@@ -93,6 +99,9 @@ bool get _isSalesman =>
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
+    DataSyncService.instance.addListener(_onDataSyncChanged);
+
     _selectedDate = DateTime.now();
 
     _quantityController.addListener(_refreshTotal);
@@ -105,10 +114,20 @@ bool get _isSalesman =>
 
     _loadCustomers();
     _loadSales();
+
+    _pollTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (mounted && !_loadingSales && !_syncing) {
+        _loadSalesSilent();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    DataSyncService.instance.removeListener(_onDataSyncChanged);
+
     _quantityController.removeListener(_refreshTotal);
     _rateController.removeListener(_refreshTotal);
     _customerController.dispose();
@@ -128,6 +147,83 @@ bool get _isSalesman =>
 
     _bankPaymentController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        mounted &&
+        !_loadingSales &&
+        !_syncing) {
+      _loadSalesSilent();
+    }
+  }
+
+  void _onDataSyncChanged() {
+    final event = DataSyncService.instance.lastEventType;
+    if (event == SyncEventType.allocation ||
+        event == SyncEventType.returnSettlement ||
+        event == SyncEventType.sale ||
+        event == SyncEventType.all) {
+      if (mounted && !_loadingSales && !_syncing) {
+        _loadSalesSilent();
+        if (_selectedCustomer != null) {
+          _loadCustomerProductsSilent();
+        }
+      }
+    }
+  }
+
+  Future<void> _loadSalesSilent() async {
+    if (_loadingSales || !mounted) return;
+    try {
+      await _loadSales();
+    } catch (e) {
+      debugPrint('Sales silent sync error: $e');
+    }
+  }
+
+  Future<void> _loadCustomerProductsSilent() async {
+    if (_loadingProducts || !mounted || _selectedCustomer == null) return;
+    try {
+      await _loadCustomerProducts();
+    } catch (e) {
+      debugPrint('Customer products silent sync error: $e');
+    }
+  }
+
+  Future<void> _handleManualSync() async {
+    if (_syncing || _loadingSales) return;
+    setState(() => _syncing = true);
+    try {
+      await _loadSales();
+      if (_selectedCustomer != null) {
+        await _loadCustomerProducts();
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Synced successfully'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to sync. Please try again.'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _syncing = false);
+      }
+    }
   }
 void _clearSalePayments() {
   _cashPaymentController.clear();
@@ -338,6 +434,7 @@ void _clearSalePayments() {
 
   Future<void> _loadSales() async {
     if (!mounted) return;
+    final int requestToken = ++_salesRequestToken;
 
     setState(() {
       _loadingSales = true;
@@ -506,7 +603,7 @@ status: status,
           // CLOSE: for (final record in records)
         }
 
-        if (!mounted) return;
+        if (!mounted || requestToken != _salesRequestToken) return;
         setState(() {
           _serverSales
             ..clear()
@@ -621,6 +718,8 @@ status: status,
         if (_selectedCustomer != null) {
           await _loadCustomerProducts();
         }
+
+        DataSyncService.instance.notifySaleChanged();
       } else {
         _showMessage(
           data is Map
@@ -1544,6 +1643,7 @@ Future<void> _loadCustomerProducts() async {
         }
 
         await _loadSales();
+        DataSyncService.instance.notifySaleChanged();
 
         return;
       }
@@ -1944,6 +2044,20 @@ _paymentMode =
       ),
       actions: <Widget>[
         IconButton(
+          tooltip: _syncing ? 'Syncing...' : 'Sync',
+          onPressed: (_syncing || _loadingSales) ? null : _handleManualSync,
+          icon: _syncing
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _primary,
+                  ),
+                )
+              : const Icon(Icons.sync_rounded, size: 27),
+        ),
+        IconButton(
           tooltip: 'Search sales',
           onPressed: () {
             setState(() {
@@ -1958,8 +2072,30 @@ _paymentMode =
           onPressed: _showFilterSheet,
           icon: const Icon(Icons.filter_alt_outlined, size: 27),
         ),
+        IconButton(
+          tooltip: 'Export Sales Report PDF',
+          onPressed: _exportSalesReportPdf,
+          icon: const Icon(Icons.picture_as_pdf_outlined, size: 26),
+        ),
         const SizedBox(width: 9),
       ],
+    );
+  }
+
+  void _exportSalesReportPdf() {
+    final sales = _filteredSales;
+    if (sales.isEmpty) {
+      _showMessage('No sales found to export report.');
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SalesReportPreviewScreen(
+          sales: sales,
+          selectedDate: _selectedDate,
+        ),
+      ),
     );
   }
 

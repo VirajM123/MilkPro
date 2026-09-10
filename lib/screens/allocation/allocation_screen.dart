@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/data_sync_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_widgets.dart';
 import '../common/access_denied_screen.dart';
@@ -19,7 +21,8 @@ class AllocationScreen extends StatefulWidget {
   State<AllocationScreen> createState() => _AllocationScreenState();
 }
 
-class _AllocationScreenState extends State<AllocationScreen> {
+class _AllocationScreenState extends State<AllocationScreen>
+    with WidgetsBindingObserver {
   static const Color primaryBlue = AppColors.primary;
   static const Color darkBlue = AppColors.primaryDeep;
   static const Color backgroundColor = AppColors.background;
@@ -60,14 +63,95 @@ final List<Map<String, dynamic>> _allocations =
 DateTime _selectedDate = DateTime.now();
 
 bool _loadingAllocationData = false;
+bool _syncing = false;
+Timer? _pollTimer;
+int _allocationRequestToken = 0;
 
 @override
 void initState() {
   super.initState();
+  WidgetsBinding.instance.addObserver(this);
+  DataSyncService.instance.addListener(_onDataSyncChanged);
 
   _selectedDate = DateTime.now();
 
   _loadAllocationData();
+
+  _pollTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+    if (mounted && !_loadingAllocationData && !_syncing) {
+      _loadAllocationsSilent();
+    }
+  });
+}
+
+@override
+void dispose() {
+  _pollTimer?.cancel();
+  WidgetsBinding.instance.removeObserver(this);
+  DataSyncService.instance.removeListener(_onDataSyncChanged);
+  super.dispose();
+}
+
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed &&
+      mounted &&
+      !_loadingAllocationData &&
+      !_syncing) {
+    _loadAllocationsSilent();
+  }
+}
+
+void _onDataSyncChanged() {
+  final event = DataSyncService.instance.lastEventType;
+  if (event == SyncEventType.sale ||
+      event == SyncEventType.returnSettlement ||
+      event == SyncEventType.allocation ||
+      event == SyncEventType.all) {
+    if (mounted && !_loadingAllocationData && !_syncing) {
+      _loadAllocationsSilent();
+    }
+  }
+}
+
+Future<void> _loadAllocationsSilent() async {
+  if (_loadingAllocationData || !mounted) return;
+  try {
+    await _loadAllocations();
+  } catch (e) {
+    debugPrint('Allocation silent sync error: $e');
+  }
+}
+
+Future<void> _handleManualSync() async {
+  if (_syncing || _loadingAllocationData) return;
+  setState(() => _syncing = true);
+  try {
+    await _loadAllocationData();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Synced successfully'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to sync. Please try again.'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _syncing = false);
+    }
+  }
 }
 Map<String, String> get _apiHeaders {
   return <String, String>{
@@ -313,6 +397,7 @@ Future<void> _loadCustomers() async {
 }
 
   Future<void> _loadAllocations() async {
+  final int requestToken = ++_allocationRequestToken;
   final response = await http.get(
     Uri.parse(
       '${ApiConfig.baseUrl}/api/allocations',
@@ -506,7 +591,7 @@ Future<void> _loadCustomers() async {
     }
   }
 
-  if (!mounted) {
+  if (!mounted || requestToken != _allocationRequestToken) {
     return;
   }
 
@@ -713,22 +798,24 @@ Future<void> _openAssignAllocation() async {
     return;
   }
 
-  final bool? saved =
-      await Navigator.of(context)
-          .push<bool>(
+  final dynamic saved = await Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) =>
-AssignAllocationPage(
-  routes: _routes,
-  salesmen: _salesmen,
-  products: _products,
-),
+      builder: (_) => AssignAllocationPage(
+        routes: _routes,
+        salesmen: _salesmen,
+        products: _products,
+      ),
     ),
   );
 
-  if (!mounted ||
-      saved != true) {
+  if (!mounted || saved == null || saved == false) {
     return;
+  }
+
+  if (saved is DateTime) {
+    setState(() {
+      _selectedDate = saved;
+    });
   }
 
   await _loadAllocations();
@@ -738,14 +825,10 @@ AssignAllocationPage(
     return;
   }
 
-  setState(() {
-    _selectedDate =
-        DateTime.now();
-  });
-
   _showApiMessage(
     'Allocation saved successfully.',
   );
+  DataSyncService.instance.notifyAllocationChanged();
 }
 
 // ============================================================
@@ -912,6 +995,7 @@ Future<void> _cancelAllocation(
     _showApiMessage(
       'Allocation deleted successfully. Stock restored.',
     );
+    DataSyncService.instance.notifyAllocationChanged();
   } catch (error) {
     if (!mounted) {
       return;
@@ -1053,24 +1137,25 @@ Future<void> _openEditAllocation(
             .toList(),
   };
 
-  final bool? updated =
-      await Navigator.of(context)
-          .push<bool>(
+  final dynamic updated = await Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) =>
-          AssignAllocationPage(
+      builder: (_) => AssignAllocationPage(
         routes: _routes,
         salesmen: _salesmen,
         products: _products,
-        existingAllocation:
-            existingAllocation,
+        existingAllocation: existingAllocation,
       ),
     ),
   );
 
-  if (!mounted ||
-      updated != true) {
+  if (!mounted || updated == null || updated == false) {
     return;
+  }
+
+  if (updated is DateTime) {
+    setState(() {
+      _selectedDate = updated;
+    });
   }
 
   // Reload both because editing allocation
@@ -1085,6 +1170,7 @@ Future<void> _openEditAllocation(
   _showApiMessage(
     'Allocation updated successfully.',
   );
+  DataSyncService.instance.notifyAllocationChanged();
 }
 
   // ============================================================
@@ -1105,10 +1191,12 @@ Future<void> _openEditAllocation(
       return;
     }
 
-    setState(() {
-      allocation['returnedQty'] = _asInt(result['returnedQty']);
-      allocation['settlement'] = Map<String, dynamic>.from(result);
-    });
+    await _loadAllocations();
+    await _loadProducts();
+
+    if (!mounted) {
+      return;
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1120,6 +1208,8 @@ Future<void> _openEditAllocation(
         behavior: SnackBarBehavior.floating,
       ),
     );
+
+    DataSyncService.instance.notifyReturnChanged();
   }
 
   // ============================================================
@@ -1170,18 +1260,31 @@ Future<void> _openEditAllocation(
       appBar: PremiumAppBar(
         title: 'Allocation',
         subtitle: 'Daily route and product allocation',
-        actions: UiSession.instance.role == UserRole.admin
-            ? [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: IconButton.filled(
-                    tooltip: 'Assign allocation',
-                    onPressed: _openAssignAllocation,
-                    icon: const Icon(Icons.add_rounded),
-                  ),
-                ),
-              ]
-            : null,
+        actions: [
+          IconButton(
+            tooltip: _syncing ? 'Syncing...' : 'Sync',
+            onPressed: (_syncing || _loadingAllocationData) ? null : _handleManualSync,
+            icon: _syncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: primaryBlue,
+                    ),
+                  )
+                : const Icon(Icons.sync_rounded),
+          ),
+          if (UiSession.instance.role == UserRole.admin)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: IconButton.filled(
+                tooltip: 'Assign allocation',
+                onPressed: _openAssignAllocation,
+                icon: const Icon(Icons.add_rounded),
+              ),
+            ),
+        ],
       ),
       body: SafeArea(
         top: false,
