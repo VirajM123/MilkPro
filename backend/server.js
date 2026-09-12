@@ -973,35 +973,35 @@ const stockSchema = new mongoose.Schema(
       trim: true,
     },
 
-transactionType: {
-  type: String,
-  required: true,
-  enum: [
-    "OPENING",
+    transactionType: {
+      type: String,
+      required: true,
+      enum: [
+        "OPENING",
 
-    "PURCHASE",
-    "PURCHASE_EDIT_REVERSE",
-    "PURCHASE_EDIT",
-    "PURCHASE_CANCEL",
-    "PURCHASE_RETURN",
+        "PURCHASE",
+        "PURCHASE_EDIT_REVERSE",
+        "PURCHASE_EDIT",
+        "PURCHASE_CANCEL",
+        "PURCHASE_RETURN",
 
-    "SALE",
-    "SALE_EDIT",
-    "SALE_EDIT_REVERSE",
-    "SALE_CANCEL",
-    "SALES_RETURN",
+        "SALE",
+        "SALE_EDIT",
+        "SALE_EDIT_REVERSE",
+        "SALE_CANCEL",
+        "SALES_RETURN",
 
-  "ALLOCATION_OUT",
-"ALLOCATION_RETURN",
+        "ALLOCATION_OUT",
+        "ALLOCATION_RETURN",
 
-"ALLOCATION_EDIT",
-"ALLOCATION_EDIT_REVERSE",
-"ALLOCATION_CANCEL",
+        "ALLOCATION_EDIT",
+        "ALLOCATION_EDIT_REVERSE",
+        "ALLOCATION_CANCEL",
 
-    "ADJUSTMENT_IN",
-    "ADJUSTMENT_OUT"
-  ],
-},
+        "ADJUSTMENT_IN",
+        "ADJUSTMENT_OUT"
+      ],
+    },
 
     referenceType: {
       type: String,
@@ -1134,6 +1134,7 @@ const saleProductSchema = new mongoose.Schema(
 );
 
 
+
 const saleSchema = new mongoose.Schema(
   {
     farmId: {
@@ -1190,104 +1191,119 @@ const saleSchema = new mongoose.Schema(
       trim: true,
     },
 
-// ======================================================
-// LEGACY / DISPLAY PAYMENT MODE
-//
-// Single payment:
-//   Cash / UPI / Bank Transfer / Credit
-//
-// Multiple payment methods:
-//   Split
-//
-// Kept for compatibility with existing Flutter screens.
-// ======================================================
+    // ======================================================
+    // LEGACY / DISPLAY PAYMENT MODE
+    //
+    // Single payment:
+    //   Cash / UPI / Bank Transfer / Credit
+    //
+    // Multiple payment methods:
+    //   Split
+    //
+    // Kept for compatibility with existing Flutter screens.
+    // ======================================================
 
-paymentMode: {
-  type: String,
-  required: true,
+    paymentMode: {
+      type: String,
+      required: true,
 
-  enum: [
-    "Cash",
-    "UPI",
-    "Credit",
-    "Bank Transfer",
-    "Split",
-  ],
+      enum: [
+        "Cash",
+        "UPI",
+        "Credit",
+        "Bank Transfer",
+        "Split",
+      ],
 
-  default: "Cash",
-},
-
-// ======================================================
-// PAYMENT BREAKUP
-//
-// Example:
-// Bill = 1000
-//
-// Cash = 300
-// UPI  = 500
-//
-// paidAmount        = 800
-// outstandingAmount = 200
-// paymentStatus     = PARTIAL
-// ======================================================
-
-payments: {
-  type: [
-    {
-      mode: {
-        type: String,
-
-        enum: [
-          "Cash",
-          "UPI",
-          "Bank Transfer",
-        ],
-
-        required: true,
-      },
-
-      amount: {
-        type: Number,
-        required: true,
-        min: 0,
-      },
-
-      referenceNo: {
-        type: String,
-        default: "",
-        trim: true,
-      },
-
-      _id: false,
+      default: "Cash",
     },
-  ],
 
-  default: [],
-},
+    // ======================================================
+    // PAYMENT BREAKUP
+    //
+    // Example:
+    // Bill = 1000
+    //
+    // Cash = 300
+    // UPI  = 500
+    //
+    // paidAmount        = 800
+    // outstandingAmount = 200
+    // paymentStatus     = PARTIAL
+    // ======================================================
 
-paidAmount: {
-  type: Number,
-  default: 0,
-  min: 0,
-},
+    payments: {
+      type: [
+        {
+          mode: {
+            type: String,
 
-outstandingAmount: {
-  type: Number,
-  default: 0,
-  min: 0,
-},
+            enum: [
+              "Cash",
+              "UPI",
+              "Bank Transfer",
+            ],
 
-paymentStatus: {
-  type: String,
+            required: true,
+          },
 
-  enum: [
-    "PAID",
-    "PARTIAL",
-    "CREDIT",
-  ],
+          amount: {
+            type: Number,
+            required: true,
+            min: 0,
+          },
 
-  default: "PAID",
-},
+          referenceNo: {
+            type: String,
+            default: "",
+            trim: true,
+          },
+
+          _id: false,
+        },
+      ],
+
+      default: [],
+    },
+    paidAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // ======================================================
+    // CUSTOMER ADVANCE USED AGAINST THIS BILL
+    //
+    // Example:
+    // Bill Total       = 1000
+    // Advance Used     = 300
+    // Paid At Billing  = 200
+    // Outstanding      = 500
+    // ======================================================
+
+    advanceUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    outstandingAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    paymentStatus: {
+      type: String,
+
+      enum: [
+        "PAID",
+        "PARTIAL",
+        "CREDIT",
+      ],
+
+      default: "PAID",
+    },
 
     products: {
       type: [saleProductSchema],
@@ -1315,6 +1331,27 @@ paymentStatus: {
       trim: true,
     },
 
+    // ======================================================
+    // STOCK SOURCE OF THIS SALE
+    //
+    // MAIN_GODOWN
+    //   -> Stock physically came from MAS_PRODUCT
+    //
+    // SALESMAN_ALLOCATION
+    //   -> Stock already left MAS_PRODUCT during allocation.
+    //      Sale only consumes salesman available stock.
+    // ======================================================
+
+    stockSource: {
+      type: String,
+      enum: [
+        "MAIN_GODOWN",
+        "SALESMAN_ALLOCATION",
+      ],
+      default: "MAIN_GODOWN",
+      index: true,
+    },
+
     status: {
       type: String,
       enum: [
@@ -1329,23 +1366,24 @@ paymentStatus: {
       default: "",
     },
 
+
     createdRole: {
       type: String,
       default: "",
     },
     salesmanId: {
-  type: String,
-  default: "",
-  uppercase: true,
-  trim: true,
-  index: true,
-},
+      type: String,
+      default: "",
+      uppercase: true,
+      trim: true,
+      index: true,
+    },
 
-salesmanName: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    salesmanName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
     cancelledBy: {
       type: String,
@@ -1542,30 +1580,30 @@ const allocationSchema = new mongoose.Schema(
       default: "POSTED",
     },
 
-   createdBy: {
-  type: String,
-  default: "",
-},
+    createdBy: {
+      type: String,
+      default: "",
+    },
 
-updatedBy: {
-  type: String,
-  default: "",
-},
+    updatedBy: {
+      type: String,
+      default: "",
+    },
 
-cancelledBy: {
-  type: String,
-  default: "",
-},
+    cancelledBy: {
+      type: String,
+      default: "",
+    },
 
-cancelledAt: {
-  type: Date,
-  default: null,
-},
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
 
-createdAt: {
-  type: Date,
-  default: Date.now,
-},
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
 
 
 
@@ -1703,10 +1741,39 @@ const collectionSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-allocations: {
-  type: [collectionAllocationSchema],
-  default: [],
-},
+
+    // ======================================================
+    // AMOUNT ACTUALLY APPLIED AGAINST SALES OUTSTANDING
+    //
+    // Example:
+    // Customer paid = 2000
+    // Outstanding   = 1000
+    //
+    // appliedAmount = 1000
+    // advanceAmount = 1000
+    // ======================================================
+
+    appliedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // ======================================================
+    // EXTRA CUSTOMER PAYMENT ADDED TO MAS_CUSTOMER.balance
+    // ======================================================
+
+    advanceAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    allocations: {
+      type: [collectionAllocationSchema],
+      default: [],
+    },
+
     paymentMode: {
       type: String,
       required: true,
@@ -2202,7 +2269,7 @@ async function generateExpenseNo(
     const lastNumber =
       Number(
         parts[
-          parts.length - 1
+        parts.length - 1
         ]
       );
 
@@ -2402,7 +2469,7 @@ async function generateStockId() {
     const number =
       Math.floor(
         100000000 +
-          Math.random() * 900000000
+        Math.random() * 900000000
       );
 
     stockId = `STK${number}`;
@@ -2543,7 +2610,7 @@ async function generateSaleNo(
     const lastNumber =
       Number(
         parts[
-          parts.length - 1
+        parts.length - 1
         ]
       );
 
@@ -2645,7 +2712,7 @@ async function generateAllocationNo(
     const lastNumber =
       Number(
         parts[
-          parts.length - 1
+        parts.length - 1
         ]
       );
 
@@ -2743,7 +2810,7 @@ async function generateReceiptNo(
     const lastNumber =
       Number(
         parts[
-          parts.length - 1
+        parts.length - 1
         ]
       );
 
@@ -2767,7 +2834,7 @@ async function generateReceiptNo(
       )
   );
 }
-  // ======================================================
+// ======================================================
 // GENERATE PAYMENT ID
 // ======================================================
 
@@ -2839,7 +2906,7 @@ async function generatePaymentNo(
     const lastNumber =
       Number(
         parts[
-          parts.length - 1
+        parts.length - 1
         ]
       );
 
@@ -5034,9 +5101,9 @@ app.get(
 
       const routes =
         await RouteMaster.find(routeFilter)
-        .sort({
-          createdAt: -1,
-        });
+          .sort({
+            createdAt: -1,
+          });
 
       return res.status(200).json({
         success: true,
@@ -5250,8 +5317,8 @@ app.put(
           farmId: req.user.farmId,
         });
 
-        const oldRouteName =
-  route ? route.routeName : "";
+      const oldRouteName =
+        route ? route.routeName : "";
 
       if (!route) {
         return res.status(404).json({
@@ -5329,30 +5396,30 @@ app.put(
 
       await route.save();
 
-if (
-  oldRouteName &&
-  oldRouteName !==
-    route.routeName
-) {
-  await Customer.updateMany(
-    {
-      farmId:
-        req.user.farmId,
+      if (
+        oldRouteName &&
+        oldRouteName !==
+        route.routeName
+      ) {
+        await Customer.updateMany(
+          {
+            farmId:
+              req.user.farmId,
 
-      route:
-        oldRouteName,
-    },
-    {
-      $set: {
-        route:
-          route.routeName,
+            route:
+              oldRouteName,
+          },
+          {
+            $set: {
+              route:
+                route.routeName,
 
-        updatedAt:
-          new Date(),
-      },
-    }
-  );
-}
+              updatedAt:
+                new Date(),
+            },
+          }
+        );
+      }
       return res.status(200).json({
         success: true,
 
@@ -6582,7 +6649,7 @@ app.post(
             Math.max(
               0,
               subTotal -
-                discountValue
+              discountValue
             );
 
           const taxAmount =
@@ -6622,8 +6689,8 @@ app.post(
                   purchaseDate:
                     purchaseDate
                       ? new Date(
-                          purchaseDate
-                        )
+                        purchaseDate
+                      )
                       : new Date(),
 
                   supplierId:
@@ -6639,8 +6706,8 @@ app.post(
                   billDate:
                     billDate
                       ? new Date(
-                          billDate
-                        )
+                        billDate
+                      )
                       : new Date(),
 
                   paymentType:
@@ -6652,8 +6719,8 @@ app.post(
                   dueDate:
                     dueDate
                       ? new Date(
-                          dueDate
-                        )
+                        dueDate
+                      )
                       : new Date(),
 
                   godown:
@@ -6703,7 +6770,7 @@ app.post(
 
           for (
             const line of
-              verifiedProducts
+            verifiedProducts
           ) {
             const updateResult =
               await Product.updateOne(
@@ -6953,7 +7020,7 @@ app.put(
 
           for (
             const oldLine of
-              purchase.products
+            purchase.products
           ) {
 
             const product =
@@ -7002,7 +7069,7 @@ app.put(
 
           for (
             const oldLine of
-              purchase.products
+            purchase.products
           ) {
 
             const oldQty =
@@ -7292,7 +7359,7 @@ app.put(
             Math.max(
               0,
               subTotal -
-                discountValue
+              discountValue
             );
 
           const taxAmount =
@@ -7310,7 +7377,7 @@ app.put(
 
           for (
             const newLine of
-              verifiedProducts
+            verifiedProducts
           ) {
 
             const result =
@@ -7414,8 +7481,8 @@ app.put(
           purchase.purchaseDate =
             purchaseDate
               ? new Date(
-                  purchaseDate
-                )
+                purchaseDate
+              )
               : purchase.purchaseDate;
 
           purchase.supplierId =
@@ -7602,7 +7669,7 @@ app.put(
 
           for (
             const line of
-              purchase.products
+            purchase.products
           ) {
             const product =
               await Product.findOne({
@@ -7644,7 +7711,7 @@ app.put(
 
           for (
             const line of
-              purchase.products
+            purchase.products
           ) {
             const updateResult =
               await Product.updateOne(
@@ -8619,9 +8686,9 @@ async function getPreviousPendingAllocation({
 
       if (
         allocationDay <
-          currentDayStart &&
+        currentDayStart &&
         remainingQty >
-          0.000001
+        0.000001
       ) {
 
         return {
@@ -8719,18 +8786,18 @@ app.get(
           farmId,
       };
       const customerId =
-  (
-    req.query.customerId ||
-    ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
+        (
+          req.query.customerId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
 
-if (customerId) {
-  filter.customerId =
-    customerId;
-}
+      if (customerId) {
+        filter.customerId =
+          customerId;
+      }
 
 
       // ==================================================
@@ -8865,6 +8932,22 @@ app.post(
             req.user.role;
 
 
+          // ======================================================
+          // REAL STOCK SOURCE OF THIS SALE
+          //
+          // ADMIN SALE
+          // -> MAIN GODOWN
+          //
+          // SALESMAN / MOBILE SALE
+          // -> SALESMAN ALLOCATION
+          // ======================================================
+
+          const finalStockSource =
+            role === "salesman"
+              ? "SALESMAN_ALLOCATION"
+              : "MAIN_GODOWN";
+
+
           if (
             role !== "admin" &&
             role !== "salesman"
@@ -8881,14 +8964,14 @@ app.post(
           }
 
 
-        const {
-  saleDate,
-  customerId,
-  paymentMode,
-  payments,
-  products,
-  godown,
-} = req.body;
+          const {
+            saleDate,
+            customerId,
+            paymentMode,
+            payments,
+            products,
+            godown,
+          } = req.body;
 
 
           // ==================================================
@@ -8963,96 +9046,96 @@ app.post(
 
 
           // ==================================================
-// SALESMAN CUSTOMER ROUTE SECURITY
-//
-// A salesman can sell only to customers belonging
-// to a route assigned to him.
-// ==================================================
+          // SALESMAN CUSTOMER ROUTE SECURITY
+          //
+          // A salesman can sell only to customers belonging
+          // to a route assigned to him.
+          // ==================================================
 
-if (role === "salesman") {
+          if (role === "salesman") {
 
-  const currentSalesman =
-    await Salesman.findOne({
-      _id:
-        userId,
+            const currentSalesman =
+              await Salesman.findOne({
+                _id:
+                  userId,
 
-      farmId:
-        farmId,
+                farmId:
+                  farmId,
 
-      isActive:
-        true,
-    })
-      .session(session);
-
-
-  if (!currentSalesman) {
-
-    const error =
-      new Error(
-        "Salesman account not found."
-      );
-
-    error.statusCode =
-      404;
-
-    throw error;
-  }
+                isActive:
+                  true,
+              })
+                .session(session);
 
 
-  const customerRouteName =
-    (
-      customer.route ||
-      ""
-    )
-      .toString()
-      .trim();
+            if (!currentSalesman) {
+
+              const error =
+                new Error(
+                  "Salesman account not found."
+                );
+
+              error.statusCode =
+                404;
+
+              throw error;
+            }
 
 
-  if (!customerRouteName) {
-
-    const error =
-      new Error(
-        `Customer ${customer.name} is not mapped to any route.`
-      );
-
-    error.statusCode =
-      403;
-
-    throw error;
-  }
+            const customerRouteName =
+              (
+                customer.route ||
+                ""
+              )
+                .toString()
+                .trim();
 
 
-  const assignedRoute =
-    await RouteMaster.findOne({
-      farmId:
-        farmId,
+            if (!customerRouteName) {
 
-      routeName:
-        customerRouteName,
+              const error =
+                new Error(
+                  `Customer ${customer.name} is not mapped to any route.`
+                );
 
-      salesmanId:
-        currentSalesman.salesmanId,
+              error.statusCode =
+                403;
 
-      isActive:
-        true,
-    })
-      .session(session);
+              throw error;
+            }
 
 
-  if (!assignedRoute) {
+            const assignedRoute =
+              await RouteMaster.findOne({
+                farmId:
+                  farmId,
 
-    const error =
-      new Error(
-        `Customer ${customer.name} does not belong to your assigned route.`
-      );
+                routeName:
+                  customerRouteName,
 
-    error.statusCode =
-      403;
+                salesmanId:
+                  currentSalesman.salesmanId,
 
-    throw error;
-  }
-}
-    
+                isActive:
+                  true,
+              })
+                .session(session);
+
+
+            if (!assignedRoute) {
+
+              const error =
+                new Error(
+                  `Customer ${customer.name} does not belong to your assigned route.`
+                );
+
+              error.statusCode =
+                403;
+
+              throw error;
+            }
+          }
+
 
 
           // ==================================================
@@ -9086,74 +9169,74 @@ if (role === "salesman") {
               throw error;
             }
           }
-// ==================================================
-// BLOCK NEW SALE IF PREVIOUS ALLOCATION IS UNSETTLED
-//
-// Yesterday/older allocation must first be completely
-// sold/returned/reconciled before today's billing.
-// ==================================================
+          // ==================================================
+          // BLOCK NEW SALE IF PREVIOUS ALLOCATION IS UNSETTLED
+          //
+          // Yesterday/older allocation must first be completely
+          // sold/returned/reconciled before today's billing.
+          // ==================================================
 
-if (
-  role === "salesman"
-) {
+          if (
+            role === "salesman"
+          ) {
 
-  const pendingAllocation =
-    await getPreviousPendingAllocation({
+            const pendingAllocation =
+              await getPreviousPendingAllocation({
 
-      farmId,
+                farmId,
 
-      salesmanId:
-        salesman.salesmanId,
+                salesmanId:
+                  salesman.salesmanId,
 
-      businessDate:
-        saleDate ||
-        new Date(),
+                businessDate:
+                  saleDate ||
+                  new Date(),
 
-      session,
+                session,
 
-    });
-
-
-  if (pendingAllocation) {
-
-    const pendingDate =
-      new Date(
-        pendingAllocation
-          .allocationDate
-      );
+              });
 
 
-    const formattedDate =
-      Number.isNaN(
-        pendingDate.getTime()
-      )
-        ? ""
-        : pendingDate
-            .toISOString()
-            .slice(
-              0,
-              10
-            );
+            if (pendingAllocation) {
+
+              const pendingDate =
+                new Date(
+                  pendingAllocation
+                    .allocationDate
+                );
 
 
-    const error =
-      new Error(
-        `Previous allocation is not settled. ` +
-        `${pendingAllocation.productName} has ` +
-        `${pendingAllocation.remainingQty} ` +
-        `${pendingAllocation.unit || ""} pending ` +
-        `from allocation ${pendingAllocation.allocationNo}` +
-        `${formattedDate ? ` dated ${formattedDate}` : ""}. ` +
-        `Please complete the allocation return/reconciliation before creating today's bill.`
-      );
+              const formattedDate =
+                Number.isNaN(
+                  pendingDate.getTime()
+                )
+                  ? ""
+                  : pendingDate
+                    .toISOString()
+                    .slice(
+                      0,
+                      10
+                    );
 
 
-    error.statusCode =
-      409;
+              const error =
+                new Error(
+                  `Previous allocation is not settled. ` +
+                  `${pendingAllocation.productName} has ` +
+                  `${pendingAllocation.remainingQty} ` +
+                  `${pendingAllocation.unit || ""} pending ` +
+                  `from allocation ${pendingAllocation.allocationNo}` +
+                  `${formattedDate ? ` dated ${formattedDate}` : ""}. ` +
+                  `Please complete the allocation return/reconciliation before creating today's bill.`
+                );
 
-    throw error;
-  }
-}
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
+          }
 
           // ==================================================
           // BUILD SALESMAN STOCK MAP
@@ -9541,8 +9624,8 @@ if (
               const availableStock =
                 stockRow
                   ? Number(
-                      stockRow.available
-                    ) || 0
+                    stockRow.available
+                  ) || 0
                   : 0;
 
 
@@ -9684,177 +9767,258 @@ if (
               amount;
           }
 
-// ==================================================
-// PAYMENT BREAKUP
-// NEVER TRUST PAYMENT TOTAL FROM FRONTEND
-// ==================================================
+          // ==================================================
+          // PAYMENT BREAKUP
+          // NEVER TRUST PAYMENT TOTAL FROM FRONTEND
+          // ==================================================
 
-const allowedImmediatePaymentModes = [
-  "Cash",
-  "UPI",
-  "Bank Transfer",
-];
+          const allowedImmediatePaymentModes = [
+            "Cash",
+            "UPI",
+            "Bank Transfer",
+          ];
 
-const normalizedPayments = [];
+          const normalizedPayments = [];
 
-if (Array.isArray(payments)) {
+          if (Array.isArray(payments)) {
 
-  for (const payment of payments) {
+            for (const payment of payments) {
 
-    const mode =
-      (
-        payment?.mode ||
-        ""
-      )
-        .toString()
-        .trim();
+              const mode =
+                (
+                  payment?.mode ||
+                  ""
+                )
+                  .toString()
+                  .trim();
 
-    const amount =
-      Number(
-        payment?.amount
-      );
+              const amount =
+                Number(
+                  payment?.amount
+                );
 
-    if (
-      !allowedImmediatePaymentModes.includes(
-        mode
-      )
-    ) {
-      const error =
-        new Error(
-          `Invalid payment mode: ${mode || "Unknown"}.`
-        );
+              if (
+                !allowedImmediatePaymentModes.includes(
+                  mode
+                )
+              ) {
+                const error =
+                  new Error(
+                    `Invalid payment mode: ${mode || "Unknown"}.`
+                  );
 
-      error.statusCode = 400;
+                error.statusCode = 400;
 
-      throw error;
-    }
+                throw error;
+              }
 
-    if (
-      !Number.isFinite(amount) ||
-      amount <= 0
-    ) {
-      const error =
-        new Error(
-          `Invalid payment amount for ${mode}.`
-        );
+              if (
+                !Number.isFinite(amount) ||
+                amount <= 0
+              ) {
+                const error =
+                  new Error(
+                    `Invalid payment amount for ${mode}.`
+                  );
 
-      error.statusCode = 400;
+                error.statusCode = 400;
 
-      throw error;
-    }
+                throw error;
+              }
 
-    normalizedPayments.push({
-      mode,
+              normalizedPayments.push({
+                mode,
 
-      amount:
-        Number(
-          amount.toFixed(2)
-        ),
+                amount:
+                  Number(
+                    amount.toFixed(2)
+                  ),
 
-      referenceNo:
-        (
-          payment?.referenceNo ||
-          ""
-        )
-          .toString()
-          .trim(),
-    });
-  }
-}
-
-
-// ==================================================
-// CALCULATE PAID AMOUNT
-// ==================================================
-
-const finalPaidAmount =
-  normalizedPayments.reduce(
-    (
-      total,
-      payment
-    ) =>
-      total +
-      (
-        Number(
-          payment.amount
-        ) || 0
-      ),
-    0
-  );
+                referenceNo:
+                  (
+                    payment?.referenceNo ||
+                    ""
+                  )
+                    .toString()
+                    .trim(),
+              });
+            }
+          }
 
 
-if (
-  finalPaidAmount >
-  grandTotal + 0.001
-) {
-  const error =
-    new Error(
-      "Paid amount cannot be greater than bill amount."
-    );
+          // ==================================================
+          // CALCULATE PAID AMOUNT
+          // ==================================================
 
-  error.statusCode = 400;
-
-  throw error;
-}
-
-
-// ==================================================
-// OUTSTANDING
-// ==================================================
-
-const finalOutstandingAmount =
-  Math.max(
-    0,
-    grandTotal -
-    finalPaidAmount
-  );
+          const finalPaidAmount =
+            normalizedPayments.reduce(
+              (
+                total,
+                payment
+              ) =>
+                total +
+                (
+                  Number(
+                    payment.amount
+                  ) || 0
+                ),
+              0
+            );
 
 
-// ==================================================
-// PAYMENT STATUS
-// ==================================================
+          if (
+            finalPaidAmount >
+            grandTotal + 0.001
+          ) {
+            const error =
+              new Error(
+                "Paid amount cannot be greater than bill amount."
+              );
 
-let finalPaymentStatus =
-  "PAID";
+            error.statusCode = 400;
 
-if (
-  finalPaidAmount <= 0
-) {
-  finalPaymentStatus =
-    "CREDIT";
-}
-
-else if (
-  finalOutstandingAmount >
-  0.001
-) {
-  finalPaymentStatus =
-    "PARTIAL";
-}
+            throw error;
+          }
 
 
-// ==================================================
-// DISPLAY PAYMENT MODE
-// ==================================================
+          // ==================================================
+          // OUTSTANDING
+          // ==================================================
 
-let finalPaymentMode =
-  "Credit";
+          // ==================================================
+          // CUSTOMER ADVANCE / CREDIT BALANCE
+          //
+          // Customer.balance is treated as:
+          //
+          // AVAILABLE CUSTOMER ADVANCE
+          //
+          // First:
+          //   Apply any Cash / UPI / Bank payment entered
+          //   with this sale.
+          //
+          // Then:
+          //   Use existing customer advance against the
+          //   remaining bill amount.
+          //
+          // Example:
+          //
+          // Bill             = 1000
+          // Cash             = 200
+          // Customer Advance = 500
+          //
+          // Immediate Paid   = 200
+          // Advance Used     = 500
+          // Outstanding      = 300
+          // ==================================================
 
-if (
-  normalizedPayments.length === 1 &&
-  finalOutstandingAmount <= 0.001
-) {
-  finalPaymentMode =
-    normalizedPayments[0]
-      .mode;
-}
+          const availableAdvanceBalance =
+            Math.max(
+              0,
+              Number(
+                customer.balance || 0
+              )
+            );
 
-else if (
-  normalizedPayments.length > 0
-) {
-  finalPaymentMode =
-    "Split";
-}
+
+          // Amount still due after payment entered
+          // directly on the sale bill.
+          const amountAfterImmediatePayment =
+            Math.max(
+              0,
+              grandTotal -
+              finalPaidAmount
+            );
+
+
+          // Use only as much advance as required.
+          const advanceUsed =
+            Number(
+              Math.min(
+                availableAdvanceBalance,
+                amountAfterImmediatePayment
+              ).toFixed(2)
+            );
+
+
+          // Final bill outstanding after:
+          //
+          // Bill
+          // - Immediate Payment
+          // - Customer Advance
+          const finalOutstandingAmount =
+            Number(
+              Math.max(
+                0,
+                amountAfterImmediatePayment -
+                advanceUsed
+              ).toFixed(2)
+            );
+
+
+          // ==================================================
+          // PAYMENT STATUS
+          // ==================================================
+          // ==================================================
+          // PAYMENT STATUS
+          //
+          // PAID
+          //   Nothing remains outstanding.
+          //
+          // CREDIT
+          //   Nothing paid and no advance was used.
+          //
+          // PARTIAL
+          //   Some immediate payment or advance was applied,
+          //   but some outstanding remains.
+          // ==================================================
+
+          let finalPaymentStatus =
+            "PAID";
+
+          if (
+            finalOutstandingAmount >
+            0.001
+          ) {
+
+            if (
+              finalPaidAmount <=
+              0.001 &&
+              advanceUsed <=
+              0.001
+            ) {
+              finalPaymentStatus =
+                "CREDIT";
+            }
+
+            else {
+              finalPaymentStatus =
+                "PARTIAL";
+            }
+          }
+
+
+          // ==================================================
+          // DISPLAY PAYMENT MODE
+          // ==================================================
+
+          let finalPaymentMode =
+            "Credit";
+
+          if (
+            normalizedPayments.length === 1 &&
+            finalOutstandingAmount <= 0.001
+          ) {
+            finalPaymentMode =
+              normalizedPayments[0]
+                .mode;
+          }
+
+          else if (
+            normalizedPayments.length > 0
+          ) {
+            finalPaymentMode =
+              "Split";
+          }
           // ==================================================
           // GENERATE SALE IDS
           // ==================================================
@@ -9877,11 +10041,11 @@ else if (
             role === "salesman"
               ? `Salesman - ${salesman.salesmanId}`
               : (
-                  godown ||
-                  "Main Godown"
-                )
-                  .toString()
-                  .trim();
+                godown ||
+                "Main Godown"
+              )
+                .toString()
+                .trim();
 
 
           // ==================================================
@@ -9904,8 +10068,8 @@ else if (
                   saleDate:
                     saleDate
                       ? new Date(
-                          saleDate
-                        )
+                        saleDate
+                      )
                       : new Date(),
 
                   customerId:
@@ -9920,39 +10084,57 @@ else if (
                   route:
                     customer.route || "",
 
-                 paymentMode:
-  finalPaymentMode,
+                  paymentMode:
+                    finalPaymentMode,
 
-payments:
-  normalizedPayments,
+                  payments:
+                    normalizedPayments,
 
-paidAmount:
-  Number(
-    finalPaidAmount.toFixed(2)
-  ),
+                  paidAmount:
+                    Number(
+                      finalPaidAmount.toFixed(2)
+                    ),
 
-outstandingAmount:
-  Number(
-    finalOutstandingAmount.toFixed(2)
-  ),
+                  // Customer advance consumed against this sale.
+                  advanceUsed:
+                    Number(
+                      advanceUsed.toFixed(2)
+                    ),
 
-paymentStatus:
+                  outstandingAmount:
+                    Number(
+                      finalOutstandingAmount.toFixed(2)
+                    ),
+
+                paymentStatus:
   finalPaymentStatus,
+
+// ==================================================
+// SALE PRODUCT LINES
+// REQUIRED FOR EDIT / CANCEL / STOCK REVERSAL
+// ==================================================
 
 products:
   verifiedProducts,
 
-                  totalItems:
-                    verifiedProducts.length,
+totalItems:
+  verifiedProducts.length,
 
-                  totalQuantity:
-                    totalQuantity,
+totalQuantity:
+  totalQuantity,
 
-                  grandTotal:
-                    grandTotal,
+grandTotal:
+  grandTotal,
 
-                  godown:
-                    finalGodown,
+godown:
+  finalGodown,
+
+                  // ================================================
+                  // REMEMBER WHERE STOCK CAME FROM
+                  // ================================================
+
+                  stockSource:
+                    finalStockSource,
 
                   status:
                     "POSTED",
@@ -9983,14 +10165,46 @@ products:
 
           const sale =
             saleDocs[0];
+          // ==================================================
+          // DEDUCT CUSTOMER ADVANCE USED BY THIS SALE
+          //
+          // This is inside the existing MongoDB transaction.
+          //
+          // Therefore if stock deduction / sale save fails,
+          // this customer balance update will also roll back.
+          // ==================================================
 
+          if (
+            advanceUsed >
+            0
+          ) {
+
+            customer.balance =
+              Number(
+                Math.max(
+                  0,
+                  availableAdvanceBalance -
+                  advanceUsed
+                ).toFixed(2)
+              );
+
+            customer.updatedAt =
+              new Date();
+
+            await customer.save({
+              session,
+            });
+          }
 
           // ==================================================
-          // ADMIN ONLY
-          // DEDUCT MAIN GODOWN STOCK
+          // MAIN GODOWN SALE ONLY
+          // DEDUCT MAS_PRODUCT
           // ==================================================
 
-          if (role === "admin") {
+          if (
+            finalStockSource ===
+            "MAIN_GODOWN"
+          ) {
 
             for (
               const line of
@@ -10288,6 +10502,53 @@ app.put(
             throw error;
           }
 
+          // ==================================================
+          // BLOCK EDIT IF POSTED COLLECTION IS ALREADY
+          // APPLIED AGAINST THIS SALE
+          //
+          // Correct flow:
+          // 1. Cancel collection
+          // 2. Edit sale
+          // ==================================================
+
+          const linkedCollection =
+            await Collection.findOne({
+              farmId,
+
+              status: "POSTED",
+
+              allocations: {
+                $elemMatch: {
+                  saleId:
+                    sale.saleId,
+
+                  amountApplied: {
+                    $gt: 0,
+                  },
+                },
+              },
+            })
+              .select(
+                "collectionId receiptNo amount"
+              )
+              .session(session)
+              .lean();
+
+
+          if (linkedCollection) {
+
+            const error =
+              new Error(
+                `This sale has collection ${linkedCollection.receiptNo ||
+                linkedCollection.collectionId
+                } applied against it. Cancel that collection first before editing this sale.`
+              );
+
+            error.statusCode =
+              409;
+
+            throw error;
+          }
           // ==============================================
           // SALESMAN CAN EDIT ONLY HIS OWN BILL
           // ==============================================
@@ -10297,9 +10558,9 @@ app.put(
           ) {
             if (
               sale.createdRole !==
-                "salesman" ||
+              "salesman" ||
               sale.createdBy !==
-                userId
+              userId
             ) {
               const error =
                 new Error(
@@ -10316,13 +10577,13 @@ app.put(
           // REQUEST
           // ==============================================
 
-     const {
-  saleDate,
-  customerId,
-  paymentMode,
-  payments,
-  products,
-} = req.body;
+          const {
+            saleDate,
+            customerId,
+            paymentMode,
+            payments,
+            products,
+          } = req.body;
 
           if (
             !Array.isArray(products) ||
@@ -10334,6 +10595,38 @@ app.put(
               );
 
             error.statusCode = 400;
+
+            throw error;
+          }
+
+          // ==================================================
+          // ORIGINAL CUSTOMER
+          //
+          // Required because old advanceUsed belongs to the
+          // customer on the original sale.
+          //
+          // If admin changes customer during sale edit,
+          // old advance must return to old customer.
+          // ==================================================
+
+          const originalCustomer =
+            await Customer.findOne({
+              farmId,
+
+              customerId:
+                sale.customerId,
+            }).session(session);
+
+
+          if (!originalCustomer) {
+
+            const error =
+              new Error(
+                "Original customer linked to this sale was not found."
+              );
+
+            error.statusCode =
+              404;
 
             throw error;
           }
@@ -10369,12 +10662,84 @@ app.put(
 
             throw error;
           }
+          // ==================================================
+          // RESTORE ADVANCE USED BY ORIGINAL SALE
+          //
+          // Before recalculating an edited sale, return the
+          // original advanceUsed.
+          //
+          // Example:
+          //
+          // Customer balance now = 400
+          // Old sale advanceUsed = 600
+          //
+          // Temporary available balance becomes 1000.
+          //
+          // Then edited bill will consume whatever it actually
+          // needs.
+          // ==================================================
+
+          const oldAdvanceUsed =
+            Math.max(
+              0,
+              Number(
+                sale.advanceUsed || 0
+              )
+            );
+
+
+          const sameCustomer =
+            originalCustomer.customerId
+              .toString()
+              .trim()
+              .toUpperCase() ===
+            customer.customerId
+              .toString()
+              .trim()
+              .toUpperCase();
+
+
+          if (
+            oldAdvanceUsed >
+            0.001
+          ) {
+
+            originalCustomer.balance =
+              Number(
+                (
+                  Number(
+                    originalCustomer.balance ||
+                    0
+                  ) +
+                  oldAdvanceUsed
+                ).toFixed(2)
+              );
+
+            originalCustomer.updatedAt =
+              new Date();
+
+
+            await originalCustomer.save({
+              session,
+            });
+
+
+            // If editing the same customer, the `customer`
+            // Mongoose document was loaded before we restored
+            // old advance. Synchronize it.
+            if (sameCustomer) {
+
+              customer.balance =
+                originalCustomer.balance;
+            }
+          }
+
 
           // ==============================================
           // PAYMENT MODE
           // ==============================================
 
-  
+
 
           // ==============================================
           // OLD QUANTITY MAP
@@ -10574,9 +10939,9 @@ app.put(
                 salesmanAvailableMap
                   .get(productId)
                   .sold +=
-                    Number(
-                      item.quantity
-                    ) || 0;
+                  Number(
+                    item.quantity
+                  ) || 0;
               }
             }
           }
@@ -10783,20 +11148,20 @@ app.put(
               const available =
                 stockRow
                   ? (
-                      Number(
-                        stockRow.allocated
-                      ) || 0
-                    ) -
-                    (
-                      Number(
-                        stockRow.returned
-                      ) || 0
-                    ) -
-                    (
-                      Number(
-                        stockRow.sold
-                      ) || 0
-                    )
+                    Number(
+                      stockRow.allocated
+                    ) || 0
+                  ) -
+                  (
+                    Number(
+                      stockRow.returned
+                    ) || 0
+                  ) -
+                  (
+                    Number(
+                      stockRow.sold
+                    ) || 0
+                  )
                   : 0;
 
               if (
@@ -10850,176 +11215,224 @@ app.put(
               amount;
           }
           // ==================================================
-// PAYMENT BREAKUP
-// NEVER TRUST PAYMENT TOTAL FROM FRONTEND
-// ==================================================
+          // PAYMENT BREAKUP
+          // NEVER TRUST PAYMENT TOTAL FROM FRONTEND
+          // ==================================================
 
-const allowedImmediatePaymentModes = [
-  "Cash",
-  "UPI",
-  "Bank Transfer",
-];
+          const allowedImmediatePaymentModes = [
+            "Cash",
+            "UPI",
+            "Bank Transfer",
+          ];
 
-const normalizedPayments = [];
+          const normalizedPayments = [];
 
-if (Array.isArray(payments)) {
+          if (Array.isArray(payments)) {
 
-  for (const payment of payments) {
+            for (const payment of payments) {
 
-    const mode =
-      (
-        payment?.mode ||
-        ""
-      )
-        .toString()
-        .trim();
+              const mode =
+                (
+                  payment?.mode ||
+                  ""
+                )
+                  .toString()
+                  .trim();
 
-    const amount =
-      Number(
-        payment?.amount
-      );
+              const amount =
+                Number(
+                  payment?.amount
+                );
 
-    if (
-      !allowedImmediatePaymentModes.includes(
-        mode
-      )
-    ) {
-      const error =
-        new Error(
-          `Invalid payment mode: ${mode || "Unknown"}.`
-        );
+              if (
+                !allowedImmediatePaymentModes.includes(
+                  mode
+                )
+              ) {
+                const error =
+                  new Error(
+                    `Invalid payment mode: ${mode || "Unknown"}.`
+                  );
 
-      error.statusCode = 400;
+                error.statusCode = 400;
 
-      throw error;
-    }
+                throw error;
+              }
 
-    if (
-      !Number.isFinite(amount) ||
-      amount <= 0
-    ) {
-      const error =
-        new Error(
-          `Invalid payment amount for ${mode}.`
-        );
+              if (
+                !Number.isFinite(amount) ||
+                amount <= 0
+              ) {
+                const error =
+                  new Error(
+                    `Invalid payment amount for ${mode}.`
+                  );
 
-      error.statusCode = 400;
+                error.statusCode = 400;
 
-      throw error;
-    }
+                throw error;
+              }
 
-    normalizedPayments.push({
-      mode,
+              normalizedPayments.push({
+                mode,
 
-      amount:
-        Number(
-          amount.toFixed(2)
-        ),
+                amount:
+                  Number(
+                    amount.toFixed(2)
+                  ),
 
-      referenceNo:
-        (
-          payment?.referenceNo ||
-          ""
-        )
-          .toString()
-          .trim(),
-    });
-  }
-}
-
-
-// ==================================================
-// CALCULATE PAID AMOUNT
-// ==================================================
-
-const finalPaidAmount =
-  normalizedPayments.reduce(
-    (
-      total,
-      payment
-    ) =>
-      total +
-      (
-        Number(
-          payment.amount
-        ) || 0
-      ),
-    0
-  );
+                referenceNo:
+                  (
+                    payment?.referenceNo ||
+                    ""
+                  )
+                    .toString()
+                    .trim(),
+              });
+            }
+          }
 
 
-if (
-  finalPaidAmount >
-  grandTotal + 0.001
-) {
-  const error =
-    new Error(
-      "Paid amount cannot be greater than bill amount."
-    );
+          // ==================================================
+          // CALCULATE PAID AMOUNT
+          // ==================================================
 
-  error.statusCode = 400;
-
-  throw error;
-}
-
-
-// ==================================================
-// OUTSTANDING
-// ==================================================
-
-const finalOutstandingAmount =
-  Math.max(
-    0,
-    grandTotal -
-    finalPaidAmount
-  );
+          const finalPaidAmount =
+            normalizedPayments.reduce(
+              (
+                total,
+                payment
+              ) =>
+                total +
+                (
+                  Number(
+                    payment.amount
+                  ) || 0
+                ),
+              0
+            );
 
 
-// ==================================================
-// PAYMENT STATUS
-// ==================================================
+          if (
+            finalPaidAmount >
+            grandTotal + 0.001
+          ) {
+            const error =
+              new Error(
+                "Paid amount cannot be greater than bill amount."
+              );
 
-let finalPaymentStatus =
-  "PAID";
+            error.statusCode = 400;
 
-if (
-  finalPaidAmount <= 0
-) {
-  finalPaymentStatus =
-    "CREDIT";
-}
-
-else if (
-  finalOutstandingAmount >
-  0.001
-) {
-  finalPaymentStatus =
-    "PARTIAL";
-}
+            throw error;
+          }
 
 
-// ==================================================
-// DISPLAY PAYMENT MODE
-// ==================================================
+          // ==================================================
+          // OUTSTANDING
+          // ==================================================
 
-let finalPaymentMode =
-  "Credit";
+          // ==================================================
+          // CUSTOMER ADVANCE RECALCULATION FOR EDITED SALE
+          //
+          // At this point:
+          // - Old advanceUsed has already been returned.
+          // - customer.balance represents currently available
+          //   advance for the selected customer.
+          // ==================================================
 
-if (
-  normalizedPayments.length === 1 &&
-  finalOutstandingAmount <= 0.001
-) {
-  finalPaymentMode =
-    normalizedPayments[0]
-      .mode;
-}
+          const availableAdvanceBalance =
+            Math.max(
+              0,
+              Number(
+                customer.balance || 0
+              )
+            );
 
-else if (
-  normalizedPayments.length > 0
-) {
-  finalPaymentMode =
-    "Split";
-} 
+
+          // Amount left after Cash / UPI / Bank payment
+          // entered directly on edited bill.
+          const amountAfterImmediatePayment =
+            Math.max(
+              0,
+              grandTotal -
+              finalPaidAmount
+            );
+
+
+          // Consume customer advance only as required.
+          const advanceUsed =
+            Number(
+              Math.min(
+                availableAdvanceBalance,
+                amountAfterImmediatePayment
+              ).toFixed(2)
+            );
+
+
+          // Final outstanding.
+          const finalOutstandingAmount =
+            Number(
+              Math.max(
+                0,
+                amountAfterImmediatePayment -
+                advanceUsed
+              ).toFixed(2)
+            );
+
+
+          // ==================================================
+          // PAYMENT STATUS
+          // ==================================================
+
+          let finalPaymentStatus =
+            "PAID";
+
+
+          if (
+            finalOutstandingAmount >
+            0.001
+          ) {
+
+            if (
+              finalPaidAmount <=
+              0.001 &&
+              advanceUsed <=
+              0.001
+            ) {
+
+              finalPaymentStatus =
+                "CREDIT";
+            }
+
+            else {
+
+              finalPaymentStatus =
+                "PARTIAL";
+            }
+          }
+          // ==================================================
+          // DISPLAY PAYMENT MODE
+          // ==================================================
+
+          let finalPaymentMode =
+            "Credit";
+
+          if (
+            normalizedPayments.length === 1 &&
+            finalOutstandingAmount <= 0.001
+          ) {
+            finalPaymentMode =
+              normalizedPayments[0]
+                .mode;
+          }
+
+          else if (
+            normalizedPayments.length > 0
+          ) {
+            finalPaymentMode =
+              "Split";
+          }
 
           // ==============================================
           // ADMIN STOCK DIFFERENCE
@@ -11273,6 +11686,32 @@ else if (
               }
             }
           }
+          // ==================================================
+          // DEDUCT NEW ADVANCE USED BY EDITED SALE
+          // ==================================================
+
+          if (
+            advanceUsed >
+            0.001
+          ) {
+
+            customer.balance =
+              Number(
+                Math.max(
+                  0,
+                  availableAdvanceBalance -
+                  advanceUsed
+                ).toFixed(2)
+              );
+
+            customer.updatedAt =
+              new Date();
+
+
+            await customer.save({
+              session,
+            });
+          }
 
           // ==============================================
           // UPDATE SALE DOCUMENT
@@ -11281,8 +11720,8 @@ else if (
           sale.saleDate =
             saleDate
               ? new Date(
-                  saleDate
-                )
+                saleDate
+              )
               : sale.saleDate;
 
           sale.customerId =
@@ -11297,27 +11736,36 @@ else if (
           sale.route =
             customer.route || "";
 
-      sale.paymentMode =
-  finalPaymentMode;
+          sale.paymentMode =
+            finalPaymentMode;
 
-sale.payments =
-  normalizedPayments;
+          sale.payments =
+            normalizedPayments;
 
-sale.paidAmount =
-  Number(
-    finalPaidAmount.toFixed(2)
-  );
+          sale.paidAmount =
+            Number(
+              finalPaidAmount.toFixed(2)
+            );
 
-sale.outstandingAmount =
-  Number(
-    finalOutstandingAmount.toFixed(2)
-  );
 
-sale.paymentStatus =
-  finalPaymentStatus;
+          // Advance recalculated for edited bill.
+          sale.advanceUsed =
+            Number(
+              advanceUsed.toFixed(2)
+            );
 
-sale.products =
-  verifiedProducts;
+
+          sale.outstandingAmount =
+            Number(
+              finalOutstandingAmount.toFixed(2)
+            );
+
+
+          sale.paymentStatus =
+            finalPaymentStatus;
+
+          sale.products =
+            verifiedProducts;
 
           sale.totalItems =
             verifiedProducts.length;
@@ -11405,9 +11853,22 @@ app.put(
       await mongoose.startSession();
 
     try {
+      let cancelledSale = null;
 
-      let cancelledSale =
-        null;
+      // Values required after transaction
+      // for response / UI refresh.
+      let advanceToRestore = 0;
+      let previousAdvanceBalance = 0;
+
+      // Useful for checking which products were actually restored.
+      let restoredProducts = [];
+
+      // ======================================================
+      // STOCK SOURCE MUST EXIST OUTSIDE TRANSACTION
+      // because it is also used in the API response
+      // after session.withTransaction() completes.
+      // ======================================================
+      let effectiveStockSource = "";
 
 
       await session.withTransaction(
@@ -11492,9 +11953,9 @@ app.put(
 
             if (
               sale.createdRole !==
-                "salesman" ||
+              "salesman" ||
               sale.createdBy !==
-                userId
+              userId
             ) {
 
               const error =
@@ -11543,15 +12004,196 @@ app.put(
 
             throw error;
           }
+          // ==================================================
+          // PREVENT SALE CANCELLATION IF A POSTED COLLECTION
+          // HAS ALREADY BEEN APPLIED AGAINST THIS BILL
+          //
+          // Correct flow:
+          // 1. Cancel collection first
+          // 2. Then cancel sale
+          // ==================================================
+
+          const linkedCollection =
+            await Collection.findOne({
+              farmId,
+
+              status: "POSTED",
+
+              allocations: {
+                $elemMatch: {
+                  saleId:
+                    sale.saleId,
+                  amountApplied: {
+                    $gt: 0,
+                  },
+                },
+              },
+            })
+              .select(
+                "collectionId receiptNo amount"
+              )
+              .session(session)
+              .lean();
+
+          if (linkedCollection) {
+            const error =
+              new Error(
+                `This sale has payment collection ${linkedCollection.receiptNo ||
+                linkedCollection.collectionId
+                } applied against it. Cancel that collection first before cancelling this sale.`
+              );
+
+            error.statusCode = 409;
+
+            throw error;
+          }
+
+          // ==================================================
+          // LOAD CUSTOMER
+          // Required to restore advance used by this sale.
+          // ==================================================
+
+          const customer =
+            await Customer.findOne({
+              farmId,
+              customerId:
+                sale.customerId,
+            }).session(session);
+
+          if (!customer) {
+            const error =
+              new Error(
+                "Customer linked to this sale was not found."
+              );
+
+            error.statusCode = 404;
+
+            throw error;
+          }
+          // ==================================================
+          // ADVANCE USED ON ORIGINAL SALE
+          // ==================================================
+
+          advanceToRestore =
+            Math.max(
+              0,
+              Number(
+                sale.advanceUsed || 0
+              )
+            );
+
+          previousAdvanceBalance =
+            Math.max(
+              0,
+              Number(
+                customer.balance || 0
+              )
+            );
 
 
           // ==================================================
-          // IDENTIFY STOCK SOURCE OF ORIGINAL SALE
+          // IDENTIFY ACTUAL STOCK SOURCE OF ORIGINAL SALE
+          // ==================================================
+          //
+          // NEW SALES:
+          // Use stockSource stored on the sale.
+          //
+          // OLD SALES:
+          // Existing records may not have stockSource.
+          // For those records:
+          //   salesman bill -> SALESMAN_ALLOCATION
+          //   admin bill    -> MAIN_GODOWN
+          // ==================================================
+          effectiveStockSource =
+            String(
+              sale.stockSource || ""
+            )
+              .trim()
+              .toUpperCase();
+
+          // ==================================================
+          // LEGACY / OLD SALE SUPPORT
           // ==================================================
 
-          const isSalesmanSale =
-            sale.createdRole ===
-            "salesman";
+          if (
+            effectiveStockSource !==
+            "MAIN_GODOWN" &&
+            effectiveStockSource !==
+            "SALESMAN_ALLOCATION"
+          ) {
+
+            const oldCreatedRole =
+              String(
+                sale.createdRole || ""
+              )
+                .trim()
+                .toLowerCase();
+
+            const oldSalesmanId =
+              String(
+                sale.salesmanId || ""
+              )
+                .trim();
+
+            const oldGodown =
+              String(
+                sale.godown || ""
+              )
+                .trim()
+                .toLowerCase();
+
+
+            if (
+              oldCreatedRole === "salesman" ||
+              oldSalesmanId !== "" ||
+              oldGodown.startsWith(
+                "salesman -"
+              )
+            ) {
+
+              effectiveStockSource =
+                "SALESMAN_ALLOCATION";
+
+            } else {
+
+              effectiveStockSource =
+                "MAIN_GODOWN";
+            }
+          }
+
+
+          // ==================================================
+          // ONLY MAIN GODOWN SALES RETURN TO MAS_PRODUCT
+          // ==================================================
+
+          const shouldRestoreMainStock =
+            effectiveStockSource ===
+            "MAIN_GODOWN";
+
+
+          console.log(
+            "CANCEL SALE STOCK SOURCE:",
+            {
+              saleNo:
+                sale.saleNo,
+
+              createdRole:
+                sale.createdRole,
+
+              salesmanId:
+                sale.salesmanId,
+
+              godown:
+                sale.godown,
+
+              storedStockSource:
+                sale.stockSource,
+
+              effectiveStockSource,
+
+              shouldRestoreMainStock,
+            }
+          );
 
 
           // ==================================================
@@ -11559,7 +12201,7 @@ app.put(
           // RESTORE MAIN PRODUCT STOCK
           // ==================================================
 
-          if (!isSalesmanSale) {
+          if (shouldRestoreMainStock) {
 
             for (
               const line of
@@ -11585,17 +12227,22 @@ app.put(
               }
 
 
-              const product =
+              // ============================================
+              // RESTORE MAIN PRODUCT STOCK ATOMICALLY
+              // ============================================
+
+              const productBefore =
                 await Product.findOne({
                   farmId:
                     farmId,
 
                   productId:
                     line.productId,
-                }).session(session);
+                })
+                  .session(session)
+                  .lean();
 
-
-              if (!product) {
+              if (!productBefore) {
 
                 const error =
                   new Error(
@@ -11607,13 +12254,18 @@ app.put(
                 throw error;
               }
 
+              const stockBefore =
+                Number(
+                  productBefore.stock || 0
+                );
+
 
               // ============================================
-              // ADD MAIN STOCK BACK
+              // ATOMIC STOCK IN
               // ============================================
 
-              const updateResult =
-                await Product.updateOne(
+              const updatedProduct =
+                await Product.findOneAndUpdate(
                   {
                     farmId:
                       farmId,
@@ -11635,16 +12287,14 @@ app.put(
                   },
 
                   {
+                    new: true,
                     session:
                       session,
                   }
-                );
+                ).lean();
 
 
-              if (
-                updateResult.modifiedCount !==
-                1
-              ) {
+              if (!updatedProduct) {
 
                 const error =
                   new Error(
@@ -11655,6 +12305,108 @@ app.put(
 
                 throw error;
               }
+
+
+              const verifiedStock =
+                Number(
+                  updatedProduct.stock || 0
+                );
+
+
+              const expectedStock =
+                Number(
+                  (
+                    stockBefore +
+                    quantity
+                  ).toFixed(3)
+                );
+
+
+              // ============================================
+              // VERIFY RESULT
+              // ============================================
+
+              if (
+                Math.abs(
+                  verifiedStock -
+                  expectedStock
+                ) > 0.0001
+              ) {
+
+                const error =
+                  new Error(
+                    `Stock restoration verification failed for ${line.productName}. Expected ${expectedStock}, found ${verifiedStock}.`
+                  );
+
+                error.statusCode = 409;
+
+                throw error;
+              }
+
+
+              console.log(
+                "MAIN STOCK ACTUALLY RESTORED:",
+                {
+                  productId:
+                    line.productId,
+
+                  productName:
+                    line.productName,
+
+                  quantityRestored:
+                    quantity,
+
+                  stockBefore:
+                    stockBefore,
+
+                  stockAfter:
+                    verifiedStock,
+                }
+              );
+
+
+              // ============================================
+              // RESPONSE AUDIT
+              // ============================================
+
+              restoredProducts.push({
+                productId:
+                  line.productId,
+
+                productName:
+                  line.productName,
+
+                quantityRestored:
+                  quantity,
+
+                stockBefore,
+
+                stockAfter:
+                  verifiedStock,
+              });
+
+
+              console.log(
+                "SALE CANCEL STOCK RESTORED:",
+                {
+                  saleNo:
+                    sale.saleNo,
+
+                  productId:
+                    line.productId,
+
+                  productName:
+                    line.productName,
+
+                  quantityRestored:
+                    quantity,
+
+                  stockBefore,
+
+                  stockAfter:
+                    verifiedStock,
+                }
+              );
 
 
               // ============================================
@@ -11731,10 +12483,47 @@ app.put(
           // to the salesman again.
           // ==================================================
 
+          // ==================================================
+          // RETURN ADVANCE USED BY THIS SALE
+          //
+          // Example:
+          //
+          // Customer balance before cancellation = 400
+          // Sale advanceUsed                     = 600
+          //
+          // New customer balance                 = 1000
+          //
+          // This is part of the same MongoDB transaction.
+          // ==================================================
 
+          if (
+            advanceToRestore >
+            0
+          ) {
+            customer.balance =
+              Number(
+                (
+                  previousAdvanceBalance +
+                  advanceToRestore
+                ).toFixed(2)
+              );
+
+            customer.updatedAt =
+              new Date();
+
+            await customer.save({
+              session,
+            });
+          }
           // ==================================================
           // MARK SALE CANCELLED
           // ==================================================
+
+          // Save resolved stock source.
+          // Important for old bills that previously had no
+          // stockSource field.
+          sale.stockSource =
+            effectiveStockSource;
 
           sale.status =
             "CANCELLED";
@@ -11757,23 +12546,139 @@ app.put(
 
           cancelledSale =
             sale;
+
+          sale.cancelledBy =
+            userId || "";
+
+          sale.cancelledAt =
+            new Date();
+
+          sale.updatedAt =
+            new Date();
+
+
+          await sale.save({
+            session:
+              session,
+          });
+
+
+          cancelledSale =
+            sale;
         }
       );
 
+      // ======================================================
+// VERIFY STOCK AFTER TRANSACTION COMMIT
+// ======================================================
 
+const committedStock = [];
+
+if (
+  effectiveStockSource ===
+  "MAIN_GODOWN"
+) {
+
+  for (
+    const item of
+    restoredProducts
+  ) {
+
+    const productAfterCommit =
+      await Product.findOne({
+        farmId:
+          req.user.farmId,
+
+        productId:
+          item.productId,
+      })
+        .lean();
+
+    committedStock.push({
+      productId:
+        item.productId,
+
+      productName:
+        item.productName,
+
+      expectedStock:
+        item.stockAfter,
+
+      actualStock:
+        productAfterCommit
+          ? Number(
+              productAfterCommit.stock || 0
+            )
+          : null,
+    });
+  }
+
+
+  console.log(
+    "STOCK AFTER TRANSACTION COMMIT:",
+    committedStock
+  );
+}
       return res.status(200).json({
-
-        success:
-          true,
+        success: true,
 
         message:
           cancelledSale?.createdRole ===
-          "salesman"
-            ? "Salesman sale cancelled successfully."
-            : "Sale cancelled and stock restored successfully.",
+            "salesman"
+            ? (
+              advanceToRestore > 0
+                ? `Sale cancelled successfully. ₹${advanceToRestore.toFixed(
+                  2
+                )} customer advance restored.`
+                : "Salesman sale cancelled successfully."
+            )
+            : (
+              advanceToRestore > 0
+                ? `Sale cancelled successfully. Stock restored and ₹${advanceToRestore.toFixed(
+                  2
+                )} customer advance restored.`
+                : "Sale cancelled and product stock restored successfully."
+            ),
 
-        data:
-          cancelledSale,
+        data: {
+          ...cancelledSale.toObject(),
+
+          advanceRestored:
+            Number(
+              advanceToRestore.toFixed(2)
+            ),
+
+          previousAdvanceBalance:
+            Number(
+              previousAdvanceBalance.toFixed(2)
+            ),
+
+          currentAdvanceBalance:
+            Number(
+              (
+                previousAdvanceBalance +
+                advanceToRestore
+              ).toFixed(2)
+            ),
+
+   stockRestored:
+  true,
+
+stockSource:
+  effectiveStockSource,
+
+mainStockRestored:
+  effectiveStockSource ===
+  "MAIN_GODOWN",
+
+salesmanStockReleased:
+  effectiveStockSource ===
+  "SALESMAN_ALLOCATION",
+
+restoredProducts,
+
+committedStock,
+        },
       });
 
 
@@ -11836,15 +12741,49 @@ async function getSoldQuantityForAllocation({
     .toString()
     .trim()
     .toUpperCase();
+  const salesQuery =
+    Sale.find({
+      farmId,
 
-  const salesQuery = Sale.find({
-    farmId,
-    salesmanId: normalizedSalesmanId,
-    createdRole: "salesman",
-    status: "POSTED",
-  })
-    .select("products")
-    .lean();
+      salesmanId:
+        normalizedSalesmanId,
+
+      status:
+        "POSTED",
+
+      $or: [
+        // New records
+        {
+          stockSource:
+            "SALESMAN_ALLOCATION",
+        },
+
+        // Old records without stockSource
+        {
+          stockSource: {
+            $exists: false,
+          },
+          createdRole:
+            "salesman",
+        },
+
+        {
+          stockSource: null,
+          createdRole:
+            "salesman",
+        },
+
+        {
+          stockSource: "",
+          createdRole:
+            "salesman",
+        },
+      ],
+    })
+      .select(
+        "products"
+      )
+      .lean();
 
   if (session) {
     salesQuery.session(session);
@@ -11884,7 +12823,7 @@ async function getSoldQuantityForAllocation({
           totalSoldMap.get(productId) ||
           0
         ) +
-          (Number(item.quantity) || 0)
+        (Number(item.quantity) || 0)
       );
     }
   }
@@ -11972,7 +12911,7 @@ async function getSoldQuantityForAllocation({
         Math.max(
           0,
           allocatedQty -
-            returnedQty
+          returnedQty
         );
 
       const remainingSold =
@@ -11998,7 +12937,7 @@ async function getSoldQuantityForAllocation({
         Math.max(
           0,
           remainingSold -
-            consumedQty
+          consumedQty
         )
       );
     }
@@ -12038,74 +12977,74 @@ app.get(
 
       const farmId =
         req.user.farmId;
-        const role =
-  req.user.role;
+      const role =
+        req.user.role;
 
-const userId =
-  req.user.userId;
-
-
-// ==================================================
-// ROLE BASED ALLOCATION FILTER
-//
-// ADMIN
-//   -> ALL FARM ALLOCATIONS
-//
-// SALESMAN
-//   -> ONLY HIS OWN ALLOCATIONS
-// ==================================================
-
-const allocationFilter = {
-  farmId: farmId,
-};
-
-let currentSalesman = null;
+      const userId =
+        req.user.userId;
 
 
-if (role === "salesman") {
+      // ==================================================
+      // ROLE BASED ALLOCATION FILTER
+      //
+      // ADMIN
+      //   -> ALL FARM ALLOCATIONS
+      //
+      // SALESMAN
+      //   -> ONLY HIS OWN ALLOCATIONS
+      // ==================================================
 
-  currentSalesman =
-    await Salesman.findOne({
-      _id: userId,
-      farmId: farmId,
-      isActive: true,
-    })
-      .lean();
+      const allocationFilter = {
+        farmId: farmId,
+      };
 
-
-  if (!currentSalesman) {
-
-    return res.status(404).json({
-      success: false,
-      message:
-        "Salesman account not found.",
-    });
-  }
+      let currentSalesman = null;
 
 
-  allocationFilter.salesmanId =
-    currentSalesman.salesmanId;
-}
+      if (role === "salesman") {
+
+        currentSalesman =
+          await Salesman.findOne({
+            _id: userId,
+            farmId: farmId,
+            isActive: true,
+          })
+            .lean();
 
 
-else if (role !== "admin") {
+        if (!currentSalesman) {
 
-  return res.status(403).json({
-    success: false,
-    message:
-      "You are not allowed to view allocations.",
-  });
-}
+          return res.status(404).json({
+            success: false,
+            message:
+              "Salesman account not found.",
+          });
+        }
+
+
+        allocationFilter.salesmanId =
+          currentSalesman.salesmanId;
+      }
+
+
+      else if (role !== "admin") {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "You are not allowed to view allocations.",
+        });
+      }
 
 
       // ==================================================
       // LOAD ALL ALLOCATIONS OF THIS FARM
       // ==================================================
 
-   const allocations =
-  await Allocation.find(
-    allocationFilter
-  )
+      const allocations =
+        await Allocation.find(
+          allocationFilter
+        )
           .sort({
             allocationDate: -1,
             createdAt: -1,
@@ -12119,41 +13058,71 @@ else if (role !== "admin") {
       // ADMIN SALES ARE NOT INCLUDED.
       // CANCELLED SALES ARE NOT INCLUDED.
       // ==================================================
-const salesFilter = {
+      const salesFilter = {
 
-  farmId:
-    farmId,
+        farmId:
+          farmId,
 
-  status:
-    "POSTED",
+        status:
+          "POSTED",
 
-  createdRole:
-    "salesman",
-};
+        $or: [
+          {
+            stockSource:
+              "SALESMAN_ALLOCATION",
+          },
+
+          // Legacy salesman bills
+          {
+            stockSource: {
+              $exists: false,
+            },
+
+            createdRole:
+              "salesman",
+          },
+
+          {
+            stockSource:
+              null,
+
+            createdRole:
+              "salesman",
+          },
+
+          {
+            stockSource:
+              "",
+
+            createdRole:
+              "salesman",
+          },
+        ],
+      };
 
 
-if (
-  role === "salesman" &&
-  currentSalesman
-) {
+      if (
+        role === "salesman" &&
+        currentSalesman
+      ) {
 
-  salesFilter.salesmanId =
-    currentSalesman.salesmanId;
-}
+        salesFilter.salesmanId =
+          currentSalesman.salesmanId;
+      }
 
 
-const salesmanSales =
-  await Sale.find(
-    salesFilter
-  )
-    .select(
-      "salesmanId createdBy saleDate createdAt paymentMode products"
-    )
-    .sort({
-      saleDate: 1,
-      createdAt: 1,
-    })
-    .lean();
+      const salesmanSales =
+        await Sale.find(
+          salesFilter
+        )
+          .select(
+            "salesmanId createdBy saleDate createdAt paymentMode products"
+          )
+          .sort({
+            saleDate: 1,
+            createdAt: 1,
+          })
+          .lean();
 
 
       // ==================================================
@@ -12168,8 +13137,8 @@ const salesmanSales =
 
       const soldMap =
         new Map();
-const financialQueueMap =
-  new Map();
+      const financialQueueMap =
+        new Map();
 
       for (
         const sale of salesmanSales
@@ -12236,55 +13205,55 @@ const financialQueueMap =
             oldSold + quantity
           );
           // ================================================
-// ACTUAL FINANCIAL VALUE OF THIS SALE LINE
-// ================================================
+          // ACTUAL FINANCIAL VALUE OF THIS SALE LINE
+          // ================================================
 
-const lineAmount =
-  Number(
-    item.amount
-  ) || 0;
+          const lineAmount =
+            Number(
+              item.amount
+            ) || 0;
 
-const lineRate =
-  Number(
-    item.rate
-  ) || 0;
+          const lineRate =
+            Number(
+              item.rate
+            ) || 0;
 
-const unitAmount =
-  quantity > 0
-    ? (
-        lineAmount > 0
-          ? lineAmount / quantity
-          : lineRate
-      )
-    : 0;
-
-
-if (!financialQueueMap.has(key)) {
-
-  financialQueueMap.set(
-    key,
-    []
-  );
-}
+          const unitAmount =
+            quantity > 0
+              ? (
+                lineAmount > 0
+                  ? lineAmount / quantity
+                  : lineRate
+              )
+              : 0;
 
 
-financialQueueMap
-  .get(key)
-  .push({
+          if (!financialQueueMap.has(key)) {
 
-    remainingQty:
-      quantity,
+            financialQueueMap.set(
+              key,
+              []
+            );
+          }
 
-    unitAmount:
-      unitAmount,
 
-    paymentMode:
-      (
-        sale.paymentMode || ""
-      )
-        .toString()
-        .trim(),
-  });
+          financialQueueMap
+            .get(key)
+            .push({
+
+              remainingQty:
+                quantity,
+
+              unitAmount:
+                unitAmount,
+
+              paymentMode:
+                (
+                  sale.paymentMode || ""
+                )
+                  .toString()
+                  .trim(),
+            });
         }
       }
 
@@ -12398,17 +13367,17 @@ financialQueueMap
 
         let allocationRemainingQuantity =
           0;
-          let allocationSalesValue =
-  0;
+        let allocationSalesValue =
+          0;
 
-let allocationCashSales =
-  0;
+        let allocationCashSales =
+          0;
 
-let allocationOnlineSales =
-  0;
+        let allocationOnlineSales =
+          0;
 
-let allocationCreditSales =
-  0;
+        let allocationCreditSales =
+          0;
 
 
         const enrichedProducts =
@@ -12471,122 +13440,122 @@ let allocationCreditSales =
                 )
               );
               // ================================================
-// FINANCIAL VALUE FOR THIS ALLOCATION PRODUCT
-// ================================================
+              // FINANCIAL VALUE FOR THIS ALLOCATION PRODUCT
+              // ================================================
 
-let productSalesValue =
-  0;
+              let productSalesValue =
+                0;
 
-let productCashSales =
-  0;
+              let productCashSales =
+                0;
 
-let productOnlineSales =
-  0;
+              let productOnlineSales =
+                0;
 
-let productCreditSales =
-  0;
-
-
-let quantityToConsume =
-  soldQuantity;
+              let productCreditSales =
+                0;
 
 
-const financialQueue =
-  financialQueueMap.get(key) || [];
+              let quantityToConsume =
+                soldQuantity;
 
 
-while (
-  quantityToConsume > 0 &&
-  financialQueue.length > 0
-) {
-
-  const salePart =
-    financialQueue[0];
+              const financialQueue =
+                financialQueueMap.get(key) || [];
 
 
-  const availableSaleQty =
-    Number(
-      salePart.remainingQty
-    ) || 0;
+              while (
+                quantityToConsume > 0 &&
+                financialQueue.length > 0
+              ) {
+
+                const salePart =
+                  financialQueue[0];
 
 
-  if (availableSaleQty <= 0) {
-
-    financialQueue.shift();
-
-    continue;
-  }
+                const availableSaleQty =
+                  Number(
+                    salePart.remainingQty
+                  ) || 0;
 
 
-  const consumedQty =
-    Math.min(
-      quantityToConsume,
-      availableSaleQty
-    );
+                if (availableSaleQty <= 0) {
+
+                  financialQueue.shift();
+
+                  continue;
+                }
 
 
-  const consumedAmount =
-    consumedQty *
-    (
-      Number(
-        salePart.unitAmount
-      ) || 0
-    );
+                const consumedQty =
+                  Math.min(
+                    quantityToConsume,
+                    availableSaleQty
+                  );
 
 
-  productSalesValue +=
-    consumedAmount;
+                const consumedAmount =
+                  consumedQty *
+                  (
+                    Number(
+                      salePart.unitAmount
+                    ) || 0
+                  );
 
 
-  const paymentMode =
-    (
-      salePart.paymentMode || ""
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
+                productSalesValue +=
+                  consumedAmount;
 
 
-  if (paymentMode === "cash") {
-
-    productCashSales +=
-      consumedAmount;
-  }
-
-  else if (
-    paymentMode === "upi" ||
-    paymentMode ===
-      "bank transfer"
-  ) {
-
-    productOnlineSales +=
-      consumedAmount;
-  }
-
-  else if (
-    paymentMode === "credit"
-  ) {
-
-    productCreditSales +=
-      consumedAmount;
-  }
+                const paymentMode =
+                  (
+                    salePart.paymentMode || ""
+                  )
+                    .toString()
+                    .trim()
+                    .toLowerCase();
 
 
-  salePart.remainingQty -=
-    consumedQty;
+                if (paymentMode === "cash") {
+
+                  productCashSales +=
+                    consumedAmount;
+                }
+
+                else if (
+                  paymentMode === "upi" ||
+                  paymentMode ===
+                  "bank transfer"
+                ) {
+
+                  productOnlineSales +=
+                    consumedAmount;
+                }
+
+                else if (
+                  paymentMode === "credit"
+                ) {
+
+                  productCreditSales +=
+                    consumedAmount;
+                }
 
 
-  quantityToConsume -=
-    consumedQty;
+                salePart.remainingQty -=
+                  consumedQty;
 
 
-  if (
-    salePart.remainingQty <= 0
-  ) {
+                quantityToConsume -=
+                  consumedQty;
 
-    financialQueue.shift();
-  }
-}
+
+                if (
+                  salePart.remainingQty <= 0
+                ) {
+
+                  financialQueue.shift();
+                }
+              }
 
 
               const remainingQuantity =
@@ -12607,51 +13576,51 @@ while (
               allocationRemainingQuantity +=
                 remainingQuantity;
 
-                allocationSalesValue +=
-  productSalesValue;
+              allocationSalesValue +=
+                productSalesValue;
 
-allocationCashSales +=
-  productCashSales;
+              allocationCashSales +=
+                productCashSales;
 
-allocationOnlineSales +=
-  productOnlineSales;
+              allocationOnlineSales +=
+                productOnlineSales;
 
-allocationCreditSales +=
-  productCreditSales;
+              allocationCreditSales +=
+                productCreditSales;
 
-             return {
-  ...item,
+              return {
+                ...item,
 
-  soldQuantity:
-    soldQuantity,
+                soldQuantity:
+                  soldQuantity,
 
-  remainingQuantity:
-    remainingQuantity,
+                remainingQuantity:
+                  remainingQuantity,
 
-  salesValue:
-    Number(
-      productSalesValue
-        .toFixed(2)
-    ),
+                salesValue:
+                  Number(
+                    productSalesValue
+                      .toFixed(2)
+                  ),
 
-  cashSales:
-    Number(
-      productCashSales
-        .toFixed(2)
-    ),
+                cashSales:
+                  Number(
+                    productCashSales
+                      .toFixed(2)
+                  ),
 
-  onlineSales:
-    Number(
-      productOnlineSales
-        .toFixed(2)
-    ),
+                onlineSales:
+                  Number(
+                    productOnlineSales
+                      .toFixed(2)
+                  ),
 
-  creditSales:
-    Number(
-      productCreditSales
-        .toFixed(2)
-    ),
-};
+                creditSales:
+                  Number(
+                    productCreditSales
+                      .toFixed(2)
+                  ),
+              };
             }
           );
 
@@ -12672,29 +13641,29 @@ allocationCreditSales +=
 
           remainingQuantity:
             allocationRemainingQuantity,
-            salesValue:
-  Number(
-    allocationSalesValue
-      .toFixed(2)
-  ),
+          salesValue:
+            Number(
+              allocationSalesValue
+                .toFixed(2)
+            ),
 
-cashSales:
-  Number(
-    allocationCashSales
-      .toFixed(2)
-  ),
+          cashSales:
+            Number(
+              allocationCashSales
+                .toFixed(2)
+            ),
 
-onlineSales:
-  Number(
-    allocationOnlineSales
-      .toFixed(2)
-  ),
+          onlineSales:
+            Number(
+              allocationOnlineSales
+                .toFixed(2)
+            ),
 
-creditSales:
-  Number(
-    allocationCreditSales
-      .toFixed(2)
-  ),
+          creditSales:
+            Number(
+              allocationCreditSales
+                .toFixed(2)
+            ),
         };
       }
 
@@ -12894,8 +13863,8 @@ app.get(
             Math.max(
               0,
               allocated -
-                returned -
-                sold
+              returned -
+              sold
             ),
         };
       });
@@ -12960,13 +13929,13 @@ app.post(
             req.user.farmId;
 
 
-       const {
-  allocationDate,
-  salesmanId,
-  routeId,
-  products,
-  notes,
-} = req.body;
+          const {
+            allocationDate,
+            salesmanId,
+            routeId,
+            products,
+            notes,
+          } = req.body;
 
 
           // ============================================
@@ -13048,7 +14017,7 @@ app.post(
               .toUpperCase();
 
 
-      
+
 
 
           // ============================================
@@ -13133,7 +14102,7 @@ app.post(
               .toString()
               .trim()
               .toUpperCase() !==
-              normalizedSalesmanId
+            normalizedSalesmanId
           ) {
 
             const error =
@@ -13167,7 +14136,7 @@ app.post(
 
           for (
             const item of
-              products
+            products
           ) {
 
             const productId =
@@ -13345,8 +14314,8 @@ app.post(
           const finalAllocationDate =
             allocationDate
               ? new Date(
-                  allocationDate
-                )
+                allocationDate
+              )
               : new Date();
 
 
@@ -13373,84 +14342,84 @@ app.post(
           // CREATE TRN_ALLOCATION
           // ============================================
 
-       const allocationDocs =
-  await Allocation.create(
-    [
-      {
-        farmId:
-          farmId,
+          const allocationDocs =
+            await Allocation.create(
+              [
+                {
+                  farmId:
+                    farmId,
 
-        allocationId:
-          allocationId,
+                  allocationId:
+                    allocationId,
 
-        allocationNo:
-          allocationNo,
+                  allocationNo:
+                    allocationNo,
 
-        allocationDate:
-          finalAllocationDate,
+                  allocationDate:
+                    finalAllocationDate,
 
-        salesmanId:
-          salesman.salesmanId,
+                  salesmanId:
+                    salesman.salesmanId,
 
-        salesmanName:
-          salesman.name,
+                  salesmanName:
+                    salesman.name,
 
-        routeId:
-          route.routeId,
+                  routeId:
+                    route.routeId,
 
-        routeName:
-          route.routeName,
+                  routeName:
+                    route.routeName,
 
-        products:
-          verifiedProducts.map(
-            (line) => ({
-              productId:
-                line.productId,
+                  products:
+                    verifiedProducts.map(
+                      (line) => ({
+                        productId:
+                          line.productId,
 
-              productName:
-                line.productName,
+                        productName:
+                          line.productName,
 
-              variant:
-                line.variant,
+                        variant:
+                          line.variant,
 
-              unit:
-                line.unit,
+                        unit:
+                          line.unit,
 
-              quantity:
-                line.quantity,
+                        quantity:
+                          line.quantity,
 
-              returnedQuantity:
-                0,
-            })
-          ),
+                        returnedQuantity:
+                          0,
+                      })
+                    ),
 
-        totalItems:
-          verifiedProducts.length,
+                  totalItems:
+                    verifiedProducts.length,
 
-        totalQuantity:
-          totalQuantity,
+                  totalQuantity:
+                    totalQuantity,
 
-        notes:
-          notes
-            ?.toString()
-            .trim() ||
-          "",
+                  notes:
+                    notes
+                      ?.toString()
+                      .trim() ||
+                    "",
 
-        status:
-          "POSTED",
+                  status:
+                    "POSTED",
 
-        createdBy:
-          req.user.userId || "",
-      },
-    ],
-    {
-      session:
-        session,
-    }
-  );
+                  createdBy:
+                    req.user.userId || "",
+                },
+              ],
+              {
+                session:
+                  session,
+              }
+            );
 
-const allocation =
-  allocationDocs[0];
+          const allocation =
+            allocationDocs[0];
 
 
           // ============================================
@@ -13459,7 +14428,7 @@ const allocation =
 
           for (
             const line of
-              verifiedProducts
+            verifiedProducts
           ) {
 
             const updateResult =
@@ -13520,7 +14489,7 @@ const allocation =
             const stockId =
               await generateStockId();
 
-              
+
 
             await StockTransaction.create(
               [
@@ -13758,7 +14727,7 @@ app.put(
               products
             ) ||
             products.length ===
-              0
+            0
           ) {
             const error =
               new Error(
@@ -13903,7 +14872,7 @@ app.put(
               .toString()
               .trim()
               .toUpperCase() !==
-              normalizedSalesmanId
+            normalizedSalesmanId
           ) {
             const error =
               new Error(
@@ -14604,7 +15573,7 @@ app.put(
       return res
         .status(
           error.statusCode ||
-            500
+          500
         )
         .json({
           success: false,
@@ -14963,7 +15932,7 @@ app.put(
       return res
         .status(
           error.statusCode ||
-            500
+          500
         )
         .json({
           success: false,
@@ -15485,8 +16454,8 @@ app.put(
 
           allocationProduct
             .returnedQuantity =
-              alreadyReturnedQty +
-              physicalReturnQty;
+            alreadyReturnedQty +
+            physicalReturnQty;
 
 
           allocation.updatedAt =
@@ -15507,13 +16476,13 @@ app.put(
             );
 
 
-       // Keep allocation POSTED while individual products
-// are being settled.
-//
-// We will mark the whole allocation RETURNED only
-// after every product is fully reconciled.
-allocation.status =
-  "POSTED";
+          // Keep allocation POSTED while individual products
+          // are being settled.
+          //
+          // We will mark the whole allocation RETURNED only
+          // after every product is fully reconciled.
+          allocation.status =
+            "POSTED";
 
 
           await allocation.save({
@@ -15573,24 +16542,24 @@ allocation.status =
             }
 
 
-        // ============================================
-// STOCK LEDGER
-// ============================================
+            // ============================================
+            // STOCK LEDGER
+            // ============================================
 
-const stockId =
-  await generateStockId();
+            const stockId =
+              await generateStockId();
 
-await StockTransaction.create(
+            await StockTransaction.create(
               [
                 {
-  farmId:
-    farmId,
+                  farmId:
+                    farmId,
 
-  stockId:
-    stockId,
+                  stockId:
+                    stockId,
 
-  transactionType:
-    "ALLOCATION_RETURN",
+                  transactionType:
+                    "ALLOCATION_RETURN",
 
                   referenceType:
                     "ALLOCATION",
@@ -15965,98 +16934,98 @@ app.get(
       }
 
 
-    // ==================================================
-// SALESMAN POSTED SALES
-//
-// ONLY SALES CREATED BY THIS SALESMAN
-// CANCELLED SALES ARE NOT INCLUDED
-// ADMIN SALES ARE NOT INCLUDED
-// ==================================================
+      // ==================================================
+      // SALESMAN POSTED SALES
+      //
+      // ONLY SALES CREATED BY THIS SALESMAN
+      // CANCELLED SALES ARE NOT INCLUDED
+      // ADMIN SALES ARE NOT INCLUDED
+      // ==================================================
 
-const salesmanSales =
-  await Sale.find({
-    farmId: farmId,
+      const salesmanSales =
+        await Sale.find({
+          farmId: farmId,
 
-    salesmanId:
-      salesmanId,
+          salesmanId:
+            salesmanId,
 
-    createdRole:
-      "salesman",
+          createdRole:
+            "salesman",
 
-    status:
-      "POSTED",
-  })
-    .select(
-      "products"
-    )
-    .lean();
-
-
-// ==================================================
-// ADD SOLD QUANTITY PRODUCT-WISE
-// ==================================================
-
-for (
-  const sale of
-  salesmanSales
-) {
-  const saleProducts =
-    Array.isArray(
-      sale.products
-    )
-      ? sale.products
-      : [];
-
-  for (
-    const item of
-    saleProducts
-  ) {
-    const productId =
-      (
-        item.productId ||
-        ""
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
-
-    if (!productId) {
-      continue;
-    }
-
-    // ------------------------------------------------
-    // Product was sold but allocation record may
-    // no longer appear in current productMap.
-    // This should normally not happen, but keep the
-    // API safe.
-    // ------------------------------------------------
-
-    if (
-      !productMap.has(
-        productId
-      )
-    ) {
-      continue;
-    }
-
-    const soldQty =
-      Number(
-        item.quantity
-      ) || 0;
-
-    productMap
-      .get(productId)
-      .sold +=
-        soldQty;
-  }
-}
+          status:
+            "POSTED",
+        })
+          .select(
+            "products"
+          )
+          .lean();
 
 
-// ==================================================
-// TOTAL SOLD
-// ==================================================
+      // ==================================================
+      // ADD SOLD QUANTITY PRODUCT-WISE
+      // ==================================================
 
-let totalSold = 0;
+      for (
+        const sale of
+        salesmanSales
+      ) {
+        const saleProducts =
+          Array.isArray(
+            sale.products
+          )
+            ? sale.products
+            : [];
+
+        for (
+          const item of
+          saleProducts
+        ) {
+          const productId =
+            (
+              item.productId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          if (!productId) {
+            continue;
+          }
+
+          // ------------------------------------------------
+          // Product was sold but allocation record may
+          // no longer appear in current productMap.
+          // This should normally not happen, but keep the
+          // API safe.
+          // ------------------------------------------------
+
+          if (
+            !productMap.has(
+              productId
+            )
+          ) {
+            continue;
+          }
+
+          const soldQty =
+            Number(
+              item.quantity
+            ) || 0;
+
+          productMap
+            .get(productId)
+            .sold +=
+            soldQty;
+        }
+      }
+
+
+      // ==================================================
+      // TOTAL SOLD
+      // ==================================================
+
+      let totalSold = 0;
 
 
       // ==================================================
@@ -16080,11 +17049,11 @@ let totalSold = 0;
         totalSold +=
           row.sold;
 
-if (
-  row.available > 0
-) {
-  products.push(row);
-}
+        if (
+          row.available > 0
+        ) {
+          products.push(row);
+        }
       }
 
 
@@ -16355,14 +17324,14 @@ app.get(
       // CREDIT SALES FILTER
       // ==================================================
 
-    const saleFilter = {
+      const saleFilter = {
 
-  farmId:
-    farmId,
+        farmId:
+          farmId,
 
-  status:
-    "POSTED",
-};
+        status:
+          "POSTED",
+      };
 
 
       if (
@@ -16381,29 +17350,35 @@ app.get(
       // LOAD CREDIT SALES
       // ==================================================
 
-const creditSales =
-  await Sale.find(
-    saleFilter
-  )
-    .select(
-      [
-        "saleId",
-        "saleNo",
-        "saleDate",
-        "customerId",
-        "customerName",
-        "customerMobile",
-        "route",
-        "grandTotal",
-        "paymentMode",
-        "payments",
-        "paidAmount",
-        "outstandingAmount",
-        "paymentStatus",
-        "salesmanId",
-        "salesmanName",
-      ].join(" ")
-    )
+      const creditSales =
+        await Sale.find(
+          saleFilter
+        )
+          .select(
+            [
+              "saleId",
+              "saleNo",
+              "saleDate",
+              "customerId",
+              "customerName",
+              "customerMobile",
+              "route",
+              "grandTotal",
+
+              "paymentMode",
+              "payments",
+              "paidAmount",
+
+              // Customer advance consumed by this sale
+              "advanceUsed",
+
+              "outstandingAmount",
+              "paymentStatus",
+
+              "salesmanId",
+              "salesmanName",
+            ].join(" ")
+          )
           .sort({
             saleDate: 1,
             createdAt: 1,
@@ -16442,19 +17417,32 @@ const creditSales =
         await Collection.find(
           collectionFilter
         )
-       .select(
-  [
-    "collectionId",
-    "receiptNo",
-    "customerId",
-    "amount",
-    "paymentMode",
-    "collectionDate",
-    "salesmanId",
-    "salesmanName",
-    "allocations",
-  ].join(" ")
-)
+          .select(
+            [
+              "collectionId",
+              "receiptNo",
+              "customerId",
+
+              "amount",
+
+              // Amount used against unpaid bills
+              "appliedAmount",
+
+              // Extra amount converted to customer advance
+              "advanceAmount",
+
+              "paymentMode",
+              "referenceNo",
+              "remarks",
+
+              "collectionDate",
+
+              "salesmanId",
+              "salesmanName",
+
+              "allocations",
+            ].join(" ")
+          )
           .sort({
             collectionDate: 1,
             createdAt: 1,
@@ -16463,12 +17451,152 @@ const creditSales =
 
 
       // ==================================================
+      // LOAD CUSTOMER MASTER
+      //
+      // customer.balance = CURRENT AVAILABLE ADVANCE
+      // ==================================================
+
+      const customerFilter = {
+        farmId,
+        isActive: true,
+      };
+
+
+      // Salesman should only see customers represented
+      // by his permitted sales below.
+      //
+      // Admin can load all active customers.
+      const masterCustomers =
+        role === "admin"
+          ? await Customer.find(
+            customerFilter
+          )
+            .select(
+              [
+                "customerId",
+                "name",
+                "mobile",
+                "route",
+                "balance",
+                "isActive",
+                "createdAt",
+              ].join(" ")
+            )
+            .lean()
+          : [];
+
+      // ==================================================
       // CUSTOMER MAP
       // ==================================================
 
       const customerMap =
         new Map();
 
+      // ==================================================
+      // ADMIN:
+      // INITIALIZE ALL CUSTOMERS
+      //
+      // This is necessary because a customer may have:
+      //
+      // Outstanding = 0
+      // Advance = 2000
+      //
+      // and still must appear on Collection screen.
+      // ==================================================
+
+      if (role === "admin") {
+
+        for (
+          const customer of
+          masterCustomers
+        ) {
+
+          const customerId =
+            (
+              customer.customerId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+
+          if (!customerId) {
+            continue;
+          }
+
+
+          customerMap.set(
+            customerId,
+            {
+              customerId,
+
+              customerName:
+                customer.name || "",
+
+              customerMobile:
+                customer.mobile || "",
+
+              route:
+                customer.route || "",
+
+              salesmanId:
+                "",
+
+              salesmanName:
+                "",
+
+              // ============================================
+              // CURRENT ACCOUNT POSITION
+              // ============================================
+
+              // MAS_CUSTOMER.balance =
+              // current available customer advance
+              advanceBalance:
+                Number(
+                  customer.balance || 0
+                ),
+
+              // Keep alias for backward compatibility
+              balance:
+                Number(
+                  customer.balance || 0
+                ),
+
+              // ============================================
+              // SALES / COLLECTION VALUES
+              // ============================================
+
+              totalCreditSales:
+                0,
+
+              totalCollected:
+                0,
+
+              outstanding:
+                0,
+
+              lastPaymentMode:
+                "",
+
+              lastCollectionDate:
+                null,
+
+              billCount:
+                0,
+
+              bills: [],
+
+              // ============================================
+              // ACCOUNT AUDIT HISTORY
+              // ============================================
+
+              accountHistory:
+                [],
+            }
+          );
+        }
+      }
 
       // ==================================================
       // ADD SALES
@@ -16519,24 +17647,34 @@ const creditSales =
               salesmanName:
                 sale.salesmanName || "",
 
-                totalCreditSales:
-                  0,
+              totalCreditSales:
+                0,
 
-                totalCollected:
-                  0,
+              totalCollected:
+                0,
 
-                outstanding:
-                  0,
+              outstanding:
+                0,
 
-                lastPaymentMode:
-                  "",
+              lastPaymentMode:
+                "",
 
-                lastCollectionDate:
-                  null,
+              lastCollectionDate:
+                null,
 
-                billCount:
-                  0,
-                  bills: [],
+              billCount:
+                0,
+
+              bills: [],
+
+              advanceBalance:
+                0,
+
+              balance:
+                0,
+
+              accountHistory:
+                [],
             }
           );
         }
@@ -16548,282 +17686,347 @@ const creditSales =
           );
 
 
- const billAmount =
-  Number(
-    sale.grandTotal
-  ) || 0;
+        const billAmount =
+          Number(
+            sale.grandTotal
+          ) || 0;
 
-const paidAmount =
-  Math.max(
-    0,
-    Number(
-      sale.paidAmount
-    ) || 0
-  );
+        const paidAmount =
+          Math.max(
+            0,
+            Number(
+              sale.paidAmount
+            ) || 0
+          );
 
-let outstandingAmount =
-  Number(
-    sale.outstandingAmount
-  );
+        const advanceUsed =
+          Math.max(
+            0,
+            Number(
+              sale.advanceUsed
+            ) || 0
+          );
+        let outstandingAmount =
+          Number(
+            sale.outstandingAmount
+          );
 
-// ==================================================
-// OLD RECORD COMPATIBILITY
-// ==================================================
+        // ==================================================
+        // OLD RECORD COMPATIBILITY
+        // ==================================================
 
-if (
-  !Number.isFinite(
-    outstandingAmount
-  )
-) {
-  const oldMode =
-    (
-      sale.paymentMode ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
-
-  outstandingAmount =
-    oldMode === "credit"
-      ? billAmount
-      : 0;
-}
-
-outstandingAmount =
-  Math.max(
-    0,
-    outstandingAmount
-  );
-
-// ==================================================
-// ONLY CURRENT OUTSTANDING COUNTS
-// ==================================================
-
-row.totalCreditSales +=
-  outstandingAmount;
-
-row.billCount +=
-  1;
-  // ==================================================
-// PAYMENT BREAKUP
-// ==================================================
-
-const payments =
-  Array.isArray(
-    sale.payments
-  )
-    ? sale.payments
-    : [];
-
-let cashAmount = 0;
-let upiAmount = 0;
-let bankAmount = 0;
-let otherAmount = 0;
-
-for (
-  const payment of payments
-) {
-  const mode =
-    (
-      payment.paymentMode ||
-      payment.mode ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
-
-  const amount =
-    Math.max(
-      0,
-      Number(
-        payment.amount
-      ) || 0
-    );
-
-  if (
-    mode === "cash"
-  ) {
-    cashAmount += amount;
-  }
-
-  else if (
-    [
-      "upi",
-      "phonepe",
-      "google pay",
-      "gpay",
-      "paytm",
-    ].includes(mode)
-  ) {
-    upiAmount += amount;
-  }
-
-  else if (
-    [
-      "bank transfer",
-      "bank",
-      "neft",
-      "rtgs",
-      "imps",
-    ].includes(mode)
-  ) {
-    bankAmount += amount;
-  }
-
-  else {
-    otherAmount += amount;
-  }
-}
-
-
-// ==================================================
-// OLD SINGLE PAYMENT RECORD COMPATIBILITY
-// ==================================================
-
-if (
-  payments.length === 0 &&
-  paidAmount > 0
-) {
-  const singleMode =
-    (
-      sale.paymentMode ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
-
-  if (
-    singleMode === "cash"
-  ) {
-    cashAmount =
-      paidAmount;
-  }
-
-  else if (
-    [
-      "upi",
-      "phonepe",
-      "google pay",
-      "gpay",
-      "paytm",
-    ].includes(singleMode)
-  ) {
-    upiAmount =
-      paidAmount;
-  }
-
-  else if (
-    [
-      "bank transfer",
-      "bank",
-      "neft",
-      "rtgs",
-      "imps",
-    ].includes(singleMode)
-  ) {
-    bankAmount =
-      paidAmount;
-  }
-
-  else if (
-    paidAmount > 0
-  ) {
-    otherAmount =
-      paidAmount;
-  }
-}
-
-
-// ==================================================
-// BILL DETAIL
-// ==================================================
-
-row.bills.push({
-  saleId:
-    sale.saleId || "",
-
-  saleNo:
-    sale.saleNo || "",
-
-  saleDate:
-    sale.saleDate,
-
-  billAmount:
-    Number(
-      billAmount.toFixed(2)
-    ),
-
-  salePaidAmount:
-    Number(
-      paidAmount.toFixed(2)
-    ),
-
-  initialOutstanding:
-    Number(
-      outstandingAmount.toFixed(2)
-    ),
-
-  collectionApplied:
-    0,
-
-  paidAmount:
-    Number(
-      paidAmount.toFixed(2)
-    ),
-
-  outstandingAmount:
-    Number(
-      outstandingAmount.toFixed(2)
-    ),
-
-  paymentMode:
-    sale.paymentMode || "",
-
-  paymentStatus:
-    (
-      sale.paymentStatus ||
-      (
-        outstandingAmount > 0
-          ? (
-              paidAmount > 0
-                ? "PARTIAL"
-                : "CREDIT"
+        if (
+          !Number.isFinite(
+            outstandingAmount
+          )
+        ) {
+          const oldMode =
+            (
+              sale.paymentMode ||
+              ""
             )
-          : "PAID"
-      )
-    )
-      .toString()
-      .trim()
-      .toUpperCase(),
+              .toString()
+              .trim()
+              .toLowerCase();
 
-  payments:
-    payments,
+          outstandingAmount =
+            oldMode === "credit"
+              ? billAmount
+              : 0;
+        }
 
-  paymentBreakup: {
-    cash:
-      Number(
-        cashAmount.toFixed(2)
-      ),
+        outstandingAmount =
+          Math.max(
+            0,
+            outstandingAmount
+          );
 
-    upi:
-      Number(
-        upiAmount.toFixed(2)
-      ),
+        // ==================================================
+        // ONLY CURRENT OUTSTANDING COUNTS
+        // ==================================================
 
-    bank:
-      Number(
-        bankAmount.toFixed(2)
-      ),
+        row.totalCreditSales +=
+          outstandingAmount;
 
-    other:
-      Number(
-        otherAmount.toFixed(2)
-      ),
-  },
-});
+        row.billCount +=
+          1;
+        // ==================================================
+        // PAYMENT BREAKUP
+        // ==================================================
+
+        const payments =
+          Array.isArray(
+            sale.payments
+          )
+            ? sale.payments
+            : [];
+
+        let cashAmount = 0;
+        let upiAmount = 0;
+        let bankAmount = 0;
+        let otherAmount = 0;
+
+        for (
+          const payment of payments
+        ) {
+          const mode =
+            (
+              payment.paymentMode ||
+              payment.mode ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toLowerCase();
+
+          const amount =
+            Math.max(
+              0,
+              Number(
+                payment.amount
+              ) || 0
+            );
+
+          if (
+            mode === "cash"
+          ) {
+            cashAmount += amount;
+          }
+
+          else if (
+            [
+              "upi",
+              "phonepe",
+              "google pay",
+              "gpay",
+              "paytm",
+            ].includes(mode)
+          ) {
+            upiAmount += amount;
+          }
+
+          else if (
+            [
+              "bank transfer",
+              "bank",
+              "neft",
+              "rtgs",
+              "imps",
+            ].includes(mode)
+          ) {
+            bankAmount += amount;
+          }
+
+          else {
+            otherAmount += amount;
+          }
+        }
+
+
+        // ==================================================
+        // OLD SINGLE PAYMENT RECORD COMPATIBILITY
+        // ==================================================
+
+        if (
+          payments.length === 0 &&
+          paidAmount > 0
+        ) {
+          const singleMode =
+            (
+              sale.paymentMode ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toLowerCase();
+
+          if (
+            singleMode === "cash"
+          ) {
+            cashAmount =
+              paidAmount;
+          }
+
+          else if (
+            [
+              "upi",
+              "phonepe",
+              "google pay",
+              "gpay",
+              "paytm",
+            ].includes(singleMode)
+          ) {
+            upiAmount =
+              paidAmount;
+          }
+
+          else if (
+            [
+              "bank transfer",
+              "bank",
+              "neft",
+              "rtgs",
+              "imps",
+            ].includes(singleMode)
+          ) {
+            bankAmount =
+              paidAmount;
+          }
+
+          else if (
+            paidAmount > 0
+          ) {
+            otherAmount =
+              paidAmount;
+          }
+        }
+
+
+        // ==================================================
+        // BILL DETAIL
+        // ==================================================
+
+        row.bills.push({
+          saleId:
+            sale.saleId || "",
+
+          saleNo:
+            sale.saleNo || "",
+
+          saleDate:
+            sale.saleDate,
+
+          billAmount:
+            Number(
+              billAmount.toFixed(2)
+            ),
+          salePaidAmount:
+            Number(
+              paidAmount.toFixed(2)
+            ),
+
+          // Customer advance consumed on this bill
+          advanceUsed:
+            Number(
+              advanceUsed.toFixed(2)
+            ),
+
+          initialOutstanding:
+            Number(
+              outstandingAmount.toFixed(2)
+            ),
+
+          collectionApplied:
+            0,
+
+          paidAmount:
+            Number(
+              paidAmount.toFixed(2)
+            ),
+
+          outstandingAmount:
+            Number(
+              outstandingAmount.toFixed(2)
+            ),
+
+          paymentMode:
+            sale.paymentMode || "",
+
+          paymentStatus:
+            (
+              sale.paymentStatus ||
+              (
+                outstandingAmount > 0
+                  ? (
+                    paidAmount > 0
+                      ? "PARTIAL"
+                      : "CREDIT"
+                  )
+                  : "PAID"
+              )
+            )
+              .toString()
+              .trim()
+              .toUpperCase(),
+
+          payments:
+            payments,
+
+          paymentBreakup: {
+            cash:
+              Number(
+                cashAmount.toFixed(2)
+              ),
+
+            upi:
+              Number(
+                upiAmount.toFixed(2)
+              ),
+
+            bank:
+              Number(
+                bankAmount.toFixed(2)
+              ),
+
+            other:
+              Number(
+                otherAmount.toFixed(2)
+              ),
+          },
+        });
+        // ==================================================
+        // CUSTOMER ACCOUNT HISTORY — SALE
+        // ==================================================
+
+        row.accountHistory.push({
+          type:
+            "SALE",
+
+          date:
+            sale.saleDate,
+
+          reference:
+            sale.saleNo ||
+            sale.saleId,
+
+          saleId:
+            sale.saleId,
+
+          description:
+            advanceUsed > 0
+              ? `Sale posted. ₹${advanceUsed.toFixed(
+                2
+              )} customer advance adjusted against bill.`
+              : "Sale posted.",
+
+          billAmount:
+            Number(
+              billAmount.toFixed(2)
+            ),
+
+          // Amount added to unpaid outstanding by this bill
+          outstandingAdded:
+            Number(
+              outstandingAmount.toFixed(2)
+            ),
+
+          outstandingReduced:
+            0,
+
+          // Advance consumed by sale
+          advanceAdded:
+            0,
+
+          advanceUsed:
+            Number(
+              advanceUsed.toFixed(2)
+            ),
+
+          paymentAmount:
+            Number(
+              paidAmount.toFixed(2)
+            ),
+        });
 
         if (
           !row.route &&
@@ -16853,246 +18056,350 @@ row.bills.push({
       }
 
 
- // ==================================================
-// APPLY COLLECTIONS TO CUSTOMER + BILLS
-// FIFO BILL SETTLEMENT
-// ==================================================
+      // ==================================================
+      // APPLY COLLECTIONS TO CUSTOMER + BILLS
+      // FIFO BILL SETTLEMENT
+      // ==================================================
 
-for (
-  const collection of
-  collections
-) {
-  const customerId =
-    (
-      collection.customerId ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
-
-
-  if (
-    !customerMap.has(
-      customerId
-    )
-  ) {
-    continue;
-  }
-
-
-  const row =
-    customerMap.get(
-      customerId
-    );
-
-
-  const collectionAmount =
-    Math.max(
-      0,
-      Number(
-        collection.amount
-      ) || 0
-    );
-
-
-  row.totalCollected +=
-    collectionAmount;
-
-
-  row.lastPaymentMode =
-    collection.paymentMode || "";
-
-
-  row.lastCollectionDate =
-    collection.collectionDate ||
-    null;
-
-
-  // ==================================================
-  // SAVED ALLOCATIONS
-  // ==================================================
-
-  const savedAllocations =
-    Array.isArray(
-      collection.allocations
-    )
-      ? collection.allocations
-      : [];
-
-
-  if (
-    savedAllocations.length > 0
-  ) {
-    const billMap =
-      new Map(
-        row.bills.map(
-          (bill) => [
-            (
-              bill.saleId ||
-              ""
-            )
-              .toString()
-              .trim()
-              .toUpperCase(),
-
-            bill,
-          ]
-        )
-      );
-
-
-    for (
-      const allocation of
-      savedAllocations
-    ) {
-      const saleId =
-        (
-          allocation.saleId ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase();
-
-
-      if (
-        !billMap.has(
-          saleId
-        )
+      for (
+        const collection of
+        collections
       ) {
-        continue;
+        const customerId =
+          (
+            collection.customerId ||
+            ""
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
+
+
+        if (
+          !customerMap.has(
+            customerId
+          )
+        ) {
+          continue;
+        }
+
+
+        const row =
+          customerMap.get(
+            customerId
+          );
+
+
+        const collectionAmount =
+          Math.max(
+            0,
+            Number(
+              collection.amount
+            ) || 0
+          );
+        const appliedAmount =
+          Math.max(
+            0,
+            Number(
+              collection.appliedAmount ||
+              0
+            )
+          );
+
+
+        const advanceAmount =
+          Math.max(
+            0,
+            Number(
+              collection.advanceAmount ||
+              0
+            )
+          );
+
+
+        row.totalCollected +=
+          collectionAmount;
+
+
+        row.lastPaymentMode =
+          collection.paymentMode || "";
+
+
+        row.lastCollectionDate =
+          collection.collectionDate ||
+          null;
+        // ==================================================
+        // CUSTOMER ACCOUNT HISTORY — COLLECTION
+        // ==================================================
+
+        row.accountHistory.push({
+          type:
+            advanceAmount > 0 &&
+              appliedAmount <= 0.001
+              ? "ADVANCE_RECEIPT"
+              : "COLLECTION",
+
+          date:
+            collection.collectionDate,
+
+          reference:
+            collection.receiptNo ||
+            collection.collectionId,
+
+          collectionId:
+            collection.collectionId,
+
+          description:
+            advanceAmount > 0
+              ? appliedAmount > 0
+                ? `Receipt received. ₹${appliedAmount.toFixed(
+                  2
+                )} adjusted against bills and ₹${advanceAmount.toFixed(
+                  2
+                )} added to advance.`
+                : `Advance payment received ₹${advanceAmount.toFixed(
+                  2
+                )}.`
+              : `Collection received and applied against outstanding bills.`,
+
+          receivedAmount:
+            Number(
+              collectionAmount.toFixed(2)
+            ),
+
+          outstandingAdded:
+            0,
+
+          outstandingReduced:
+            Number(
+              appliedAmount.toFixed(2)
+            ),
+
+          advanceAdded:
+            Number(
+              advanceAmount.toFixed(2)
+            ),
+
+          advanceUsed:
+            0,
+
+          paymentMode:
+            collection.paymentMode ||
+            "",
+
+          referenceNo:
+            collection.referenceNo ||
+            "",
+        });
+
+
+
+        // ==================================================
+        // SAVED ALLOCATIONS
+        // ==================================================
+
+        const savedAllocations =
+          Array.isArray(
+            collection.allocations
+          )
+            ? collection.allocations
+            : [];
+
+
+        if (
+          savedAllocations.length > 0
+        ) {
+          const billMap =
+            new Map(
+              row.bills.map(
+                (bill) => [
+                  (
+                    bill.saleId ||
+                    ""
+                  )
+                    .toString()
+                    .trim()
+                    .toUpperCase(),
+
+                  bill,
+                ]
+              )
+            );
+
+
+          for (
+            const allocation of
+            savedAllocations
+          ) {
+            const saleId =
+              (
+                allocation.saleId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            if (
+              !billMap.has(
+                saleId
+              )
+            ) {
+              continue;
+            }
+
+
+            const bill =
+              billMap.get(
+                saleId
+              );
+
+
+            const requestedApplied =
+              Math.max(
+                0,
+                Number(
+                  allocation.amountApplied
+                ) || 0
+              );
+
+
+            const currentOutstanding =
+              Math.max(
+                0,
+                Number(
+                  bill.outstandingAmount
+                ) || 0
+              );
+
+
+            const applied =
+              Math.min(
+                requestedApplied,
+                currentOutstanding
+              );
+
+
+            bill.collectionApplied +=
+              applied;
+
+
+            bill.outstandingAmount =
+              Math.max(
+                0,
+                currentOutstanding -
+                applied
+              );
+
+
+            bill.paidAmount =
+              Math.min(
+                bill.billAmount,
+
+                Number(
+                  bill.salePaidAmount ||
+                  0
+                ) +
+
+                Number(
+                  bill.advanceUsed ||
+                  0
+                ) +
+
+                Number(
+                  bill.collectionApplied ||
+                  0
+                )
+              );
+          }
+
+
+          continue;
+        }
+
+
+        // ==================================================
+        // OLD RECEIPT COMPATIBILITY
+        // NO SAVED BILL ALLOCATIONS -> FIFO
+        // ==================================================
+
+        let remainingCollection =
+          collectionAmount;
+
+
+        for (
+          const bill of row.bills
+        ) {
+          if (
+            remainingCollection <=
+            0.001
+          ) {
+            break;
+          }
+
+
+          const currentOutstanding =
+            Math.max(
+              0,
+              Number(
+                bill.outstandingAmount
+              ) || 0
+            );
+
+
+          if (
+            currentOutstanding <=
+            0.001
+          ) {
+            continue;
+          }
+
+
+          const applied =
+            Math.min(
+              remainingCollection,
+              currentOutstanding
+            );
+
+
+          bill.collectionApplied +=
+            applied;
+
+
+          bill.outstandingAmount =
+            Math.max(
+              0,
+              currentOutstanding -
+              applied
+            );
+
+
+          bill.paidAmount =
+            Math.min(
+              bill.billAmount,
+
+              Number(
+                bill.salePaidAmount ||
+                0
+              ) +
+
+              Number(
+                bill.advanceUsed ||
+                0
+              ) +
+
+              Number(
+                bill.collectionApplied ||
+                0
+              )
+            );
+
+
+          remainingCollection -=
+            applied;
+        }
       }
-
-
-      const bill =
-        billMap.get(
-          saleId
-        );
-
-
-      const requestedApplied =
-        Math.max(
-          0,
-          Number(
-            allocation.amountApplied
-          ) || 0
-        );
-
-
-      const currentOutstanding =
-        Math.max(
-          0,
-          Number(
-            bill.outstandingAmount
-          ) || 0
-        );
-
-
-      const applied =
-        Math.min(
-          requestedApplied,
-          currentOutstanding
-        );
-
-
-      bill.collectionApplied +=
-        applied;
-
-
-      bill.outstandingAmount =
-        Math.max(
-          0,
-          currentOutstanding -
-          applied
-        );
-
-
-      bill.paidAmount =
-        Math.min(
-          bill.billAmount,
-          Number(
-            bill.salePaidAmount || 0
-          ) +
-          bill.collectionApplied
-        );
-    }
-
-
-    continue;
-  }
-
-
-  // ==================================================
-  // OLD RECEIPT COMPATIBILITY
-  // NO SAVED BILL ALLOCATIONS -> FIFO
-  // ==================================================
-
-  let remainingCollection =
-    collectionAmount;
-
-
-  for (
-    const bill of row.bills
-  ) {
-    if (
-      remainingCollection <=
-      0.001
-    ) {
-      break;
-    }
-
-
-    const currentOutstanding =
-      Math.max(
-        0,
-        Number(
-          bill.outstandingAmount
-        ) || 0
-      );
-
-
-    if (
-      currentOutstanding <=
-      0.001
-    ) {
-      continue;
-    }
-
-
-    const applied =
-      Math.min(
-        remainingCollection,
-        currentOutstanding
-      );
-
-
-    bill.collectionApplied +=
-      applied;
-
-
-    bill.outstandingAmount =
-      Math.max(
-        0,
-        currentOutstanding -
-        applied
-      );
-
-
-    bill.paidAmount =
-      Math.min(
-        bill.billAmount,
-        Number(
-          bill.salePaidAmount || 0
-        ) +
-        bill.collectionApplied
-      );
-
-
-    remainingCollection -=
-      applied;
-  }
-}
 
       // ==================================================
       // FINAL RESULT
@@ -17107,66 +18414,66 @@ for (
       ) {
 
         // ==================================================
-// FINAL BILL STATUS
-// ==================================================
+        // FINAL BILL STATUS
+        // ==================================================
 
-for (
-  const bill of row.bills
-) {
-  bill.collectionApplied =
-    Number(
-      Math.max(
-        0,
-        Number(
-          bill.collectionApplied
-        ) || 0
-      ).toFixed(2)
-    );
-
-
-  bill.paidAmount =
-    Number(
-      Math.max(
-        0,
-        Number(
-          bill.paidAmount
-        ) || 0
-      ).toFixed(2)
-    );
+        for (
+          const bill of row.bills
+        ) {
+          bill.collectionApplied =
+            Number(
+              Math.max(
+                0,
+                Number(
+                  bill.collectionApplied
+                ) || 0
+              ).toFixed(2)
+            );
 
 
-  bill.outstandingAmount =
-    Number(
-      Math.max(
-        0,
-        Number(
-          bill.outstandingAmount
-        ) || 0
-      ).toFixed(2)
-    );
+          bill.paidAmount =
+            Number(
+              Math.max(
+                0,
+                Number(
+                  bill.paidAmount
+                ) || 0
+              ).toFixed(2)
+            );
 
 
-  if (
-    bill.outstandingAmount <=
-    0.001
-  ) {
-    bill.paymentStatus =
-      "PAID";
-  }
+          bill.outstandingAmount =
+            Number(
+              Math.max(
+                0,
+                Number(
+                  bill.outstandingAmount
+                ) || 0
+              ).toFixed(2)
+            );
 
-  else if (
-    bill.paidAmount > 0 ||
-    bill.collectionApplied > 0
-  ) {
-    bill.paymentStatus =
-      "PARTIAL";
-  }
 
-  else {
-    bill.paymentStatus =
-      "CREDIT";
-  }
-}
+          if (
+            bill.outstandingAmount <=
+            0.001
+          ) {
+            bill.paymentStatus =
+              "PAID";
+          }
+
+          else if (
+            bill.paidAmount > 0 ||
+            bill.collectionApplied > 0
+          ) {
+            bill.paymentStatus =
+              "PARTIAL";
+          }
+
+          else {
+            bill.paymentStatus =
+              "CREDIT";
+          }
+        }
         row.totalCreditSales =
           Number(
             row.totalCreditSales
@@ -17180,57 +18487,169 @@ for (
               .toFixed(2)
           );
 
-row.outstanding =
-  Number(
-    row.bills
-      .reduce(
-        (
-          total,
-          bill
-        ) =>
-          total +
-          Math.max(
-            0,
-            Number(
-              bill.outstandingAmount
-            ) || 0
-          ),
-        0
-      )
-      .toFixed(2)
-  );
+        row.outstanding =
+          Number(
+            row.bills
+              .reduce(
+                (
+                  total,
+                  bill
+                ) =>
+                  total +
+                  Math.max(
+                    0,
+                    Number(
+                      bill.outstandingAmount
+                    ) || 0
+                  ),
+                0
+              )
+              .toFixed(2)
+          );
 
         // ================================================
         // PAYMENT STATUS
         // ================================================
 
-      if (
-  row.outstanding <=
-  0.001
-) {
-  row.status =
-    "PAID";
-}
+        if (
+          row.outstanding <=
+          0.001
+        ) {
+          row.status =
+            "PAID";
+        }
 
-else {
-  const hasPartPayment =
-    row.bills.some(
-      (bill) =>
-        (
+        else {
+          const hasPartPayment =
+            row.bills.some(
+              (bill) =>
+                (
+                  Number(
+                    bill.paidAmount
+                  ) || 0
+                ) > 0
+            );
+
+
+          row.status =
+            hasPartPayment
+              ? "PARTIAL"
+              : "DUE";
+        }
+
+
+        // ==================================================
+        // DERIVE OPENING ADVANCE
+        //
+        // Current Advance
+        // = Opening Advance
+        // + Advance created from receipts
+        // - Advance consumed by posted sales
+        //
+        // Therefore:
+        //
+        // Opening Advance
+        // = Current Advance
+        // - Receipt Advances
+        // + Advance Used
+        // ==================================================
+
+        const totalAdvanceAdded =
+          row.accountHistory.reduce(
+            (sum, item) =>
+              sum +
+              Number(
+                item.advanceAdded ||
+                0
+              ),
+            0
+          );
+
+
+        const totalAdvanceUsed =
+          row.accountHistory.reduce(
+            (sum, item) =>
+              sum +
+              Number(
+                item.advanceUsed ||
+                0
+              ),
+            0
+          );
+
+
+        const derivedOpeningAdvance =
           Number(
-            bill.paidAmount
-          ) || 0
-        ) > 0
-    );
+            Math.max(
+              0,
+
+              Number(
+                row.advanceBalance ||
+                0
+              ) -
+              totalAdvanceAdded +
+              totalAdvanceUsed
+            ).toFixed(2)
+          );
 
 
-  row.status =
-    hasPartPayment
-      ? "PARTIAL"
-      : "DUE";
-}
+        if (
+          derivedOpeningAdvance >
+          0.001
+        ) {
+
+          row.accountHistory.push({
+            type:
+              "OPENING_ADVANCE",
+
+            date:
+              null,
+
+            reference:
+              "OPENING",
+
+            description:
+              "Opening customer advance balance.",
+
+            billAmount:
+              0,
+
+            receivedAmount:
+              0,
+
+            outstandingAdded:
+              0,
+
+            outstandingReduced:
+              0,
+
+            advanceAdded:
+              derivedOpeningAdvance,
+
+            advanceUsed:
+              0,
+          });
+        }
 
 
+        // Oldest → newest
+        row.accountHistory.sort(
+          (a, b) => {
+
+            if (!a.date) {
+              return -1;
+            }
+
+            if (!b.date) {
+              return 1;
+            }
+
+            return (
+              new Date(a.date) -
+              new Date(b.date)
+            );
+          }
+        );
         data.push(
           row
         );
@@ -17797,25 +19216,68 @@ app.post(
         );
 
 
-      if (outstanding <= 0) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "This customer has no pending outstanding.",
-        });
+      // ==================================================
+      // COLLECTION / ADVANCE PAYMENT RULE
+      //
+      // SALESMAN:
+      //   - Can collect only against outstanding
+      //   - Cannot collect more than outstanding
+      //
+      // ADMIN:
+      //   - Can collect against outstanding
+      //   - Can accept extra customer advance
+      //   - Can accept advance even when outstanding = 0
+      // ==================================================
+
+      if (role === "salesman") {
+
+        if (outstanding <= 0) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "This customer has no pending outstanding.",
+          });
+        }
+
+        if (
+          collectionAmount >
+          outstanding + 0.001
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              `Collection amount cannot exceed outstanding ₹${outstanding.toFixed(2)}.`,
+          });
+        }
       }
 
 
-      if (
-        collectionAmount >
-        outstanding + 0.001
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            `Collection amount cannot exceed outstanding ₹${outstanding.toFixed(2)}.`,
-        });
-      }
+      // ==================================================
+      // SPLIT RECEIPT INTO:
+      //
+      // 1. APPLIED TO OUTSTANDING
+      // 2. EXTRA CUSTOMER ADVANCE
+      // ==================================================
+
+      const appliedAmount =
+        Number(
+          Math.min(
+            collectionAmount,
+            Math.max(
+              0,
+              outstanding
+            )
+          ).toFixed(2)
+        );
+
+      const advanceAmount =
+        Number(
+          Math.max(
+            0,
+            collectionAmount -
+            appliedAmount
+          ).toFixed(2)
+        );
 
 
       // ==================================================
@@ -17823,8 +19285,7 @@ app.post(
       // ==================================================
 
       let remainingCollection =
-        collectionAmount;
-
+        appliedAmount;
       const allocations = [];
 
 
@@ -17886,7 +19347,6 @@ app.post(
           amountApplied;
       }
 
-
       if (
         remainingCollection >
         0.001
@@ -17894,7 +19354,7 @@ app.post(
         return res.status(400).json({
           success: false,
           message:
-            "Unable to allocate full collection against outstanding bills.",
+            "Unable to allocate the applicable collection amount against outstanding bills.",
         });
       }
 
@@ -17975,6 +19435,16 @@ app.post(
               collectionAmount.toFixed(2)
             ),
 
+          appliedAmount:
+            Number(
+              appliedAmount.toFixed(2)
+            ),
+
+          advanceAmount:
+            Number(
+              advanceAmount.toFixed(2)
+            ),
+
           allocations,
 
           paymentMode,
@@ -18009,6 +19479,36 @@ app.post(
 
 
       // ==================================================
+      // ADD EXTRA COLLECTION TO CUSTOMER ADVANCE BALANCE
+      //
+      // Customer.balance is now treated as:
+      //
+      // CURRENT AVAILABLE CUSTOMER ADVANCE / CREDIT
+      // ==================================================
+
+      const previousAdvanceBalance =
+        Number(
+          customer.balance || 0
+        );
+
+      if (
+        advanceAmount > 0
+      ) {
+
+        customer.balance =
+          Number(
+            (
+              previousAdvanceBalance +
+              advanceAmount
+            ).toFixed(2)
+          );
+
+        customer.updatedAt =
+          new Date();
+
+        await customer.save();
+      }
+      // ==================================================
       // REMAINING OUTSTANDING
       // ==================================================
 
@@ -18016,7 +19516,7 @@ app.post(
         Math.max(
           0,
           outstanding -
-          collectionAmount
+          appliedAmount
         );
 
 
@@ -18024,7 +19524,11 @@ app.post(
         success: true,
 
         message:
-          "Collection saved successfully.",
+          advanceAmount > 0.001
+            ? `Collection saved successfully. ₹${advanceAmount.toFixed(
+              2
+            )} extra amount added to customer advance balance.`
+            : "Collection saved successfully.",
 
         data: {
           ...savedCollection.toObject(),
@@ -18037,6 +19541,28 @@ app.post(
           remainingOutstanding:
             Number(
               newOutstanding.toFixed(2)
+            ),
+          appliedAmount:
+            Number(
+              appliedAmount.toFixed(2)
+            ),
+
+          advanceAmount:
+            Number(
+              advanceAmount.toFixed(2)
+            ),
+
+          previousAdvanceBalance:
+            Number(
+              previousAdvanceBalance.toFixed(2)
+            ),
+
+          currentAdvanceBalance:
+            Number(
+              (
+                previousAdvanceBalance +
+                advanceAmount
+              ).toFixed(2)
             ),
         },
       });
@@ -18324,6 +19850,20 @@ app.get(
 // ======================================================
 // CANCEL COLLECTION
 // ======================================================
+// ======================================================
+// CANCEL COLLECTION
+//
+// IMPORTANT:
+//
+// 1. Posted collection allocations automatically stop
+//    affecting outstanding once status becomes CANCELLED.
+//
+// 2. If this receipt created customer advance,
+//    that advance must be removed from MAS_CUSTOMER.balance.
+//
+// 3. If part of that advance has already been consumed
+//    by later sales, cancellation is blocked.
+// ======================================================
 
 app.put(
   "/api/collections/:collectionId/cancel",
@@ -18332,142 +19872,350 @@ app.put(
   requirePermission("collectionCreate"),
   async (req, res) => {
 
+    const session =
+      await mongoose.startSession();
+
     try {
 
-      const farmId =
-        req.user.farmId;
+      let cancelledCollection =
+        null;
 
-      const role =
-        req.user.role;
+      let responseData =
+        null;
 
+      await session.withTransaction(
+        async () => {
 
-      const collectionId =
-        (
-          req.params.collectionId ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase();
+          const farmId =
+            req.user.farmId;
 
+          const role =
+            req.user.role;
 
-      if (!collectionId) {
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Collection ID is required.",
-        });
-      }
+          const collectionId =
+            (
+              req.params.collectionId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-      const filter = {
+          if (!collectionId) {
 
-        farmId:
-          farmId,
+            const error =
+              new Error(
+                "Collection ID is required."
+              );
 
-        collectionId:
-          collectionId,
-      };
+            error.statusCode =
+              400;
 
-
-      // ==================================================
-      // SALESMAN CAN CANCEL ONLY HIS OWN COLLECTION
-      // ==================================================
-
-      if (
-        role === "salesman"
-      ) {
-
-        const salesman =
-          await getCurrentSalesmanForCollection(
-            req
-          );
+            throw error;
+          }
 
 
-        if (!salesman) {
+          const filter = {
+            farmId,
+            collectionId,
+          };
 
-          return res.status(404).json({
-            success: false,
-            message:
-              "Salesman account not found.",
+
+          // ==================================================
+          // SALESMAN CAN CANCEL ONLY HIS OWN COLLECTION
+          // ==================================================
+
+          if (
+            role === "salesman"
+          ) {
+
+            const salesman =
+              await getCurrentSalesmanForCollection(
+                req
+              );
+
+
+            if (!salesman) {
+
+              const error =
+                new Error(
+                  "Salesman account not found."
+                );
+
+              error.statusCode =
+                404;
+
+              throw error;
+            }
+
+
+            filter.salesmanId =
+              salesman.salesmanId;
+          }
+
+          else if (
+            role !== "admin"
+          ) {
+
+            const error =
+              new Error(
+                "You are not allowed to cancel collections."
+              );
+
+            error.statusCode =
+              403;
+
+            throw error;
+          }
+
+
+          // ==================================================
+          // LOAD COLLECTION
+          // ==================================================
+
+          const collection =
+            await Collection.findOne(
+              filter
+            ).session(session);
+
+
+          if (!collection) {
+
+            const error =
+              new Error(
+                "Collection not found."
+              );
+
+            error.statusCode =
+              404;
+
+            throw error;
+          }
+
+
+          if (
+            collection.status ===
+            "CANCELLED"
+          ) {
+
+            const error =
+              new Error(
+                "Collection is already cancelled."
+              );
+
+            error.statusCode =
+              409;
+
+            throw error;
+          }
+
+
+          // ==================================================
+          // ADVANCE CREATED BY THIS RECEIPT
+          // ==================================================
+
+          const advanceAmount =
+            Math.max(
+              0,
+              Number(
+                collection.advanceAmount ||
+                0
+              )
+            );
+
+
+          let previousAdvanceBalance =
+            0;
+
+          let currentAdvanceBalance =
+            0;
+
+
+          // ==================================================
+          // IF COLLECTION CREATED CUSTOMER ADVANCE,
+          // REMOVE IT FROM CUSTOMER BALANCE.
+          //
+          // SAFETY:
+          // Balance must still contain the full amount.
+          //
+          // Example:
+          //
+          // Receipt advance = 1000
+          // Current balance = 400
+          //
+          // Means 600 has already been consumed by sale.
+          // Do NOT cancel until dependent sale is reversed.
+          // ==================================================
+
+          if (
+            advanceAmount >
+            0.001
+          ) {
+
+            const customer =
+              await Customer.findOne({
+                farmId,
+
+                customerId:
+                  collection.customerId,
+              }).session(session);
+
+
+            if (!customer) {
+
+              const error =
+                new Error(
+                  "Customer linked to this collection was not found."
+                );
+
+              error.statusCode =
+                404;
+
+              throw error;
+            }
+
+
+            previousAdvanceBalance =
+              Math.max(
+                0,
+                Number(
+                  customer.balance ||
+                  0
+                )
+              );
+
+
+            if (
+              previousAdvanceBalance +
+              0.001 <
+              advanceAmount
+            ) {
+
+              const shortAmount =
+                Number(
+                  Math.max(
+                    0,
+                    advanceAmount -
+                    previousAdvanceBalance
+                  ).toFixed(2)
+                );
+
+              const error =
+                new Error(
+                  `Cannot cancel this collection. Receipt advance to reverse is ₹${advanceAmount.toFixed(
+                    2
+                  )}, but current available customer advance is only ₹${previousAdvanceBalance.toFixed(
+                    2
+                  )}. Available advance is short by ₹${shortAmount.toFixed(
+                    2
+                  )}. Reverse/cancel the dependent transactions first.`
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
+
+
+            currentAdvanceBalance =
+              Number(
+                Math.max(
+                  0,
+                  previousAdvanceBalance -
+                  advanceAmount
+                ).toFixed(2)
+              );
+
+
+            customer.balance =
+              currentAdvanceBalance;
+
+            customer.updatedAt =
+              new Date();
+
+
+            await customer.save({
+              session,
+            });
+          }
+
+
+          // ==================================================
+          // MARK COLLECTION CANCELLED
+          //
+          // We do NOT manually edit each sale outstanding here.
+          //
+          // Outstanding API already considers only POSTED
+          // collections, so after this becomes CANCELLED,
+          // its allocations automatically stop reducing bills.
+          // ==================================================
+
+          collection.status =
+            "CANCELLED";
+
+          collection.cancelledBy =
+            req.user.userId ||
+            "";
+
+          collection.cancelledAt =
+            new Date();
+
+          collection.updatedAt =
+            new Date();
+
+
+          await collection.save({
+            session,
           });
+
+
+          cancelledCollection =
+            collection;
+
+
+          responseData = {
+            ...collection.toObject(),
+
+            advanceReversed:
+              Number(
+                advanceAmount.toFixed(2)
+              ),
+
+            previousAdvanceBalance:
+              Number(
+                previousAdvanceBalance.toFixed(2)
+              ),
+
+            currentAdvanceBalance:
+              Number(
+                currentAdvanceBalance.toFixed(2)
+              ),
+          };
         }
-
-
-        filter.salesmanId =
-          salesman.salesmanId;
-      }
-
-
-      else if (
-        role !== "admin"
-      ) {
-
-        return res.status(403).json({
-          success: false,
-          message:
-            "You are not allowed to cancel collections.",
-        });
-      }
-
-
-      const collection =
-        await Collection.findOne(
-          filter
-        );
-
-
-      if (!collection) {
-
-        return res.status(404).json({
-          success: false,
-          message:
-            "Collection not found.",
-        });
-      }
-
-
-      if (
-        collection.status ===
-        "CANCELLED"
-      ) {
-
-        return res.status(409).json({
-          success: false,
-          message:
-            "Collection is already cancelled.",
-        });
-      }
-
-
-      collection.status =
-        "CANCELLED";
-
-      collection.cancelledBy =
-        req.user.userId ||
-        "";
-
-      collection.cancelledAt =
-        new Date();
-
-      collection.updatedAt =
-        new Date();
-
-
-      await collection.save();
+      );
 
 
       return res.status(200).json({
 
-        success:
-          true,
+        success: true,
 
         message:
-          "Collection cancelled successfully.",
+          Number(
+            cancelledCollection
+              ?.advanceAmount ||
+            0
+          ) > 0
+            ? `Collection cancelled successfully. ₹${Number(
+              cancelledCollection.advanceAmount
+            ).toFixed(
+              2
+            )} customer advance reversed.`
+            : "Collection cancelled successfully.",
 
         data:
-          collection,
+          responseData,
       });
 
 
@@ -18479,21 +20227,27 @@ app.put(
       );
 
 
-      return res.status(500).json({
+      return res
+        .status(
+          error.statusCode ||
+          500
+        )
+        .json({
 
-        success:
-          false,
+          success: false,
 
-        message:
-          "Unable to cancel collection.",
+          message:
+            error.message ||
+            "Unable to cancel collection.",
+        });
 
-        error:
-          error.message,
-      });
+    } finally {
+
+      await session.endSession();
     }
   }
 );
-  // ======================================================
+// ======================================================
 // PAYMENT
 // SUPPLIER PAYMENT / PAYABLE
 // ======================================================
@@ -18985,8 +20739,8 @@ app.post(
           paymentDate:
             paymentDate
               ? new Date(
-                  paymentDate
-                )
+                paymentDate
+              )
               : new Date(),
 
           supplierId:
@@ -19409,45 +21163,45 @@ app.get(
         // CREDIT SALES ONLY
         // ----------------------------------------------
 
-// ----------------------------------------------
-// ALL POSTED SALES
-// CASH / UPI / CREDIT / BANK TRANSFER
-// ----------------------------------------------
+        // ----------------------------------------------
+        // ALL POSTED SALES
+        // CASH / UPI / CREDIT / BANK TRANSFER
+        // ----------------------------------------------
 
-const sales =
-  await Sale.find({
-    farmId,
+        const sales =
+          await Sale.find({
+            farmId,
 
-    customerId:
-      partyId,
+            customerId:
+              partyId,
 
-    status:
-      "POSTED",
-  })
-    .select(
-  [
-    "saleId",
-    "saleNo",
-    "saleDate",
-    "customerId",
-    "customerName",
-    "grandTotal",
-    "totalQuantity",
+            status:
+              "POSTED",
+          })
+            .select(
+              [
+                "saleId",
+                "saleNo",
+                "saleDate",
+                "customerId",
+                "customerName",
+                "grandTotal",
+                "totalQuantity",
 
-    "paymentMode",
-    "payments",
-    "paidAmount",
-    "outstandingAmount",
-    "paymentStatus",
+                "paymentMode",
+                "payments",
+                "paidAmount",
+                "outstandingAmount",
+                "paymentStatus",
 
-    "products",
+                "products",
 
-    "salesmanId",
-    "salesmanName",
-    "createdRole",
-  ].join(" ")
-)
-    .lean();
+                "salesmanId",
+                "salesmanName",
+                "createdRole",
+              ].join(" ")
+            )
+            .lean();
 
 
         // ----------------------------------------------
@@ -19464,325 +21218,325 @@ const sales =
             status:
               "POSTED",
           })
-          .select(
-  [
-    "collectionId",
-    "receiptNo",
-    "collectionDate",
-    "amount",
-    "paymentMode",
-    "referenceNo",
-    "salesmanId",
-    "salesmanName",
-    "allocations",
-  ].join(" ")
-)
+            .select(
+              [
+                "collectionId",
+                "receiptNo",
+                "collectionDate",
+                "amount",
+                "paymentMode",
+                "referenceNo",
+                "salesmanId",
+                "salesmanName",
+                "allocations",
+              ].join(" ")
+            )
             .lean();
 
 
         const entries = [];
 
-     let totalDebit = 0;
-let totalCredit = 0;
+        let totalDebit = 0;
+        let totalCredit = 0;
 
-let totalSales = 0;
-let totalPaidAtBilling = 0;
+        let totalSales = 0;
+        let totalPaidAtBilling = 0;
 
-let totalCash = 0;
-let totalUpi = 0;
-let totalBank = 0;
-let totalOther = 0;
+        let totalCash = 0;
+        let totalUpi = 0;
+        let totalBank = 0;
+        let totalOther = 0;
 
 
         // ----------------------------------------------
         // SALES = DEBIT
         // ----------------------------------------------
 
-      // ----------------------------------------------
-// ALL SALES
-//
-// CREDIT SALE
-//   -> AFFECTS OUTSTANDING
-//
-// CASH / UPI / BANK TRANSFER
-//   -> SHOW IN LEDGER
-//   -> DOES NOT AFFECT OUTSTANDING
-// ----------------------------------------------
-for (
-  const sale of sales
-) {
+        // ----------------------------------------------
+        // ALL SALES
+        //
+        // CREDIT SALE
+        //   -> AFFECTS OUTSTANDING
+        //
+        // CASH / UPI / BANK TRANSFER
+        //   -> SHOW IN LEDGER
+        //   -> DOES NOT AFFECT OUTSTANDING
+        // ----------------------------------------------
+        for (
+          const sale of sales
+        ) {
 
-  const billAmount =
-    Number(
-      sale.grandTotal
-    ) || 0;
+          const billAmount =
+            Number(
+              sale.grandTotal
+            ) || 0;
 
-  const paidAmount =
-    Math.max(
-      0,
-      Number(
-        sale.paidAmount
-      ) || 0
-    );
+          const paidAmount =
+            Math.max(
+              0,
+              Number(
+                sale.paidAmount
+              ) || 0
+            );
 
-    // ==================================================
-// SALES SUMMARY TOTAL
-// ==================================================
+          // ==================================================
+          // SALES SUMMARY TOTAL
+          // ==================================================
 
-totalSales +=
-  billAmount;
+          totalSales +=
+            billAmount;
 
-totalPaidAtBilling +=
-  paidAmount;
-
-
-// ==================================================
-// PAYMENT BREAKUP AT BILLING
-// CASH / UPI / BANK
-// ==================================================
-
-const salePayments =
-  Array.isArray(
-    sale.payments
-  )
-    ? sale.payments
-    : [];
-
-for (
-  const payment of
-  salePayments
-) {
-  const mode =
-    (
-      payment.mode ||
-      payment.paymentMode ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
-
-  const paymentAmount =
-    Math.max(
-      0,
-      Number(
-        payment.amount
-      ) || 0
-    );
-
-  if (
-    mode === "cash"
-  ) {
-    totalCash +=
-      paymentAmount;
-  }
-
-  else if (
-    mode === "upi"
-  ) {
-    totalUpi +=
-      paymentAmount;
-  }
-
-  else if (
-    mode === "bank transfer" ||
-    mode === "bank"
-  ) {
-    totalBank +=
-      paymentAmount;
-  }
-
-  else {
-    totalOther +=
-      paymentAmount;
-  }
-}
-
-  let outstandingAmount =
-    Number(
-      sale.outstandingAmount
-    );
-
-  // ==================================================
-  // OLD RECORD COMPATIBILITY
-  // ==================================================
-
-  if (
-    !Number.isFinite(
-      outstandingAmount
-    )
-  ) {
-
-    const oldMode =
-      (
-        sale.paymentMode ||
-        ""
-      )
-        .toString()
-        .trim()
-        .toLowerCase();
-
-    outstandingAmount =
-      oldMode === "credit"
-        ? billAmount
-        : 0;
-  }
-
-  outstandingAmount =
-    Math.max(
-      0,
-      outstandingAmount
-    );
+          totalPaidAtBilling +=
+            paidAmount;
 
 
-  // ==================================================
-  // ONLY OUTSTANDING INCREASES CUSTOMER BALANCE
-  // ==================================================
+          // ==================================================
+          // PAYMENT BREAKUP AT BILLING
+          // CASH / UPI / BANK
+          // ==================================================
 
-  totalDebit +=
-    outstandingAmount;
+          const salePayments =
+            Array.isArray(
+              sale.payments
+            )
+              ? sale.payments
+              : [];
+
+          for (
+            const payment of
+            salePayments
+          ) {
+            const mode =
+              (
+                payment.mode ||
+                payment.paymentMode ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toLowerCase();
+
+            const paymentAmount =
+              Math.max(
+                0,
+                Number(
+                  payment.amount
+                ) || 0
+              );
+
+            if (
+              mode === "cash"
+            ) {
+              totalCash +=
+                paymentAmount;
+            }
+
+            else if (
+              mode === "upi"
+            ) {
+              totalUpi +=
+                paymentAmount;
+            }
+
+            else if (
+              mode === "bank transfer" ||
+              mode === "bank"
+            ) {
+              totalBank +=
+                paymentAmount;
+            }
+
+            else {
+              totalOther +=
+                paymentAmount;
+            }
+          }
+
+          let outstandingAmount =
+            Number(
+              sale.outstandingAmount
+            );
+
+          // ==================================================
+          // OLD RECORD COMPATIBILITY
+          // ==================================================
+
+          if (
+            !Number.isFinite(
+              outstandingAmount
+            )
+          ) {
+
+            const oldMode =
+              (
+                sale.paymentMode ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toLowerCase();
+
+            outstandingAmount =
+              oldMode === "credit"
+                ? billAmount
+                : 0;
+          }
+
+          outstandingAmount =
+            Math.max(
+              0,
+              outstandingAmount
+            );
 
 
-  const paymentMode =
-    (
-      sale.paymentMode ||
-      "Credit"
-    )
-      .toString()
-      .trim();
+          // ==================================================
+          // ONLY OUTSTANDING INCREASES CUSTOMER BALANCE
+          // ==================================================
+
+          totalDebit +=
+            outstandingAmount;
 
 
-  const paymentStatus =
-    (
-      sale.paymentStatus ||
-      (
-        outstandingAmount > 0
-          ? "CREDIT"
-          : "PAID"
-      )
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
+          const paymentMode =
+            (
+              sale.paymentMode ||
+              "Credit"
+            )
+              .toString()
+              .trim();
 
 
-  let title =
-    `${paymentMode} Sale`;
-
-  if (
-    paymentStatus ===
-    "PARTIAL"
-  ) {
-    title =
-      "Partial Sale";
-  }
-
-  else if (
-    paymentStatus ===
-    "CREDIT"
-  ) {
-    title =
-      "Credit Sale";
-  }
+          const paymentStatus =
+            (
+              sale.paymentStatus ||
+              (
+                outstandingAmount > 0
+                  ? "CREDIT"
+                  : "PAID"
+              )
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-  entries.push({
-  id: sale.saleId,
+          let title =
+            `${paymentMode} Sale`;
 
-  referenceNo: sale.saleNo,
+          if (
+            paymentStatus ===
+            "PARTIAL"
+          ) {
+            title =
+              "Partial Sale";
+          }
 
-  date: sale.saleDate,
+          else if (
+            paymentStatus ===
+            "CREDIT"
+          ) {
+            title =
+              "Credit Sale";
+          }
 
-  type: "SALE",
 
-  title: title,
+          entries.push({
+            id: sale.saleId,
 
-  amount: billAmount,
+            referenceNo: sale.saleNo,
 
-  debit: outstandingAmount,
+            date: sale.saleDate,
 
-  credit: 0,
+            type: "SALE",
 
-  // ==================================================
-  // BILL INFORMATION
-  // ==================================================
+            title: title,
 
-  billAmount: billAmount,
+            amount: billAmount,
 
-  totalQuantity:
-    Number(sale.totalQuantity) || 0,
+            debit: outstandingAmount,
 
-  // ==================================================
-  // PAYMENT INFORMATION
-  // ==================================================
+            credit: 0,
 
-  paidAmount: paidAmount,
+            // ==================================================
+            // BILL INFORMATION
+            // ==================================================
 
-  outstandingAmount:
-    outstandingAmount,
+            billAmount: billAmount,
 
-  paymentStatus:
-    paymentStatus,
+            totalQuantity:
+              Number(sale.totalQuantity) || 0,
 
-  paymentMode:
-    paymentMode,
+            // ==================================================
+            // PAYMENT INFORMATION
+            // ==================================================
 
-  payments:
-    Array.isArray(sale.payments)
-      ? sale.payments
-      : [],
+            paidAmount: paidAmount,
 
-  // ==================================================
-  // SALESMAN INFORMATION
-  // ==================================================
+            outstandingAmount:
+              outstandingAmount,
 
-  salesmanId:
-    sale.salesmanId || "",
+            paymentStatus:
+              paymentStatus,
 
-  salesmanName:
-    sale.salesmanName ||
-    (
-      sale.createdRole === "admin"
-        ? "Admin"
-        : ""
-    ),
+            paymentMode:
+              paymentMode,
 
-  // ==================================================
-  // PRODUCTS
-  // ==================================================
+            payments:
+              Array.isArray(sale.payments)
+                ? sale.payments
+                : [],
 
-  products:
-    Array.isArray(sale.products)
-      ? sale.products.map((product) => ({
-          productId:
-            product.productId || "",
+            // ==================================================
+            // SALESMAN INFORMATION
+            // ==================================================
 
-          productName:
-            product.productName || "",
+            salesmanId:
+              sale.salesmanId || "",
 
-          variant:
-            product.variant || "",
+            salesmanName:
+              sale.salesmanName ||
+              (
+                sale.createdRole === "admin"
+                  ? "Admin"
+                  : ""
+              ),
 
-          unit:
-            product.unit || "",
+            // ==================================================
+            // PRODUCTS
+            // ==================================================
 
-          quantity:
-            Number(product.quantity) || 0,
+            products:
+              Array.isArray(sale.products)
+                ? sale.products.map((product) => ({
+                  productId:
+                    product.productId || "",
 
-          rate:
-            Number(product.rate) || 0,
+                  productName:
+                    product.productName || "",
 
-          amount:
-            Number(product.amount) || 0,
-        }))
-      : [],
+                  variant:
+                    product.variant || "",
 
-  reference: "",
+                  unit:
+                    product.unit || "",
 
-  affectsBalance:
-    outstandingAmount > 0,
-});
-}
+                  quantity:
+                    Number(product.quantity) || 0,
+
+                  rate:
+                    Number(product.rate) || 0,
+
+                  amount:
+                    Number(product.amount) || 0,
+                }))
+                : [],
+
+            reference: "",
+
+            affectsBalance:
+              outstandingAmount > 0,
+          });
+        }
 
         // ----------------------------------------------
         // COLLECTION = CREDIT
@@ -19799,90 +21553,90 @@ for (
 
           totalCredit +=
             amount;
-            // ==================================================
-// COLLECTION PAYMENT MODE BREAKUP
-// ==================================================
+          // ==================================================
+          // COLLECTION PAYMENT MODE BREAKUP
+          // ==================================================
 
-const collectionMode =
-  (
-    collection.paymentMode ||
-    ""
-  )
-    .toString()
-    .trim()
-    .toLowerCase();
+          const collectionMode =
+            (
+              collection.paymentMode ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toLowerCase();
 
-if (
-  collectionMode === "cash"
-) {
-  totalCash +=
-    amount;
-}
+          if (
+            collectionMode === "cash"
+          ) {
+            totalCash +=
+              amount;
+          }
 
-else if (
-  collectionMode === "upi" ||
-  collectionMode === "phonepe" ||
-  collectionMode === "google pay" ||
-  collectionMode === "paytm"
-) {
-  totalUpi +=
-    amount;
-}
+          else if (
+            collectionMode === "upi" ||
+            collectionMode === "phonepe" ||
+            collectionMode === "google pay" ||
+            collectionMode === "paytm"
+          ) {
+            totalUpi +=
+              amount;
+          }
 
-else if (
-  collectionMode === "bank transfer" ||
-  collectionMode === "bank"
-) {
-  totalBank +=
-    amount;
-}
+          else if (
+            collectionMode === "bank transfer" ||
+            collectionMode === "bank"
+          ) {
+            totalBank +=
+              amount;
+          }
 
-else {
-  totalOther +=
-    amount;
-}
-entries.push({
-  id:
-    collection.collectionId,
+          else {
+            totalOther +=
+              amount;
+          }
+          entries.push({
+            id:
+              collection.collectionId,
 
-  referenceNo:
-    collection.receiptNo,
+            referenceNo:
+              collection.receiptNo,
 
-  date:
-    collection.collectionDate,
+            date:
+              collection.collectionDate,
 
-  type:
-    "COLLECTION",
+            type:
+              "COLLECTION",
 
-  title:
-    "Payment Received",
+            title:
+              "Payment Received",
 
-  amount:
-    amount,
+            amount:
+              amount,
 
-  debit:
-    0,
+            debit:
+              0,
 
-  credit:
-    amount,
+            credit:
+              amount,
 
-  paymentMode:
-    collection.paymentMode || "",
+            paymentMode:
+              collection.paymentMode || "",
 
-  reference:
-    collection.referenceNo || "",
+            reference:
+              collection.referenceNo || "",
 
-  salesmanId:
-    collection.salesmanId || "",
+            salesmanId:
+              collection.salesmanId || "",
 
-  salesmanName:
-    collection.salesmanName || "",
+            salesmanName:
+              collection.salesmanName || "",
 
-  allocations:
-    Array.isArray(collection.allocations)
-      ? collection.allocations
-      : [],
-});
+            allocations:
+              Array.isArray(collection.allocations)
+                ? collection.allocations
+                : [],
+          });
         }
 
 
@@ -19946,120 +21700,120 @@ entries.push({
               customer.route ||
               "",
 
- // ==================================================
-// OLD LEDGER TOTALS
-// KEEP FOR EXISTING FLUTTER COMPATIBILITY
-// ==================================================
+            // ==================================================
+            // OLD LEDGER TOTALS
+            // KEEP FOR EXISTING FLUTTER COMPATIBILITY
+            // ==================================================
 
-totalDebit:
-  Number(
-    totalDebit
-      .toFixed(2)
-  ),
+            totalDebit:
+              Number(
+                totalDebit
+                  .toFixed(2)
+              ),
 
-totalCredit:
-  Number(
-    totalCredit
-      .toFixed(2)
-  ),
-
-
-// ==================================================
-// COMPLETE CUSTOMER SALES SUMMARY
-// ==================================================
-
-totalSales:
-  Number(
-    totalSales
-      .toFixed(2)
-  ),
-
-totalPaidAtBilling:
-  Number(
-    totalPaidAtBilling
-      .toFixed(2)
-  ),
-
-totalCollections:
-  Number(
-    totalCredit
-      .toFixed(2)
-  ),
-
-totalReceived:
-  Number(
-    (
-      totalPaidAtBilling +
-      totalCredit
-    ).toFixed(2)
-  ),
+            totalCredit:
+              Number(
+                totalCredit
+                  .toFixed(2)
+              ),
 
 
-// ==================================================
-// OUTSTANDING
-// ==================================================
+            // ==================================================
+            // COMPLETE CUSTOMER SALES SUMMARY
+            // ==================================================
 
-balance:
-  Number(
-    (
-      totalDebit -
-      totalCredit
-    ).toFixed(2)
-  ),
+            totalSales:
+              Number(
+                totalSales
+                  .toFixed(2)
+              ),
 
-outstanding:
-  Number(
-    (
-      totalDebit -
-      totalCredit
-    ).toFixed(2)
-  ),
+            totalPaidAtBilling:
+              Number(
+                totalPaidAtBilling
+                  .toFixed(2)
+              ),
 
+            totalCollections:
+              Number(
+                totalCredit
+                  .toFixed(2)
+              ),
 
-// ==================================================
-// PAYMENT MODE BREAKUP
-// ==================================================
-
-paymentBreakup: {
-
-  cash:
-    Number(
-      totalCash
-        .toFixed(2)
-    ),
-
-  online:
-    Number(
-      totalUpi
-        .toFixed(2)
-    ),
-
-  upi:
-    Number(
-      totalUpi
-        .toFixed(2)
-    ),
-
-  bank:
-    Number(
-      totalBank
-        .toFixed(2)
-    ),
-
-  other:
-    Number(
-      totalOther
-        .toFixed(2)
-    ),
-},
+            totalReceived:
+              Number(
+                (
+                  totalPaidAtBilling +
+                  totalCredit
+                ).toFixed(2)
+              ),
 
 
-// ==================================================
-// LEDGER ENTRIES
-// ==================================================
+            // ==================================================
+            // OUTSTANDING
+            // ==================================================
 
-transactions:
-  entries.reverse(),
+            balance:
+              Number(
+                (
+                  totalDebit -
+                  totalCredit
+                ).toFixed(2)
+              ),
+
+            outstanding:
+              Number(
+                (
+                  totalDebit -
+                  totalCredit
+                ).toFixed(2)
+              ),
+
+
+            // ==================================================
+            // PAYMENT MODE BREAKUP
+            // ==================================================
+
+            paymentBreakup: {
+
+              cash:
+                Number(
+                  totalCash
+                    .toFixed(2)
+                ),
+
+              online:
+                Number(
+                  totalUpi
+                    .toFixed(2)
+                ),
+
+              upi:
+                Number(
+                  totalUpi
+                    .toFixed(2)
+                ),
+
+              bank:
+                Number(
+                  totalBank
+                    .toFixed(2)
+                ),
+
+              other:
+                Number(
+                  totalOther
+                    .toFixed(2)
+                ),
+            },
+
+
+            // ==================================================
+            // LEDGER ENTRIES
+            // ==================================================
+
+            transactions:
+              entries.reverse(),
           },
         });
       }
@@ -20763,7 +22517,7 @@ app.get(
                   sale.salesmanName ||
                   (
                     sale.createdRole ===
-                    "admin"
+                      "admin"
                       ? "Admin"
                       : "Unassigned"
                   ),
@@ -20853,13 +22607,13 @@ app.get(
                   totalBills
                     .toString(),
               },
-             {
-  label:
-    "Quantity",
-  value:
-    totalQuantity
-      .toString(),
-},
+              {
+                label:
+                  "Quantity",
+                value:
+                  totalQuantity
+                    .toString(),
+              },
             ],
           },
         });
@@ -21158,7 +22912,7 @@ app.get(
               )
                 .toString()
                 .toUpperCase() !==
-                productId
+              productId
             ) {
               continue;
             }
@@ -21338,7 +23092,7 @@ app.get(
                 sale.salesmanName ||
                 (
                   sale.createdRole ===
-                  "admin"
+                    "admin"
                     ? "Admin"
                     : ""
                 ),
@@ -21780,7 +23534,7 @@ app.get(
             if (
               !currentDueDate ||
               purchaseDueDate <
-                currentDueDate
+              currentDueDate
             ) {
               dueDateMap.set(
                 supplierId,
@@ -21905,13 +23659,13 @@ app.get(
 
           rows.push([
             supplier.supplierId ||
-              "",
+            "",
 
             supplier.supplierName ||
-              "",
+            "",
 
             supplier.mobile ||
-              "",
+            "",
 
             purchaseAmount,
 
@@ -22016,14 +23770,14 @@ app.get(
           purchaseFilter
             .purchaseDate
             .$gte =
-              fromDate;
+            fromDate;
         }
 
         if (toDate) {
           purchaseFilter
             .purchaseDate
             .$lte =
-              toDate;
+            toDate;
         }
       }
 
@@ -22149,20 +23903,20 @@ app.get(
                 ),
 
                 purchase.purchaseNo ||
-                  "",
+                "",
 
                 purchase.supplierName ||
-                  "",
+                "",
 
                 purchase.invoiceNo ||
-                  "",
+                "",
 
                 formatDate(
                   purchase.billDate
                 ),
 
                 purchase.paymentType ||
-                  "",
+                "",
 
                 Number(
                   purchase.totalQuantity
@@ -22932,16 +24686,16 @@ app.get(
 
               return [
                 product.productId ||
-                  "",
+                "",
 
                 product.productName ||
-                  "",
+                "",
 
                 product.variant ||
-                  "",
+                "",
 
                 product.unit ||
-                  "",
+                "",
 
                 stock,
 
@@ -23110,16 +24864,16 @@ app.get(
 
               return [
                 product.productId ||
-                  "",
+                "",
 
                 product.productName ||
-                  "",
+                "",
 
                 product.variant ||
-                  "",
+                "",
 
                 product.unit ||
-                  "",
+                "",
 
                 stock,
 
@@ -23180,14 +24934,14 @@ app.get(
                   "Out Of Stock",
 
                 value:
-      lowStockProducts
-  .filter(
-    product =>
-      (
-        Number(product.stock) || 0
-      ) <= 0
-  )
-  .length
+                  lowStockProducts
+                    .filter(
+                      product =>
+                        (
+                          Number(product.stock) || 0
+                        ) <= 0
+                    )
+                    .length
                     .toString(),
               },
             ],
@@ -23311,7 +25065,7 @@ app.get(
             movementFilter
               .createdAt
               .$gte =
-                fromDate;
+              fromDate;
           }
 
 
@@ -23319,7 +25073,7 @@ app.get(
             movementFilter
               .createdAt
               .$lte =
-                toDate;
+              toDate;
           }
         }
 
@@ -23516,7 +25270,7 @@ app.get(
 
 
           switch (
-            transaction.transactionType
+          transaction.transactionType
           ) {
 
             case "PURCHASE":
@@ -23791,19 +25545,19 @@ app.get(
 
               return [
                 product.productId ||
-                  "",
+                "",
 
                 product.productName ||
-                  "",
+                "",
 
                 product.variant ||
-                  "",
+                "",
 
                 product.category ||
-                  "",
+                "",
 
                 product.unit ||
-                  "",
+                "",
 
                 stock,
 
@@ -24285,7 +26039,7 @@ app.get(
                 sale.salesmanName ||
                 (
                   sale.createdRole ===
-                  "admin"
+                    "admin"
                     ? "Admin"
                     : ""
                 ),
@@ -25422,14 +27176,14 @@ app.get(
           saleFilter
             .saleDate
             .$gte =
-              fromDate;
+            fromDate;
         }
 
         if (toDate) {
           saleFilter
             .saleDate
             .$lte =
-              toDate;
+            toDate;
         }
       }
 
@@ -25513,14 +27267,14 @@ app.get(
           purchaseFilter
             .purchaseDate
             .$gte =
-              fromDate;
+            fromDate;
         }
 
         if (toDate) {
           purchaseFilter
             .purchaseDate
             .$lte =
-              toDate;
+            toDate;
         }
       }
 
@@ -25699,7 +27453,7 @@ app.get(
         const average =
           rows.length > 0
             ? totalSales /
-              rows.length
+            rows.length
             : 0;
 
 
@@ -25894,7 +27648,7 @@ app.get(
         const average =
           rows.length > 0
             ? totalPurchase /
-              rows.length
+            rows.length
             : 0;
 
 
@@ -27189,32 +28943,32 @@ app.get(
                 ),
 
                 item.receiptNo ||
-                  "",
+                "",
 
                 item.customerId ||
-                  "",
+                "",
 
                 item.customerName ||
-                  "",
+                "",
 
                 item.route ||
-                  "",
+                "",
 
                 item.salesmanName ||
-                  "",
+                "",
 
                 item.paymentMode ||
-                  "",
+                "",
 
                 Number(
                   amount.toFixed(2)
                 ),
 
                 item.referenceNo ||
-                  "",
+                "",
 
                 item.remarks ||
-                  "",
+                "",
               ];
             }
           );
@@ -27423,31 +29177,31 @@ app.get(
 
               allocation
                 .allocationNo ||
-                "",
+              "",
 
               allocation
                 .salesmanName ||
-                "",
+              "",
 
               allocation
                 .routeName ||
-                "",
+              "",
 
               allocation
                 .customerName ||
-                "",
+              "",
 
               product.productId ||
-                "",
+              "",
 
               product.productName ||
-                "",
+              "",
 
               product.variant ||
-                "",
+              "",
 
               product.unit ||
-                "",
+              "",
 
               allocated,
 
@@ -27460,7 +29214,7 @@ app.get(
               ),
 
               allocation.status ||
-                "",
+              "",
             ]);
           }
         }
@@ -27505,34 +29259,34 @@ app.get(
               },
 
               {
-  label:
-    "Allocated Qty",
+                label:
+                  "Allocated Qty",
 
-  value:
-    totalAllocated
-      .toString(),
-},
+                value:
+                  totalAllocated
+                    .toString(),
+              },
 
-{
-  label:
-    "Returned Qty",
+              {
+                label:
+                  "Returned Qty",
 
-  value:
-    totalReturned
-      .toString(),
-},
+                value:
+                  totalReturned
+                    .toString(),
+              },
 
-{
-  label:
-    "Net Qty",
+              {
+                label:
+                  "Net Qty",
 
-  value:
-    Math.max(
-      0,
-      totalAllocated -
-      totalReturned
-    ).toString(),
-},
+                value:
+                  Math.max(
+                    0,
+                    totalAllocated -
+                    totalReturned
+                  ).toString(),
+              },
             ],
           },
         });
@@ -27642,12 +29396,10 @@ app.get(
           stockReturns
         ) {
           const key =
-            `${
-              stock.referenceId ||
-              ""
-            }::${
-              stock.productId ||
-              ""
+            `${stock.referenceId ||
+            ""
+            }::${stock.productId ||
+            ""
             }`;
 
           goodReturnMap.set(
@@ -27701,13 +29453,11 @@ app.get(
 
 
             const key =
-              `${
-                allocation
-                  .allocationId ||
-                ""
-              }::${
-                product.productId ||
-                ""
+              `${allocation
+                .allocationId ||
+              ""
+              }::${product.productId ||
+              ""
               }`;
 
 
@@ -27746,27 +29496,27 @@ app.get(
 
               allocation
                 .allocationNo ||
-                "",
+              "",
 
               allocation
                 .salesmanName ||
-                "",
+              "",
 
               allocation
                 .routeName ||
-                "",
+              "",
 
               product.productId ||
-                "",
+              "",
 
               product.productName ||
-                "",
+              "",
 
               product.variant ||
-                "",
+              "",
 
               product.unit ||
-                "",
+              "",
 
               Number(
                 product.quantity ||
@@ -27780,7 +29530,7 @@ app.get(
               otherReturn,
 
               allocation.status ||
-                "",
+              "",
             ]);
           }
         }
@@ -27943,20 +29693,20 @@ app.get(
                 ),
 
                 item.expenseNo ||
-                  "",
+                "",
 
                 item.category ||
-                  "",
+                "",
 
                 item.paymentMode ||
-                  "",
+                "",
 
                 Number(
                   amount.toFixed(2)
                 ),
 
                 item.note ||
-                  "",
+                "",
               ];
             }
           );
@@ -28630,289 +30380,289 @@ app.get(
       }
 
       // ==================================================
-// TODAY CUSTOMERS
-// SALESMAN ROUTE CUSTOMERS + TODAY ACTIVITY
-// ==================================================
+      // TODAY CUSTOMERS
+      // SALESMAN ROUTE CUSTOMERS + TODAY ACTIVITY
+      // ==================================================
 
-let todayCustomers = [];
+      let todayCustomers = [];
 
-if (salesman) {
+      if (salesman) {
 
-  // ------------------------------------------------
-  // FIND ROUTES ASSIGNED TO LOGGED-IN SALESMAN
-  // ------------------------------------------------
+        // ------------------------------------------------
+        // FIND ROUTES ASSIGNED TO LOGGED-IN SALESMAN
+        // ------------------------------------------------
 
-  const salesmanRoutes =
-    await RouteMaster.find({
-      farmId,
+        const salesmanRoutes =
+          await RouteMaster.find({
+            farmId,
 
-      salesmanId:
-        salesman.salesmanId,
+            salesmanId:
+              salesman.salesmanId,
 
-      isActive:
-        true,
-    })
-      .select(
-        "routeId routeName"
-      )
-      .lean();
-
-
-  const salesmanRouteNames =
-    salesmanRoutes
-      .map(
-        (route) =>
-          String(
-            route.routeName || ""
-          ).trim()
-      )
-      .filter(
-        (routeName) =>
-          routeName.length > 0
-      );
+            isActive:
+              true,
+          })
+            .select(
+              "routeId routeName"
+            )
+            .lean();
 
 
-  // ------------------------------------------------
-  // LOAD CUSTOMERS OF SALESMAN ROUTES
-  // ------------------------------------------------
-
-  let routeCustomers = [];
-
-  if (
-    salesmanRouteNames.length > 0
-  ) {
-
-    routeCustomers =
-      await Customer.find({
-        farmId,
-
-        isActive:
-          true,
-
-        route: {
-          $in:
-            salesmanRouteNames,
-        },
-      })
-        .select(
-          "customerId name mobile route balance"
-        )
-        .sort({
-          name: 1,
-        })
-        .lean();
-  }
+        const salesmanRouteNames =
+          salesmanRoutes
+            .map(
+              (route) =>
+                String(
+                  route.routeName || ""
+                ).trim()
+            )
+            .filter(
+              (routeName) =>
+                routeName.length > 0
+            );
 
 
-  // ------------------------------------------------
-  // TODAY SALES CUSTOMER-WISE
-  // ------------------------------------------------
+        // ------------------------------------------------
+        // LOAD CUSTOMERS OF SALESMAN ROUTES
+        // ------------------------------------------------
 
-  const todayCustomerSales =
-    await Sale.find({
-      farmId,
+        let routeCustomers = [];
 
-      salesmanId:
-        salesman.salesmanId,
+        if (
+          salesmanRouteNames.length > 0
+        ) {
 
-      createdRole:
-        "salesman",
+          routeCustomers =
+            await Customer.find({
+              farmId,
 
-      status:
-        "POSTED",
+              isActive:
+                true,
 
-      saleDate: {
-        $gte:
-          todayStart,
-
-        $lte:
-          todayEnd,
-      },
-    })
-      .select(
-        "customerId grandTotal"
-      )
-      .lean();
-
-
-  const todaySaleMap =
-    new Map();
+              route: {
+                $in:
+                  salesmanRouteNames,
+              },
+            })
+              .select(
+                "customerId name mobile route balance"
+              )
+              .sort({
+                name: 1,
+              })
+              .lean();
+        }
 
 
-  for (
-    const sale of
-    todayCustomerSales
-  ) {
+        // ------------------------------------------------
+        // TODAY SALES CUSTOMER-WISE
+        // ------------------------------------------------
 
-    const customerId =
-      String(
-        sale.customerId || ""
-      ).toUpperCase();
+        const todayCustomerSales =
+          await Sale.find({
+            farmId,
 
+            salesmanId:
+              salesman.salesmanId,
 
-    todaySaleMap.set(
-      customerId,
+            createdRole:
+              "salesman",
 
-      (
-        todaySaleMap.get(
-          customerId
-        ) || 0
-      ) +
-      (
-        Number(
-          sale.grandTotal
-        ) || 0
-      )
-    );
-  }
+            status:
+              "POSTED",
 
+            saleDate: {
+              $gte:
+                todayStart,
 
-  // ------------------------------------------------
-  // TODAY COLLECTION CUSTOMER-WISE
-  // ------------------------------------------------
-
-  const todayCollectionMap =
-    new Map();
+              $lte:
+                todayEnd,
+            },
+          })
+            .select(
+              "customerId grandTotal"
+            )
+            .lean();
 
 
-  for (
-    const collection of
-    todayCollections
-  ) {
-
-    const customerId =
-      String(
-        collection.customerId || ""
-      ).toUpperCase();
+        const todaySaleMap =
+          new Map();
 
 
-    todayCollectionMap.set(
-      customerId,
+        for (
+          const sale of
+          todayCustomerSales
+        ) {
 
-      (
-        todayCollectionMap.get(
-          customerId
-        ) || 0
-      ) +
-      (
-        Number(
-          collection.amount
-        ) || 0
-      )
-    );
-  }
+          const customerId =
+            String(
+              sale.customerId || ""
+            ).toUpperCase();
 
 
-  // ------------------------------------------------
-  // BUILD TODAY CUSTOMER LIST
-  // ------------------------------------------------
+          todaySaleMap.set(
+            customerId,
 
-  todayCustomers =
-    routeCustomers.map(
-      (customer) => {
-
-        const customerId =
-          String(
-            customer.customerId || ""
-          ).toUpperCase();
-
-
-        const todaySale =
-          Number(
-            todaySaleMap.get(
-              customerId
-            ) || 0
-          );
-
-
-        const todayCollection =
-          Number(
-            todayCollectionMap.get(
-              customerId
-            ) || 0
-          );
-
-
-        const outstanding =
-          Math.max(
-            0,
-
-            Number(
-              outstandingMap.get(
+            (
+              todaySaleMap.get(
                 customerId
+              ) || 0
+            ) +
+            (
+              Number(
+                sale.grandTotal
               ) || 0
             )
           );
+        }
 
 
-        // Customer considered visited when
-        // salesman made sale or collection today.
+        // ------------------------------------------------
+        // TODAY COLLECTION CUSTOMER-WISE
+        // ------------------------------------------------
 
-        const visited =
-          todaySale > 0 ||
-          todayCollection > 0;
-
-
-        return {
-          customerId:
-            customer.customerId || "",
-
-          customerName:
-            customer.name || "",
-
-          mobile:
-            customer.mobile || "",
-
-          route:
-            customer.route || "",
-
-          outstanding:
-            Number(
-              outstanding.toFixed(2)
-            ),
-
-          todaySale:
-            Number(
-              todaySale.toFixed(2)
-            ),
-
-          todayCollection:
-            Number(
-              todayCollection.toFixed(2)
-            ),
-
-          status:
-            visited
-              ? "Visited"
-              : "Pending",
-        };
-      }
-    );
+        const todayCollectionMap =
+          new Map();
 
 
-  // ------------------------------------------------
-  // SHOW PENDING FIRST
-  // THEN VISITED CUSTOMERS
-  // ------------------------------------------------
+        for (
+          const collection of
+          todayCollections
+        ) {
 
-  todayCustomers.sort(
-    (a, b) => {
+          const customerId =
+            String(
+              collection.customerId || ""
+            ).toUpperCase();
 
-      if (
-        a.status === b.status
-      ) {
-        return a.customerName
-          .localeCompare(
-            b.customerName
+
+          todayCollectionMap.set(
+            customerId,
+
+            (
+              todayCollectionMap.get(
+                customerId
+              ) || 0
+            ) +
+            (
+              Number(
+                collection.amount
+              ) || 0
+            )
           );
-      }
+        }
 
-      return a.status === "Pending"
-        ? -1
-        : 1;
-    }
-  );
-}
+
+        // ------------------------------------------------
+        // BUILD TODAY CUSTOMER LIST
+        // ------------------------------------------------
+
+        todayCustomers =
+          routeCustomers.map(
+            (customer) => {
+
+              const customerId =
+                String(
+                  customer.customerId || ""
+                ).toUpperCase();
+
+
+              const todaySale =
+                Number(
+                  todaySaleMap.get(
+                    customerId
+                  ) || 0
+                );
+
+
+              const todayCollection =
+                Number(
+                  todayCollectionMap.get(
+                    customerId
+                  ) || 0
+                );
+
+
+              const outstanding =
+                Math.max(
+                  0,
+
+                  Number(
+                    outstandingMap.get(
+                      customerId
+                    ) || 0
+                  )
+                );
+
+
+              // Customer considered visited when
+              // salesman made sale or collection today.
+
+              const visited =
+                todaySale > 0 ||
+                todayCollection > 0;
+
+
+              return {
+                customerId:
+                  customer.customerId || "",
+
+                customerName:
+                  customer.name || "",
+
+                mobile:
+                  customer.mobile || "",
+
+                route:
+                  customer.route || "",
+
+                outstanding:
+                  Number(
+                    outstanding.toFixed(2)
+                  ),
+
+                todaySale:
+                  Number(
+                    todaySale.toFixed(2)
+                  ),
+
+                todayCollection:
+                  Number(
+                    todayCollection.toFixed(2)
+                  ),
+
+                status:
+                  visited
+                    ? "Visited"
+                    : "Pending",
+              };
+            }
+          );
+
+
+        // ------------------------------------------------
+        // SHOW PENDING FIRST
+        // THEN VISITED CUSTOMERS
+        // ------------------------------------------------
+
+        todayCustomers.sort(
+          (a, b) => {
+
+            if (
+              a.status === b.status
+            ) {
+              return a.customerName
+                .localeCompare(
+                  b.customerName
+                );
+            }
+
+            return a.status === "Pending"
+              ? -1
+              : 1;
+          }
+        );
+      }
 
       // ==================================================
       // PROGRESS
@@ -28922,30 +30672,30 @@ if (salesman) {
       const salesProgress =
         todayAllocatedQuantity > 0
           ? Math.min(
-              1,
-              todaySalesQuantity /
-              todayAllocatedQuantity
-            )
+            1,
+            todaySalesQuantity /
+            todayAllocatedQuantity
+          )
           : 0;
 
 
       const collectionProgress =
         todaySalesAmount > 0
           ? Math.min(
-              1,
-              todayCollectionAmount /
-              todaySalesAmount
-            )
+            1,
+            todayCollectionAmount /
+            todaySalesAmount
+          )
           : 0;
 
 
       const returnProgress =
         todayAllocatedQuantity > 0
           ? Math.min(
-              1,
-              todayReturnQuantity /
-              todayAllocatedQuantity
-            )
+            1,
+            todayReturnQuantity /
+            todayAllocatedQuantity
+          )
           : 0;
 
 
@@ -29070,46 +30820,46 @@ app.get(
           .lean();
       } else if (role === "salesman") {
 
-  user = await Salesman.findOne({
-    _id: userId,
-    farmId,
-  })
-    .select(
-      "_id role farmId salesmanId name mobile email username businessName permissions permissionMode isActive"
-    )
-    .lean();
+        user = await Salesman.findOne({
+          _id: userId,
+          farmId,
+        })
+          .select(
+            "_id role farmId salesmanId name mobile email username businessName permissions permissionMode isActive"
+          )
+          .lean();
 
-  if (user) {
-    const farmAdmin = await Register.findOne({
-      farmId,
-      isActive: true,
-    }).select("salesmanDefaultPermissions").lean();
+        if (user) {
+          const farmAdmin = await Register.findOne({
+            farmId,
+            isActive: true,
+          }).select("salesmanDefaultPermissions").lean();
 
-    user.permissionMode =
-      user.permissionMode ||
-      (Array.isArray(user.permissions) && user.permissions.length > 0
-        ? "custom"
-        : "inherit");
-    user.permissions = getEffectiveSalesmanPermissions(user, farmAdmin);
+          user.permissionMode =
+            user.permissionMode ||
+            (Array.isArray(user.permissions) && user.permissions.length > 0
+              ? "custom"
+              : "inherit");
+          user.permissions = getEffectiveSalesmanPermissions(user, farmAdmin);
 
-    const route =
-      await RouteMaster.findOne({
-        farmId,
-        salesmanId:
-          user.salesmanId,
-      })
-        .select(
-          "routeId routeName"
-        )
-        .lean();
+          const route =
+            await RouteMaster.findOne({
+              farmId,
+              salesmanId:
+                user.salesmanId,
+            })
+              .select(
+                "routeId routeName"
+              )
+              .lean();
 
-    user.routeId =
-      route?.routeId || "";
+          user.routeId =
+            route?.routeId || "";
 
-    user.routeName =
-      route?.routeName || "";
-  }
-} else {
+          user.routeName =
+            route?.routeName || "";
+        }
+      } else {
         return res.status(403).json({
           success: false,
           message:
@@ -29980,7 +31730,7 @@ app.get(
           now.getFullYear(),
           now.getMonth(),
           now.getDate() -
-            daysFromMonday,
+          daysFromMonday,
           0,
           0,
           0,
