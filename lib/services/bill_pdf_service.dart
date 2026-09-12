@@ -223,14 +223,36 @@ abstract final class BillPdfService {
                     _totalRow('UPI Paid', sale.upiAmount, muted),
                     pw.SizedBox(height: 4),
                   ],
-                  if (sale.bankTransferAmount > 0) ...[
-                    _totalRow('Bank Transfer', sale.bankTransferAmount, muted),
-                    pw.SizedBox(height: 4),
-                  ],
-                  if (sale.outstandingAmount > 0) ...[
-                    _totalRow('Balance Due', sale.outstandingAmount, PdfColor.fromHex('#DC2626')),
-                    pw.SizedBox(height: 4),
-                  ],
+               if (sale.bankTransferAmount > 0) ...[
+  _totalRow(
+    'Bank Transfer',
+    sale.bankTransferAmount,
+    muted,
+  ),
+  pw.SizedBox(height: 4),
+],
+
+// ============================================================
+// CUSTOMER ADVANCE ADJUSTMENT
+// ============================================================
+
+if (sale.advanceUsed > 0.001) ...[
+  _totalRow(
+    'Advance Adjusted',
+    sale.advanceUsed,
+    PdfColor.fromHex('#1665E8'),
+  ),
+  pw.SizedBox(height: 4),
+],
+
+if (sale.outstandingAmount > 0.001) ...[
+  _totalRow(
+    'Balance Due',
+    sale.outstandingAmount,
+    PdfColor.fromHex('#DC2626'),
+  ),
+  pw.SizedBox(height: 4),
+],
                   pw.Divider(color: border),
                   pw.SizedBox(height: 6),
                   pw.Row(
@@ -424,11 +446,16 @@ abstract final class BillPdfService {
 
     int totalQty = 0;
     double grandTotal = 0;
-    double totalCash = 0;
-    double totalUpi = 0;
-    double totalBank = 0;
-    double totalDue = 0;
-    int cancelledCount = 0;
+  double totalCash = 0;
+double totalUpi = 0;
+double totalBank = 0;
+
+// Customer advance used against sales
+double totalAdvanceUsed = 0;
+
+double totalDue = 0;
+
+int cancelledCount = 0;
 
     for (final s in sales) {
       if (s.isCancelled) {
@@ -436,10 +463,15 @@ abstract final class BillPdfService {
       } else {
         totalQty += s.totalQuantity;
         grandTotal += s.total;
-        totalCash += s.cashAmount;
-        totalUpi += s.upiAmount;
-        totalBank += s.bankTransferAmount;
-        totalDue += s.outstandingAmount;
+   totalCash += s.cashAmount;
+
+totalUpi += s.upiAmount;
+
+totalBank += s.bankTransferAmount;
+
+totalAdvanceUsed += s.advanceUsed;
+
+totalDue += s.outstandingAmount;
       }
     }
 
@@ -592,14 +624,32 @@ abstract final class BillPdfService {
                   pw.SizedBox(height: 5),
                   _totalRow('UPI Collected', totalUpi, muted),
                   pw.SizedBox(height: 5),
-                  if (totalBank > 0) ...[
-                    _totalRow('Bank Transfer', totalBank, muted),
-                    pw.SizedBox(height: 5),
-                  ],
-                  if (totalDue > 0) ...[
-                    _totalRow('Outstanding Due', totalDue, PdfColor.fromHex('#DC2626')),
-                    pw.SizedBox(height: 5),
-                  ],
+      if (totalBank > 0) ...[
+  _totalRow(
+    'Bank Transfer',
+    totalBank,
+    muted,
+  ),
+  pw.SizedBox(height: 5),
+],
+
+if (totalAdvanceUsed > 0.001) ...[
+  _totalRow(
+    'Advance Adjusted',
+    totalAdvanceUsed,
+    PdfColor.fromHex('#1665E8'),
+  ),
+  pw.SizedBox(height: 5),
+],
+
+if (totalDue > 0.001) ...[
+  _totalRow(
+    'Outstanding Due',
+    totalDue,
+    PdfColor.fromHex('#DC2626'),
+  ),
+  pw.SizedBox(height: 5),
+],
                   pw.Divider(color: border),
                   pw.SizedBox(height: 5),
                   pw.Row(

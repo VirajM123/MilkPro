@@ -293,31 +293,165 @@ void _clearSalePayments() {
 
   double get _bankPayment => _paymentValue(_bankPaymentController);
 
-  double get _paidAmount => _cashPayment + _upiPayment + _bankPayment;
+ double get _paidAmount =>
+    _cashPayment +
+    _upiPayment +
+    _bankPayment;
 
-  double get _outstandingAmount {
-    final amount = _cartTotal - _paidAmount;
 
-    return amount < 0 ? 0 : amount;
+// ============================================================
+// CUSTOMER CURRENT ADVANCE BALANCE
+//
+// Backend:
+// MAS_CUSTOMER.balance = available customer advance
+// ============================================================
+
+double get _customerAdvanceBalance {
+  final customer = _selectedCustomer;
+
+  if (customer == null) {
+    return 0;
   }
 
-  bool get _isPaymentOverAmount => _paidAmount > _cartTotal;
+  final balance =
+      double.tryParse(
+        customer['balance']
+                ?.toString() ??
+            '0',
+      ) ??
+      0;
 
-  String get _calculatedPaymentStatus {
-    if (_cartTotal <= 0) {
-      return 'PAID';
+  return balance < 0
+      ? 0
+      : balance;
+}
+
+
+// ============================================================
+// ADVANCE AVAILABLE FOR CURRENT SALE
+//
+// CREATE:
+// Use current customer.balance.
+//
+// EDIT:
+// Backend first restores the advanceUsed from the original
+// bill before recalculating it.
+//
+// We will add that edit-specific value after adding
+// advanceUsed to SaleModel.
+// ============================================================
+
+double get _availableAdvanceForSale {
+  double available =
+      _customerAdvanceBalance;
+
+  // During edit, backend restores the advance
+  // originally consumed by this sale before
+  // recalculating the edited bill.
+  if (_isEditingSale &&
+      _editingSaleId != null) {
+    SaleModel? editingSale;
+
+    for (final sale in _serverSales) {
+      if (sale.id == _editingSaleId ||
+          sale.saleId == _editingSaleId) {
+        editingSale = sale;
+        break;
+      }
     }
 
-    if (_paidAmount <= 0) {
-      return 'CREDIT';
+    if (editingSale != null &&
+        editingSale.customerId ==
+            (_selectedCustomer?['customerId']
+                    ?.toString() ??
+                '')) {
+      available +=
+          editingSale.advanceUsed;
     }
+  }
 
-    if (_paidAmount < _cartTotal) {
-      return 'PARTIAL';
-    }
+  return available;
+}
 
+
+// ============================================================
+// BILL AMOUNT REMAINING AFTER CURRENT PAYMENT
+// ============================================================
+
+double get _amountAfterImmediatePayment {
+  final value =
+      _cartTotal -
+      _paidAmount;
+
+  return value < 0
+      ? 0
+      : value;
+}
+
+
+// ============================================================
+// CUSTOMER ADVANCE THAT WILL BE USED
+// ============================================================
+
+double get _advanceUsedPreview {
+  final due =
+      _amountAfterImmediatePayment;
+
+  final available =
+      _availableAdvanceForSale;
+
+  if (due <= 0 ||
+      available <= 0) {
+    return 0;
+  }
+
+  return available < due
+      ? available
+      : due;
+}
+
+
+// ============================================================
+// FINAL OUTSTANDING PREVIEW
+// ============================================================
+
+double get _outstandingAmount {
+  final amount =
+      _amountAfterImmediatePayment -
+      _advanceUsedPreview;
+
+  return amount < 0
+      ? 0
+      : amount;
+}
+
+
+bool get _isPaymentOverAmount =>
+    _paidAmount >
+    _cartTotal;
+
+
+// ============================================================
+// PAYMENT STATUS PREVIEW
+// ============================================================
+
+String get _calculatedPaymentStatus {
+  if (_cartTotal <= 0) {
     return 'PAID';
   }
+
+  if (_outstandingAmount <= 0.001) {
+    return 'PAID';
+  }
+
+  if (_paidAmount <= 0.001 &&
+      _advanceUsedPreview <=
+          0.001) {
+    return 'CREDIT';
+  }
+
+  return 'PARTIAL';
+}
 
   String get _calculatedPaymentMode {
     if (_paidAmount <= 0) {
@@ -568,18 +702,23 @@ payments:
           (item) => Map<String, dynamic>.from(item),
         )
         .toList(),
-
 paidAmount:
     double.tryParse(
-          sale['paidAmount']?.toString() ?? '0',
-        ) ??
-        0,
+      sale['paidAmount']?.toString() ?? '0',
+    ) ??
+    0,
+
+advanceUsed:
+    double.tryParse(
+      sale['advanceUsed']?.toString() ?? '0',
+    ) ??
+    0,
 
 outstandingAmount:
     double.tryParse(
-          sale['outstandingAmount']?.toString() ?? '0',
-        ) ??
-        0,
+      sale['outstandingAmount']?.toString() ?? '0',
+    ) ??
+    0,
 
 paymentStatus:
     sale['paymentStatus']?.toString() ?? 'PAID',
@@ -1502,29 +1641,52 @@ Future<void> _loadCustomerProducts() async {
       // REQUEST
       // ============================================================
 
-      final requestBody = jsonEncode({
-        'saleDate': _selectedDate.toIso8601String(),
+final requestBody =
+    jsonEncode({
+  'saleDate':
+      _selectedDate
+          .toIso8601String(),
 
-        'customerId': customerId,
+  'customerId':
+      customerId,
 
-        'paymentMode': _calculatedPaymentMode,
+  // Kept for compatibility.
+  // Backend calculates the final
+  // display payment mode again.
+  'paymentMode':
+      _calculatedPaymentMode,
 
-        'payments': _paymentBreakup,
+  // Actual money received now.
+  'payments':
+      _paymentBreakup,
 
-        'paidAmount': _paidAmount,
+  // IMPORTANT:
+  // Do NOT send:
+  //
+  // paidAmount
+  // outstandingAmount
+  // paymentStatus
+  // advanceUsed
+  //
+  // Backend calculates all of them.
 
-        'outstandingAmount': _outstandingAmount,
-
-        'paymentStatus': _calculatedPaymentStatus,
-
-        'products': _cart.map((line) {
+  'products':
+      _cart.map(
+        (line) {
           return {
-            'productId': line.allocation['productId']?.toString() ?? '',
+            'productId':
+                line
+                    .allocation[
+                        'productId']
+                    ?.toString() ??
+                '',
 
-            'quantity': line.quantity,
+            'quantity':
+                line.quantity,
           };
-        }).toList(),
-      });
+        },
+      ).toList(),
+});
 
       final headers = <String, String>{
         'Content-Type': 'application/json',
@@ -4489,21 +4651,34 @@ _paymentMode =
 
                   const Divider(height: 20),
 
-                  _buildPaymentSummaryRow(
-                    'Paid Amount',
-                    _paidAmount,
-                    valueColor: _green,
-                  ),
+             _buildPaymentSummaryRow(
+  'Paid Now',
+  _paidAmount,
+  valueColor: _green,
+),
 
-                  const SizedBox(height: 9),
+if (_advanceUsedPreview >
+    0.001) ...[
+  const SizedBox(height: 9),
 
-                  _buildPaymentSummaryRow(
-                    'Outstanding',
-                    _outstandingAmount,
-                    valueColor: _outstandingAmount > 0
-                        ? AppColors.error
-                        : _green,
-                  ),
+  _buildPaymentSummaryRow(
+    'Advance Adjusted',
+    _advanceUsedPreview,
+    valueColor:
+        AppColors.primary,
+  ),
+],
+
+const SizedBox(height: 9),
+
+_buildPaymentSummaryRow(
+  'Outstanding',
+  _outstandingAmount,
+  valueColor:
+      _outstandingAmount > 0
+          ? AppColors.error
+          : _green,
+),
 
                   const Divider(height: 20),
 

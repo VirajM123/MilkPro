@@ -1,3 +1,7 @@
+// ============================================================
+// SALE PRODUCT MODEL
+// ============================================================
+
 class SaleProductModel {
   const SaleProductModel({
     required this.productId,
@@ -50,6 +54,7 @@ class SaleModel {
     required this.status,
     this.payments = const <Map<String, dynamic>>[],
     this.paidAmount = 0,
+    this.advanceUsed = 0,
     this.outstandingAmount = 0,
     this.paymentStatus = 'PAID',
     this.godown = '',
@@ -89,8 +94,13 @@ class SaleModel {
 
   final List<Map<String, dynamic>> payments;
 
+  // Actual Cash / UPI / Bank payment received
   final double paidAmount;
 
+  // Customer advance adjusted against this bill
+  final double advanceUsed;
+
+  // Remaining amount after payment + advance adjustment
   final double outstandingAmount;
 
   final String paymentStatus;
@@ -159,6 +169,13 @@ class SaleModel {
   double get bankTransferAmount =>
       paymentAmountFor('Bank Transfer');
 
+  // Direct payment + advance adjustment
+  double get settledAmount =>
+      paidAmount + advanceUsed;
+
+  bool get hasAdvanceAdjustment =>
+      advanceUsed > 0.001;
+
   bool get isPaid =>
       paymentStatus.toUpperCase() == 'PAID';
 
@@ -190,7 +207,7 @@ class SaleModel {
   // ============================================================
   // BACKWARD COMPATIBILITY
   //
-  // Existing PDF / other screens may still use:
+  // Existing PDF / screens may still use:
   //
   // sale.product
   // sale.quantity
