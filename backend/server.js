@@ -32148,6 +32148,792 @@ app.get(
     }
   }
 );
+
+// ======================================================
+// ADMIN DASHBOARD
+// TODAY SALESMAN SUMMARY
+//
+// IMPORTANT:
+// Separate read-only endpoint for React Admin Dashboard.
+// Does NOT modify existing mobile dashboard APIs.
+// ======================================================
+
+app.get(
+  "/api/admin/dashboard/today-salesman-summary",
+  authenticateToken,
+  loadAccessContext,
+  async (req, res) => {
+    try {
+
+      // ==================================================
+      // ADMIN ONLY
+      // ==================================================
+
+      if (req.user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message: "Administrator access only.",
+        });
+      }
+
+
+      const farmId = req.user.farmId;
+
+
+      // ==================================================
+      // TODAY RANGE
+      // ==================================================
+
+      const now = new Date();
+
+      const todayStart = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        0,
+        0,
+        0,
+        0
+      );
+
+      const todayEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        23,
+        59,
+        59,
+        999
+      );
+
+
+      // ==================================================
+      // LOAD DATA
+      // ==================================================
+
+      const [
+        salesmen,
+        routes,
+        allocations,
+        sales,
+        collections,
+      ] = await Promise.all([
+
+        Salesman.find({
+          farmId,
+          isActive: true,
+        })
+          .select(
+            "salesmanId name"
+          )
+          .sort({
+            name: 1,
+          })
+          .lean(),
+
+
+        RouteMaster.find({
+          farmId,
+          isActive: true,
+        })
+          .select(
+            "routeId routeName salesmanId salesmanName"
+          )
+          .lean(),
+
+
+        Allocation.find({
+          farmId,
+
+          allocationDate: {
+            $gte: todayStart,
+            $lte: todayEnd,
+          },
+
+          status: {
+            $in: [
+              "POSTED",
+              "RETURNED",
+            ],
+          },
+        })
+          .select(
+            "allocationId allocationNo salesmanId salesmanName routeId routeName totalQuantity products"
+          )
+          .lean(),
+
+
+        Sale.find({
+          farmId,
+
+          status: "POSTED",
+
+          createdRole: "salesman",
+
+          stockSource:
+            "SALESMAN_ALLOCATION",
+
+          saleDate: {
+            $gte: todayStart,
+            $lte: todayEnd,
+          },
+        })
+          .select(
+            "saleId salesmanId salesmanName totalQuantity grandTotal"
+          )
+          .lean(),
+
+
+        Collection.find({
+          farmId,
+
+          status: "POSTED",
+
+          collectionDate: {
+            $gte: todayStart,
+            $lte: todayEnd,
+          },
+
+          salesmanId: {
+            $ne: "",
+          },
+        })
+          .select(
+            "collectionId salesmanId salesmanName amount"
+          )
+          .lean(),
+
+      ]);
+
+
+      // ==================================================
+      // ROUTE MAP
+      // ==================================================
+
+      const routeMap = new Map();
+
+      for (const route of routes) {
+
+        const salesmanId =
+          String(
+            route.salesmanId || ""
+          )
+            .trim()
+            .toUpperCase();
+
+        if (!salesmanId) {
+          continue;
+        }
+
+
+        if (!routeMap.has(salesmanId)) {
+          routeMap.set(
+            salesmanId,
+            new Set()
+          );
+        }
+
+
+        if (
+          route.routeName &&
+          String(
+            route.routeName
+          ).trim()
+        ) {
+          routeMap
+            .get(salesmanId)
+            .add(
+              String(
+                route.routeName
+              ).trim()
+            );
+        }
+      }
+
+
+      // ==================================================
+      // ALLOCATION MAP
+      // ==================================================
+
+      const allocationMap = new Map();
+
+      for (const allocation of allocations) {
+
+        const salesmanId =
+          String(
+            allocation.salesmanId || ""
+          )
+            .trim()
+            .toUpperCase();
+
+        if (!salesmanId) {
+          continue;
+        }
+
+
+        if (!allocationMap.has(salesmanId)) {
+          allocationMap.set(
+            salesmanId,
+            {
+              allocatedQuantity: 0,
+              returnedQuantity: 0,
+              allocationCount: 0,
+              routeNames: new Set(),
+            }
+          );
+        }
+
+
+        const item =
+          allocationMap.get(
+            salesmanId
+          );
+
+
+        item.allocationCount += 1;
+
+
+        item.allocatedQuantity +=
+          Number(
+            allocation.totalQuantity
+          ) || 0;
+
+
+        for (
+          const product of
+          allocation.products || []
+        ) {
+          item.returnedQuantity +=
+            Number(
+              product.returnedQuantity
+            ) || 0;
+        }
+
+
+        if (
+          allocation.routeName &&
+          String(
+            allocation.routeName
+          ).trim()
+        ) {
+          item.routeNames.add(
+            String(
+              allocation.routeName
+            ).trim()
+          );
+        }
+      }
+
+
+      // ==================================================
+      // SALES MAP
+      // ==================================================
+
+      const salesMap = new Map();
+
+      for (const sale of sales) {
+
+        const salesmanId =
+          String(
+            sale.salesmanId || ""
+          )
+            .trim()
+            .toUpperCase();
+
+        if (!salesmanId) {
+          continue;
+        }
+
+
+        if (!salesMap.has(salesmanId)) {
+          salesMap.set(
+            salesmanId,
+            {
+              soldQuantity: 0,
+              salesAmount: 0,
+              billCount: 0,
+            }
+          );
+        }
+
+
+        const item =
+          salesMap.get(
+            salesmanId
+          );
+
+
+        item.billCount += 1;
+
+
+        item.soldQuantity +=
+          Number(
+            sale.totalQuantity
+          ) || 0;
+
+
+        item.salesAmount +=
+          Number(
+            sale.grandTotal
+          ) || 0;
+      }
+
+
+      // ==================================================
+      // COLLECTION MAP
+      // ==================================================
+
+      const collectionMap = new Map();
+
+      for (const collection of collections) {
+
+        const salesmanId =
+          String(
+            collection.salesmanId || ""
+          )
+            .trim()
+            .toUpperCase();
+
+        if (!salesmanId) {
+          continue;
+        }
+
+
+        if (!collectionMap.has(salesmanId)) {
+          collectionMap.set(
+            salesmanId,
+            {
+              collectionAmount: 0,
+              receiptCount: 0,
+            }
+          );
+        }
+
+
+        const item =
+          collectionMap.get(
+            salesmanId
+          );
+
+
+        item.receiptCount += 1;
+
+
+        item.collectionAmount +=
+          Number(
+            collection.amount
+          ) || 0;
+      }
+
+
+      // ==================================================
+      // BUILD RESULT
+      // ==================================================
+
+      const rows =
+        salesmen.map(
+          (salesman) => {
+
+            const salesmanId =
+              String(
+                salesman.salesmanId || ""
+              )
+                .trim()
+                .toUpperCase();
+
+
+            const allocation =
+              allocationMap.get(
+                salesmanId
+              ) || {
+                allocatedQuantity: 0,
+                returnedQuantity: 0,
+                allocationCount: 0,
+                routeNames: new Set(),
+              };
+
+
+            const sale =
+              salesMap.get(
+                salesmanId
+              ) || {
+                soldQuantity: 0,
+                salesAmount: 0,
+                billCount: 0,
+              };
+
+
+            const collection =
+              collectionMap.get(
+                salesmanId
+              ) || {
+                collectionAmount: 0,
+                receiptCount: 0,
+              };
+
+
+            let routeNames =
+              Array.from(
+                allocation.routeNames
+              );
+
+
+            if (routeNames.length === 0) {
+
+              routeNames =
+                Array.from(
+                  routeMap.get(
+                    salesmanId
+                  ) || []
+                );
+            }
+
+
+            const allocatedQuantity =
+              Number(
+                allocation.allocatedQuantity
+              ) || 0;
+
+
+            const soldQuantity =
+              Number(
+                sale.soldQuantity
+              ) || 0;
+
+
+            const returnedQuantity =
+              Number(
+                allocation.returnedQuantity
+              ) || 0;
+
+
+            const remainingQuantity =
+              Math.max(
+                0,
+
+                allocatedQuantity -
+                soldQuantity -
+                returnedQuantity
+              );
+
+
+            const pendingReturnQuantity =
+              remainingQuantity;
+
+
+            let status =
+              "NO_ACTIVITY";
+
+
+            if (
+              allocatedQuantity > 0 &&
+              pendingReturnQuantity > 0
+            ) {
+              status =
+                "RETURN_PENDING";
+            }
+
+            else if (
+              allocatedQuantity > 0 &&
+              pendingReturnQuantity === 0
+            ) {
+              status =
+                "COMPLETED";
+            }
+
+            else if (
+              soldQuantity > 0
+            ) {
+              status =
+                "SALES_ONLY";
+            }
+
+
+            return {
+
+              salesmanId:
+                salesman.salesmanId,
+
+              salesmanName:
+                salesman.name || "",
+
+
+              routeName:
+                routeNames.join(", "),
+
+
+              allocationCount:
+                allocation.allocationCount,
+
+
+              allocatedQuantity:
+                Number(
+                  allocatedQuantity.toFixed(2)
+                ),
+
+
+              soldQuantity:
+                Number(
+                  soldQuantity.toFixed(2)
+                ),
+
+
+              returnedQuantity:
+                Number(
+                  returnedQuantity.toFixed(2)
+                ),
+
+
+              remainingQuantity:
+                Number(
+                  remainingQuantity.toFixed(2)
+                ),
+
+
+              pendingReturnQuantity:
+                Number(
+                  pendingReturnQuantity.toFixed(2)
+                ),
+
+
+              billCount:
+                sale.billCount,
+
+
+              salesAmount:
+                Number(
+                  (
+                    Number(
+                      sale.salesAmount
+                    ) || 0
+                  ).toFixed(2)
+                ),
+
+
+              receiptCount:
+                collection.receiptCount,
+
+
+              collectionAmount:
+                Number(
+                  (
+                    Number(
+                      collection.collectionAmount
+                    ) || 0
+                  ).toFixed(2)
+                ),
+
+
+              status,
+            };
+          }
+        );
+
+
+      // ==================================================
+      // PENDING SALESMAN FIRST
+      // ==================================================
+
+      rows.sort(
+        (a, b) => {
+
+          if (
+            a.status ===
+              "RETURN_PENDING" &&
+            b.status !==
+              "RETURN_PENDING"
+          ) {
+            return -1;
+          }
+
+
+          if (
+            b.status ===
+              "RETURN_PENDING" &&
+            a.status !==
+              "RETURN_PENDING"
+          ) {
+            return 1;
+          }
+
+
+          return String(
+            a.salesmanName || ""
+          ).localeCompare(
+            String(
+              b.salesmanName || ""
+            )
+          );
+        }
+      );
+
+
+      // ==================================================
+      // SUMMARY TOTALS
+      // ==================================================
+
+      const summary =
+        rows.reduce(
+          (total, row) => {
+
+            total.salesmen +=
+              row.allocatedQuantity > 0 ||
+              row.soldQuantity > 0
+                ? 1
+                : 0;
+
+
+            total.allocatedQuantity +=
+              row.allocatedQuantity;
+
+
+            total.soldQuantity +=
+              row.soldQuantity;
+
+
+            total.returnedQuantity +=
+              row.returnedQuantity;
+
+
+            total.remainingQuantity +=
+              row.remainingQuantity;
+
+
+            total.pendingReturnQuantity +=
+              row.pendingReturnQuantity;
+
+
+            total.salesAmount +=
+              row.salesAmount;
+
+
+            total.collectionAmount +=
+              row.collectionAmount;
+
+
+            if (
+              row.pendingReturnQuantity > 0
+            ) {
+              total.pendingReturnSalesmen += 1;
+            }
+
+
+            return total;
+          },
+          {
+            salesmen: 0,
+
+            allocatedQuantity: 0,
+
+            soldQuantity: 0,
+
+            returnedQuantity: 0,
+
+            remainingQuantity: 0,
+
+            pendingReturnQuantity: 0,
+
+            pendingReturnSalesmen: 0,
+
+            salesAmount: 0,
+
+            collectionAmount: 0,
+          }
+        );
+
+
+      // ==================================================
+      // RESPONSE
+      // ==================================================
+
+      return res.status(200).json({
+
+        success: true,
+
+        data: {
+
+          date:
+            now.toISOString(),
+
+          summary: {
+
+            ...summary,
+
+            allocatedQuantity:
+              Number(
+                summary
+                  .allocatedQuantity
+                  .toFixed(2)
+              ),
+
+            soldQuantity:
+              Number(
+                summary
+                  .soldQuantity
+                  .toFixed(2)
+              ),
+
+            returnedQuantity:
+              Number(
+                summary
+                  .returnedQuantity
+                  .toFixed(2)
+              ),
+
+            remainingQuantity:
+              Number(
+                summary
+                  .remainingQuantity
+                  .toFixed(2)
+              ),
+
+            pendingReturnQuantity:
+              Number(
+                summary
+                  .pendingReturnQuantity
+                  .toFixed(2)
+              ),
+
+            salesAmount:
+              Number(
+                summary
+                  .salesAmount
+                  .toFixed(2)
+              ),
+
+            collectionAmount:
+              Number(
+                summary
+                  .collectionAmount
+                  .toFixed(2)
+              ),
+          },
+
+          rows,
+        },
+      });
+
+    } catch (error) {
+
+      console.error(
+        "GET ADMIN TODAY SALESMAN SUMMARY ERROR:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          "Unable to load today's salesman summary.",
+
+        error:
+          error.message,
+      });
+    }
+  }
+);
 // ======================================================
 // SERVER
 // ======================================================
