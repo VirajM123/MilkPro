@@ -13339,6 +13339,13 @@ app.get(
 
         const allocation =
           entry.allocation;
+          const isCancelled =
+  String(
+    allocation.status || ""
+  )
+    .trim()
+    .toUpperCase() ===
+  "CANCELLED";
 
 
         const salesmanId =
@@ -13399,19 +13406,56 @@ app.get(
                   item.quantity
                 ) || 0;
 
+const returnedQuantity =
+  Number(
+    item.returnedQuantity
+  ) || 0;
 
-              const returnedQuantity =
-                Number(
-                  item.returnedQuantity
-                ) || 0;
+
+// ==================================================
+// CANCELLED ALLOCATION
+//
+// Stock has already been restored to Main Godown.
+// Therefore this allocation:
+// - has no pending return
+// - must not consume salesman sales
+// - must not affect the next active allocation
+// ==================================================
+if (isCancelled) {
+
+  allocationReturnedQuantity +=
+    returnedQuantity;
+
+  return {
+    ...item,
+
+    soldQuantity:
+      0,
+
+    remainingQuantity:
+      0,
+
+    salesValue:
+      0,
+
+    cashSales:
+      0,
+
+    onlineSales:
+      0,
+
+    creditSales:
+      0,
+  };
+}
 
 
-              const usableAllocated =
-                Math.max(
-                  0,
-                  allocatedQuantity -
-                  returnedQuantity
-                );
+const usableAllocated =
+  Math.max(
+    0,
+    allocatedQuantity -
+    returnedQuantity
+  );
 
 
               const key =
@@ -13846,27 +13890,41 @@ app.get(
             item.returnedQuantity
           ) || 0;
 
-        const sold =
-          Number(
-            soldMap.get(
-              productId
-            ) || 0
-          );
+       const isCancelled =
+  String(
+    allocation.status || ""
+  )
+    .trim()
+    .toUpperCase() ===
+  "CANCELLED";
 
-        return {
-          ...item,
 
-          soldQuantity:
-            sold,
+const sold =
+  isCancelled
+    ? 0
+    : Number(
+        soldMap.get(
+          productId
+        ) || 0
+      );
 
-          remainingQuantity:
-            Math.max(
-              0,
-              allocated -
-              returned -
-              sold
-            ),
-        };
+
+return {
+  ...item,
+
+  soldQuantity:
+    sold,
+
+  remainingQuantity:
+    isCancelled
+      ? 0
+      : Math.max(
+          0,
+          allocated -
+          returned -
+          sold
+        ),
+};
       });
 
       return res
@@ -31520,84 +31578,84 @@ app.get(
 // SALESMAN -> ONLY OWN ALLOCATION
 // ======================================================
 
-app.get(
-  "/api/allocations/:allocationId",
-  authenticateToken,
-  loadAccessContext,
-  requireAnyPermission("allocationView", "returnsManage"),
-  async (req, res) => {
-    try {
-      const farmId = req.user.farmId;
-      const role = req.user.role;
+// app.get(
+//   "/api/allocations/:allocationId",
+//   authenticateToken,
+//   loadAccessContext,
+//   requireAnyPermission("allocationView", "returnsManage"),
+//   async (req, res) => {
+//     try {
+//       const farmId = req.user.farmId;
+//       const role = req.user.role;
 
-      const allocationId = (
-        req.params.allocationId || ""
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
+//       const allocationId = (
+//         req.params.allocationId || ""
+//       )
+//         .toString()
+//         .trim()
+//         .toUpperCase();
 
-      if (!allocationId) {
-        return res.status(400).json({
-          success: false,
-          message: "Allocation ID is required.",
-        });
-      }
+//       if (!allocationId) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Allocation ID is required.",
+//         });
+//       }
 
-      const filter = {
-        farmId,
-        allocationId,
-      };
+//       const filter = {
+//         farmId,
+//         allocationId,
+//       };
 
-      if (role === "salesman") {
-        const salesman = await Salesman.findOne({
-          _id: req.user.userId,
-          farmId,
-          isActive: true,
-        }).lean();
+//       if (role === "salesman") {
+//         const salesman = await Salesman.findOne({
+//           _id: req.user.userId,
+//           farmId,
+//           isActive: true,
+//         }).lean();
 
-        if (!salesman) {
-          return res.status(404).json({
-            success: false,
-            message: "Salesman account not found.",
-          });
-        }
+//         if (!salesman) {
+//           return res.status(404).json({
+//             success: false,
+//             message: "Salesman account not found.",
+//           });
+//         }
 
-        filter.salesmanId = salesman.salesmanId;
-      } else if (role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          message: "You are not allowed to view this allocation.",
-        });
-      }
+//         filter.salesmanId = salesman.salesmanId;
+//       } else if (role !== "admin") {
+//         return res.status(403).json({
+//           success: false,
+//           message: "You are not allowed to view this allocation.",
+//         });
+//       }
 
-      const allocation =
-        await Allocation.findOne(filter).lean();
+//       const allocation =
+//         await Allocation.findOne(filter).lean();
 
-      if (!allocation) {
-        return res.status(404).json({
-          success: false,
-          message: "Allocation not found.",
-        });
-      }
+//       if (!allocation) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "Allocation not found.",
+//         });
+//       }
 
-      return res.status(200).json({
-        success: true,
-        data: allocation,
-      });
-    } catch (error) {
-      console.error(
-        "GET SINGLE ALLOCATION ERROR:",
-        error
-      );
+//       return res.status(200).json({
+//         success: true,
+//         data: allocation,
+//       });
+//     } catch (error) {
+//       console.error(
+//         "GET SINGLE ALLOCATION ERROR:",
+//         error
+//       );
 
-      return res.status(500).json({
-        success: false,
-        message: "Unable to load allocation.",
-      });
-    }
-  }
-);
+//       return res.status(500).json({
+//         success: false,
+//         message: "Unable to load allocation.",
+//       });
+//     }
+//   }
+// );
 // ======================================================
 // SALESMAN SALES PERFORMANCE
 // DAY / WEEK / MONTH / YEAR
