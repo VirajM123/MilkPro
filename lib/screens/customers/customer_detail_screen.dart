@@ -998,12 +998,21 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
             const SizedBox(height: 5),
 
-            _detailAmountRow('Received', paid, valueColor: AppColors.success),
+            _detailAmountRow('Paid at Billing', paid, valueColor: AppColors.success),
+
+            if (_number(sale['advanceUsed']) > 0.001) ...[
+              const SizedBox(height: 5),
+              _detailAmountRow(
+                'Advance Used',
+                _number(sale['advanceUsed']),
+                valueColor: const Color(0xFF2563EB),
+              ),
+            ],
 
             const SizedBox(height: 5),
 
             _detailAmountRow(
-              'Outstanding',
+              'Remaining Outstanding',
               outstanding,
               strong: true,
               valueColor: outstanding > 0
@@ -1186,12 +1195,45 @@ final label =
         ? 'Manual • $reference'
         : 'Sale • $reference';
 
+final hasSnapshot = allocation['outstandingBefore'] != null &&
+    allocation['outstandingAfter'] != null;
 
-return _detailAmountRow(
-  label,
-  applied,
-                        valueColor: AppColors.success,
-                      );
+return Padding(
+  padding: const EdgeInsets.only(bottom: 6),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _detailAmountRow(
+        label,
+        applied,
+        valueColor: AppColors.success,
+      ),
+      if (hasSnapshot)
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 2),
+          child: Text(
+            'Before: ₹${_number(allocation['outstandingBefore']).toStringAsFixed(2)} → After: ₹${_number(allocation['outstandingAfter']).toStringAsFixed(2)}',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 9.5,
+            ),
+          ),
+        )
+      else
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 2),
+          child: Text(
+            'Historical receipt — detailed allocation snapshot unavailable.',
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontStyle: FontStyle.italic,
+              fontSize: 9.5,
+            ),
+          ),
+        ),
+    ],
+  ),
+);
                     }),
                   ],
                 ],
@@ -1796,14 +1838,56 @@ Widget
               const SizedBox(height: 8),
 
               ...allocations.map((allocation) {
-                final String bill =
-                    (allocation['saleNo'] ?? allocation['saleId'] ?? '-')
-                        .toString();
+                final sourceType =
+                    (allocation['sourceType'] ?? 'SALE').toString().toUpperCase();
+                final reference = (allocation['referenceNo'] ??
+                        allocation['saleNo'] ??
+                        allocation['referenceId'] ??
+                        allocation['saleId'] ??
+                        '-')
+                    .toString();
+                final label = sourceType == 'MANUAL_OUTSTANDING'
+                    ? 'Manual • $reference'
+                    : 'Sale • $reference';
 
-                return _detailAmountRow(
-                  bill,
-                  _number(allocation['amountApplied']),
-                  valueColor: AppColors.success,
+                final hasSnapshot = allocation['outstandingBefore'] != null &&
+                    allocation['outstandingAfter'] != null;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _detailAmountRow(
+                        label,
+                        _number(allocation['amountApplied']),
+                        valueColor: AppColors.success,
+                      ),
+                      if (hasSnapshot)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4, bottom: 2),
+                          child: Text(
+                            'Before: ₹${_number(allocation['outstandingBefore']).toStringAsFixed(2)} → After: ₹${_number(allocation['outstandingAfter']).toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        )
+                      else
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4, bottom: 2),
+                          child: Text(
+                            'Historical receipt — detailed allocation snapshot unavailable.',
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontStyle: FontStyle.italic,
+                              fontSize: 9.5,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 );
               }),
             ],

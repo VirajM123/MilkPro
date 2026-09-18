@@ -24,6 +24,7 @@ mongoose
     console.log("MongoDB Connected Successfully");
     console.log("Database:", mongoose.connection.name);
     runSalesmanPermissionMigration();
+    ensureCollectionIndexes();
   })
   .catch((error) => {
     console.error("MongoDB Connection Failed");
@@ -1751,6 +1752,23 @@ const collectionAllocationSchema =
         required: true,
         min: 0,
       },
+
+      allocationSequence: {
+        type: Number,
+        default: 1,
+      },
+
+      outstandingBefore: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      outstandingAfter: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
     },
     {
       _id: false,
@@ -1784,6 +1802,11 @@ const collectionSchema = new mongoose.Schema(
       required: true,
       trim: true,
       index: true,
+    },
+
+    clientRequestId: {
+      type: String,
+      trim: true,
     },
 
     collectionDate: {
@@ -1865,6 +1888,30 @@ const collectionSchema = new mongoose.Schema(
       min: 0,
     },
 
+    previousOutstanding: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    remainingOutstanding: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    previousAdvanceBalance: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    currentAdvanceBalance: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     allocations: {
       type: [collectionAllocationSchema],
       default: [],
@@ -1925,6 +1972,12 @@ const collectionSchema = new mongoose.Schema(
       default: null,
     },
 
+    cancelReason: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
     createdAt: {
       type: Date,
       default: Date.now,
@@ -1953,6 +2006,19 @@ collectionSchema.index(
   },
   {
     unique: true,
+  }
+);
+
+collectionSchema.index(
+  {
+    farmId: 1,
+    clientRequestId: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      clientRequestId: { $type: "string", $gt: "" },
+    },
   }
 );
 
@@ -3814,6 +3880,28 @@ async function runSalesmanPermissionMigration() {
     );
   } catch (error) {
     console.error("SALESMAN PERMISSION MIGRATION ERROR:", error.message);
+  }
+}
+
+async function ensureCollectionIndexes() {
+  try {
+    const col = mongoose.connection.collection("TRN_COLLECTION");
+    const indexes = await col.indexes();
+    const oldCompound = indexes.find(
+      (idx) => idx.name === "farmId_1_clientRequestId_1"
+    );
+    if (oldCompound && !oldCompound.unique) {
+      await col.dropIndex("farmId_1_clientRequestId_1");
+    }
+    const oldSingle = indexes.find(
+      (idx) => idx.name === "clientRequestId_1"
+    );
+    if (oldSingle) {
+      await col.dropIndex("clientRequestId_1");
+    }
+    await Collection.createIndexes();
+  } catch (error) {
+    console.error("COLLECTION INDEX SYNC NOTICE:", error.message);
   }
 }
 
@@ -20136,6 +20224,7 @@ app.get(
               "paymentMode",
               "payments",
               "paidAmount",
+              "paymentApplied",
 
               // Customer advance consumed by this sale
               "advanceUsed",
@@ -20199,6 +20288,14 @@ app.get(
 
               // Extra amount converted to customer advance
               "advanceAmount",
+
+              "previousOutstanding",
+              "remainingOutstanding",
+              "previousAdvanceBalance",
+              "currentAdvanceBalance",
+              "status",
+              "cancelReason",
+              "clientRequestId",
 
               "paymentMode",
               "referenceNo",
@@ -20475,26 +20572,51 @@ const manualOutstandingRecords =
               // ============================================
               // SALES / COLLECTION VALUES
               // ============================================
+totalCreditSales:
+  0,
 
-              totalCreditSales:
-                0,
+// ============================================
+// RECEIVED MONEY
+//
+// totalPaidAtBilling
+//   = payment entered while making sale
+//
+// totalLaterCollections
+//   = TRN_COLLECTION receipts
+//
+// totalCollected / totalReceived
+//   = both combined
+// ============================================
 
-              totalCollected:
-                0,
+totalPaidAtBilling:
+  0,
 
-              outstanding:
-                0,
+totalLaterCollections:
+  0,
 
-              lastPaymentMode:
-                "",
+totalCollected:
+  0,
 
-              lastCollectionDate:
-                null,
+totalReceived:
+  0,
 
-              billCount:
-                0,
+outstanding:
+  0,
 
-            bills: [],
+lastPaymentMode:
+  "",
+
+lastCollectionDate:
+  null,
+
+billCount:
+  0,
+
+bills: [],
+
+// Unified receipt list.
+// Contains virtual BILL_PAYMENT + real COLLECTION.
+receiptHistory: [],
 
 totalManualOutstanding:
   0,
@@ -20565,25 +20687,51 @@ manualOutstandings:
               salesmanName:
                 sale.salesmanName || "",
 
-              totalCreditSales:
-                0,
+            totalCreditSales:
+  0,
 
-              totalCollected:
-                0,
+// ============================================
+// RECEIVED MONEY
+//
+// totalPaidAtBilling
+//   = payment entered while making sale
+//
+// totalLaterCollections
+//   = TRN_COLLECTION receipts
+//
+// totalCollected / totalReceived
+//   = both combined
+// ============================================
 
-              outstanding:
-                0,
+totalPaidAtBilling:
+  0,
 
-              lastPaymentMode:
-                "",
+totalLaterCollections:
+  0,
 
-              lastCollectionDate:
-                null,
+totalCollected:
+  0,
 
-              billCount:
-                0,
+totalReceived:
+  0,
 
-           bills: [],
+outstanding:
+  0,
+
+lastPaymentMode:
+  "",
+
+lastCollectionDate:
+  null,
+
+billCount:
+  0,
+
+bills: [],
+
+// Unified receipt list.
+// Contains virtual BILL_PAYMENT + real COLLECTION.
+receiptHistory: [],
 
 totalManualOutstanding:
   0,
@@ -20635,6 +20783,49 @@ balance:
               sale.paidAmount
             ) || 0
           );
+          // ==================================================
+// MONEY RECEIVED WHILE MAKING BILL
+//
+// DO NOT reduce outstanding here.
+//
+// sale.outstandingAmount already contains only
+// the unpaid portion of the bill.
+// ==================================================
+
+row.totalPaidAtBilling +=
+  paidAmount;
+
+row.totalCollected +=
+  paidAmount;
+
+
+if (
+  paidAmount > 0.001
+) {
+  const salePaymentDate =
+    sale.saleDate ||
+    null;
+
+  if (
+    !row.lastCollectionDate ||
+    (
+      salePaymentDate &&
+      new Date(
+        salePaymentDate
+      ) >
+        new Date(
+          row.lastCollectionDate
+        )
+    )
+  ) {
+    row.lastCollectionDate =
+      salePaymentDate;
+
+    row.lastPaymentMode =
+      sale.paymentMode ||
+      "";
+  }
+}
 
         const advanceUsed =
           Math.max(
@@ -20825,6 +21016,165 @@ balance:
           }
         }
 
+        // ==================================================
+// VIRTUAL RECEIPT FOR PAYMENT RECEIVED AT BILLING
+//
+// This exists only in API response.
+// Nothing is written to TRN_COLLECTION.
+// ==================================================
+
+if (
+  paidAmount > 0.001
+) {
+  row.receiptHistory.push({
+    sourceType:
+      "BILL_PAYMENT",
+
+    id:
+      sale.saleId ||
+      "",
+
+    saleId:
+      sale.saleId ||
+      "",
+
+    saleNo:
+      sale.saleNo ||
+      "",
+
+    receiptNo:
+      sale.saleNo ||
+      "",
+
+    date:
+      sale.saleDate,
+
+    collectionDate:
+      sale.saleDate,
+
+    customerId:
+      sale.customerId ||
+      customerId,
+
+    customerName:
+      sale.customerName ||
+      row.customerName ||
+      "",
+
+    customerMobile:
+      String(
+        sale.customerMobile ||
+        row.customerMobile ||
+        ""
+      ),
+
+    route:
+      sale.route ||
+      row.route ||
+      "",
+
+    salesmanId:
+      sale.salesmanId ||
+      "",
+
+    salesmanName:
+      sale.salesmanName ||
+      "",
+
+    billAmount:
+      Number(
+        billAmount.toFixed(2)
+      ),
+
+    amount:
+      Number(
+        paidAmount.toFixed(2)
+      ),
+
+    paidAmount:
+      Number(
+        paidAmount.toFixed(2)
+      ),
+
+    paymentApplied:
+      Number(
+        (
+          sale.paymentApplied !== undefined && sale.paymentApplied !== null
+            ? Number(sale.paymentApplied)
+            : Math.min(paidAmount, billAmount)
+        ).toFixed(2)
+      ),
+
+    paymentAppliedAtBilling:
+      Number(
+        (
+          sale.paymentApplied !== undefined && sale.paymentApplied !== null
+            ? Number(sale.paymentApplied)
+            : Math.min(paidAmount, billAmount)
+        ).toFixed(2)
+      ),
+
+    paymentMode:
+      sale.paymentMode ||
+      "",
+
+    payments:
+      payments,
+
+    paymentBreakup: {
+      cash:
+        Number(
+          cashAmount.toFixed(2)
+        ),
+
+      upi:
+        Number(
+          upiAmount.toFixed(2)
+        ),
+
+      bank:
+        Number(
+          bankAmount.toFixed(2)
+        ),
+
+      other:
+        Number(
+          otherAmount.toFixed(2)
+        ),
+    },
+
+    outstandingAmount:
+      Number(
+        outstandingAmount.toFixed(2)
+      ),
+
+    paymentStatus:
+      sale.paymentStatus ||
+      (
+        outstandingAmount >
+        0.001
+          ? "PARTIAL"
+          : "PAID"
+      ),
+
+    advanceCreated:
+      Number(
+        advanceCreated.toFixed(2)
+      ),
+
+    advanceUsed:
+      Number(
+        advanceUsed.toFixed(2)
+      ),
+
+    canDownloadReceipt:
+      true,
+
+    canCollectPayment:
+      outstandingAmount >
+      0.001,
+  });
+}
 
         // ==================================================
         // BILL DETAIL
@@ -20839,10 +21189,31 @@ balance:
 
           saleDate:
             sale.saleDate,
+            sourceType:
+  "BILL_PAYMENT",
+
+canDownloadReceipt:
+  paidAmount > 0.001,
+
+canCollectPayment:
+  outstandingAmount >
+  0.001,
 
           billAmount:
             Number(
               billAmount.toFixed(2)
+            ),
+          paidAtBilling:
+            Number(
+              paidAmount.toFixed(2)
+            ),
+          paymentAppliedAtBilling:
+            Number(
+              (
+                sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                  ? Number(sale.paymentApplied)
+                  : Math.min(paidAmount, billAmount)
+              ).toFixed(2)
             ),
           salePaidAmount:
             Number(
@@ -20862,6 +21233,23 @@ balance:
 
           collectionApplied:
             0,
+
+          totalAppliedToBill:
+            Number(
+              Math.min(
+                billAmount,
+                (
+                  sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                    ? Number(sale.paymentApplied)
+                    : Math.min(paidAmount, billAmount)
+                ) + advanceUsed
+              ).toFixed(2)
+            ),
+
+          remainingOutstanding:
+            Number(
+              outstandingAmount.toFixed(2)
+            ),
 
           paidAmount:
             Number(
@@ -21208,8 +21596,132 @@ for (
           );
 
 
-        row.totalCollected +=
-          collectionAmount;
+     row.totalLaterCollections +=
+  collectionAmount;
+
+row.totalCollected +=
+  collectionAmount;
+
+
+// ==================================================
+// REAL COLLECTION RECEIPT
+// ==================================================
+
+row.receiptHistory.push({
+  sourceType:
+    "COLLECTION",
+
+  id:
+    collection.collectionId ||
+    "",
+
+  collectionId:
+    collection.collectionId ||
+    "",
+
+  receiptNo:
+    collection.receiptNo ||
+    "",
+
+  date:
+    collection.collectionDate,
+
+  collectionDate:
+    collection.collectionDate,
+
+  customerId:
+    collection.customerId ||
+    customerId,
+
+  customerName:
+    row.customerName ||
+    "",
+
+  customerMobile:
+    String(
+      row.customerMobile ||
+      ""
+    ),
+
+  route:
+    row.route ||
+    "",
+
+  salesmanId:
+    collection.salesmanId ||
+    "",
+
+  salesmanName:
+    collection.salesmanName ||
+    "",
+
+  amount:
+    Number(
+      collectionAmount.toFixed(2)
+    ),
+
+  appliedAmount:
+    Number(
+      appliedAmount.toFixed(2)
+    ),
+
+  advanceAmount:
+    Number(
+      advanceAmount.toFixed(2)
+    ),
+
+  previousOutstanding:
+    Number(
+      (collection.previousOutstanding ?? 0).toFixed(2)
+    ),
+
+  remainingOutstanding:
+    Number(
+      (collection.remainingOutstanding ?? 0).toFixed(2)
+    ),
+
+  previousAdvanceBalance:
+    Number(
+      (collection.previousAdvanceBalance ?? 0).toFixed(2)
+    ),
+
+  currentAdvanceBalance:
+    Number(
+      (collection.currentAdvanceBalance ?? 0).toFixed(2)
+    ),
+
+  allocations:
+    Array.isArray(collection.allocations)
+      ? collection.allocations
+      : [],
+
+  status:
+    collection.status ||
+    "POSTED",
+
+  cancelReason:
+    collection.cancelReason ||
+    "",
+
+  clientRequestId:
+    collection.clientRequestId ||
+    "",
+
+  paymentMode:
+    collection.paymentMode ||
+    "",
+
+  referenceNo:
+    collection.referenceNo ||
+    "",
+
+  remarks:
+    collection.remarks ||
+    "",
+
+  canDownloadReceipt:
+    true,
+});
 
 
         row.lastPaymentMode =
@@ -21592,6 +22104,46 @@ if (
               ).toFixed(2)
             );
 
+          const paymentAppliedAtBilling =
+            Number(
+              (
+                bill.paymentAppliedAtBilling !== undefined
+                  ? bill.paymentAppliedAtBilling
+                  : Math.min(bill.salePaidAmount || 0, bill.billAmount || 0)
+              ).toFixed(2)
+            );
+
+          const advanceUsed =
+            Number(
+              (
+                bill.advanceUsed || 0
+              ).toFixed(2)
+            );
+
+          bill.paidAtBilling =
+            Number(
+              (
+                bill.paidAtBilling !== undefined
+                  ? bill.paidAtBilling
+                  : (bill.salePaidAmount || 0)
+              ).toFixed(2)
+            );
+
+          bill.paymentAppliedAtBilling =
+            paymentAppliedAtBilling;
+
+          bill.advanceUsed =
+            advanceUsed;
+
+          bill.totalAppliedToBill =
+            Number(
+              Math.min(
+                bill.billAmount || 0,
+                paymentAppliedAtBilling +
+                advanceUsed +
+                bill.collectionApplied
+              ).toFixed(2)
+            );
 
           bill.paidAmount =
             Number(
@@ -21603,7 +22155,6 @@ if (
               ).toFixed(2)
             );
 
-
           bill.outstandingAmount =
             Number(
               Math.max(
@@ -21614,6 +22165,8 @@ if (
               ).toFixed(2)
             );
 
+          bill.remainingOutstanding =
+            bill.outstandingAmount;
 
           if (
             bill.outstandingAmount <=
@@ -21624,6 +22177,7 @@ if (
           }
 
           else if (
+            bill.totalAppliedToBill > 0 ||
             bill.paidAmount > 0 ||
             bill.collectionApplied > 0
           ) {
@@ -21702,12 +22256,51 @@ row.totalManualOutstanding =
               .toFixed(2)
           );
 
+row.totalPaidAtBilling =
+  Number(
+    (
+      Number(
+        row.totalPaidAtBilling
+      ) || 0
+    ).toFixed(2)
+  );
 
-        row.totalCollected =
-          Number(
-            row.totalCollected
-              .toFixed(2)
-          );
+
+row.totalLaterCollections =
+  Number(
+    (
+      Number(
+        row.totalLaterCollections
+      ) || 0
+    ).toFixed(2)
+  );
+
+
+row.totalCollected =
+  Number(
+    (
+      Number(
+        row.totalCollected
+      ) || 0
+    ).toFixed(2)
+  );
+
+
+// Backward-compatible explicit alias.
+row.totalReceived =
+  row.totalCollected;
+
+
+// Newest receipt first.
+row.receiptHistory.sort(
+  (a, b) =>
+    new Date(
+      b.date || 0
+    ) -
+    new Date(
+      a.date || 0
+    )
+);
 
         // ==================================================
         // GROSS BILL OUTSTANDING
@@ -22042,10 +22635,15 @@ app.post(
   loadAccessContext,
   requirePermission("collectionCreate"),
   async (req, res) => {
-    try {
-      const farmId =
-        req.user.farmId;
+    const farmId =
+      req.user?.farmId;
 
+    const normalizedClientRequestId =
+      (req.body?.clientRequestId || "")
+        .toString()
+        .trim();
+
+    try {
       const role =
         req.user.role;
 
@@ -22058,6 +22656,20 @@ app.post(
         collectionDate,
       } = req.body;
 
+      if (normalizedClientRequestId) {
+        const existingCollection = await Collection.findOne({
+          farmId,
+          clientRequestId: normalizedClientRequestId,
+        }).lean();
+
+        if (existingCollection) {
+          return res.status(200).json({
+            success: true,
+            message: "Collection already recorded (idempotent request).",
+            data: existingCollection,
+          });
+        }
+      }
 
       const normalizedCustomerId =
         (
@@ -22066,7 +22678,6 @@ app.post(
           .toString()
           .trim()
           .toUpperCase();
-
 
       const collectionAmount =
         Number(amount) || 0;
@@ -22798,10 +23409,23 @@ const advanceAmount =
         }
 
 
+        const outstandingBefore =
+          Number(
+            bill.remainingOutstanding.toFixed(2)
+          );
+
         const amountApplied =
           Math.min(
             remainingCollection,
             bill.remainingOutstanding
+          );
+
+        const outstandingAfter =
+          Number(
+            Math.max(
+              0,
+              outstandingBefore - amountApplied
+            ).toFixed(2)
           );
 
 allocations.push({
@@ -22832,6 +23456,13 @@ allocations.push({
         0
       ).toFixed(2)
     ),
+
+  allocationSequence:
+    allocations.length + 1,
+
+  outstandingBefore,
+
+  outstandingAfter,
 
   // KEEP OLD SALE FIELDS
   saleId:
@@ -22924,98 +23555,8 @@ allocations.push({
         }
       }
 
-
       // ==================================================
-      // SAVE RECEIPT
-      // ==================================================
-
-      const savedCollection =
-        await Collection.create({
-          farmId,
-
-          collectionId,
-
-          receiptNo,
-
-          collectionDate:
-            finalCollectionDate,
-
-          customerId:
-            customer.customerId,
-
-          customerName:
-            customer.name,
-
-          customerMobile:
-            customer.mobile || "",
-
-          route:
-            customer.route || "",
-
-          salesmanId,
-
-          salesmanName,
-
-          amount:
-            Number(
-              collectionAmount.toFixed(2)
-            ),
-
-          appliedAmount:
-            Number(
-              appliedAmount.toFixed(2)
-            ),
-
-          advanceAmount:
-            Number(
-              advanceAmount.toFixed(2)
-            ),
-
-          allocations,
-
-          paymentMode,
-
-          referenceNo:
-            referenceNo
-              ?.toString()
-              .trim() ||
-            "",
-
-          remarks:
-            remarks
-              ?.toString()
-              .trim() ||
-            "",
-
-          status:
-            "POSTED",
-
-          createdBy:
-            req.user.userId || "",
-
-          createdRole:
-            role,
-
-          createdAt:
-            new Date(),
-
-          updatedAt:
-            new Date(),
-        });
-
-
-      // ==================================================
-      // ADD EXTRA COLLECTION TO CUSTOMER ADVANCE BALANCE
-      //
-      // Customer.balance is now treated as:
-      //
-      // CURRENT AVAILABLE CUSTOMER ADVANCE / CREDIT
-      // ==================================================
-      // ==================================================
-      // COLLECTION DOES NOT MODIFY CUSTOMER ADVANCE
-      //
-      // Customer advance can now be created only
-      // from excess payment entered during SALE BILLING.
+      // BALANCE SNAPSHOTS
       // ==================================================
 
       const previousAdvanceBalance =
@@ -23025,18 +23566,120 @@ allocations.push({
             customer.balance || 0
           )
         );
+
+      const newOutstanding =
+        Number(
+          Math.max(
+            0,
+            collectibleOutstanding -
+            appliedAmount
+          ).toFixed(2)
+        );
+
       // ==================================================
-      // REMAINING OUTSTANDING
+      // SAVE RECEIPT
       // ==================================================
 
-const newOutstanding =
-  Number(
-    Math.max(
-      0,
-      collectibleOutstanding -
-      appliedAmount
-    ).toFixed(2)
-  );
+      const collectionToCreate = {
+        farmId,
+
+        collectionId,
+
+        receiptNo,
+
+        collectionDate:
+          finalCollectionDate,
+
+        customerId:
+          customer.customerId,
+
+        customerName:
+          customer.name,
+
+        customerMobile:
+          customer.mobile || "",
+
+        route:
+          customer.route || "",
+
+        salesmanId,
+
+        salesmanName,
+
+        amount:
+          Number(
+            collectionAmount.toFixed(2)
+          ),
+
+        appliedAmount:
+          Number(
+            appliedAmount.toFixed(2)
+          ),
+
+        advanceAmount:
+          Number(
+            advanceAmount.toFixed(2)
+          ),
+
+        previousOutstanding:
+          Number(
+            collectibleOutstanding.toFixed(2)
+          ),
+
+        remainingOutstanding:
+          Number(
+            newOutstanding.toFixed(2)
+          ),
+
+        previousAdvanceBalance:
+          Number(
+            previousAdvanceBalance.toFixed(2)
+          ),
+
+        currentAdvanceBalance:
+          Number(
+            previousAdvanceBalance.toFixed(2)
+          ),
+
+        allocations,
+
+        paymentMode,
+
+        referenceNo:
+          referenceNo
+            ?.toString()
+            .trim() ||
+          "",
+
+        remarks:
+          remarks
+            ?.toString()
+            .trim() ||
+          "",
+
+        status:
+          "POSTED",
+
+        createdBy:
+          req.user.userId || "",
+
+        createdRole:
+          role,
+
+        createdAt:
+          new Date(),
+
+        updatedAt:
+          new Date(),
+      };
+
+      if (normalizedClientRequestId) {
+        collectionToCreate.clientRequestId =
+          normalizedClientRequestId;
+      }
+
+      const savedCollection =
+        await Collection.create(collectionToCreate);
 
 
       return res.status(201).json({
@@ -23094,6 +23737,21 @@ grossOutstanding:
       if (
         error.code === 11000
       ) {
+        if (normalizedClientRequestId) {
+          const existingCollection = await Collection.findOne({
+            farmId,
+            clientRequestId: normalizedClientRequestId,
+          }).lean();
+
+          if (existingCollection) {
+            return res.status(200).json({
+              success: true,
+              message: "Collection already recorded (idempotent request).",
+              data: existingCollection,
+            });
+          }
+        }
+
         return res.status(409).json({
           success: false,
           message:
@@ -23527,6 +24185,49 @@ app.put(
             throw error;
           }
 
+          // ==================================================
+          // SAFETY CHECK: PREVENT CANCELLATION IF NEWER POSTED
+          // COLLECTIONS EXIST FOR THIS CUSTOMER
+          // ==================================================
+          const newerCollection =
+            await Collection.findOne({
+              farmId,
+              customerId:
+                collection.customerId,
+              status:
+                "POSTED",
+              $or: [
+                {
+                  collectionDate: {
+                    $gt: collection.collectionDate,
+                  },
+                },
+                {
+                  collectionDate:
+                    collection.collectionDate,
+                  createdAt: {
+                    $gt: collection.createdAt,
+                  },
+                },
+                {
+                  collectionDate:
+                    collection.collectionDate,
+                  _id: {
+                    $gt: collection._id,
+                  },
+                },
+              ],
+            }).session(session);
+
+          if (newerCollection) {
+            const error =
+              new Error(
+                `Cannot cancel this receipt because newer collection transaction (${newerCollection.receiptNo || newerCollection.collectionId}) exists for this customer. Cancel the latest receipt first.`
+              );
+            error.statusCode = 409;
+            throw error;
+          }
+
 
           // ==================================================
           // ADVANCE CREATED BY THIS RECEIPT
@@ -23678,6 +24379,15 @@ app.put(
 
           collection.cancelledAt =
             new Date();
+
+          collection.cancelReason =
+            (
+              req.body.cancelReason ||
+              req.body.reason ||
+              "Cancelled by user"
+            )
+              .toString()
+              .trim();
 
           collection.updatedAt =
             new Date();
@@ -33826,15 +34536,20 @@ app.get(
         await Sale.find(
           todaySaleFilter
         )
-          .select(
-            [
-              "saleId",
-              "customerId",
-              "grandTotal",
-              "totalQuantity",
-              "paymentMode",
-            ].join(" ")
-          )
+        .select(
+  [
+    "saleId",
+    "customerId",
+    "grandTotal",
+    "totalQuantity",
+
+    "paymentMode",
+    "payments",
+    "paidAmount",
+
+    "saleDate",
+  ].join(" ")
+)
           .lean();
 
 
@@ -33933,118 +34648,136 @@ app.get(
       // ==================================================
       // COLLECTION BREAKUP
       // ==================================================
+let todayCollectionAmount =
+  0;
 
-      let todayCollectionAmount =
-        0;
+let todayCashCollection =
+  0;
 
-      let todayCashCollection =
-        0;
+let todayUpiCollection =
+  0;
 
-      let todayUpiCollection =
-        0;
+let todayOtherCollection =
+  0;
 
-      let todayOtherCollection =
-        0;
-
-
-      for (
-        const collection
-        of todayCollections
-      ) {
-
-        const amount =
-          Math.max(
-            0,
-
-            Number(
-              collection.amount ||
-              0
-            )
-          );
+let billingPaymentReceipts =
+  0;
 
 
-        const mode =
-          (
-            collection.paymentMode ||
-            ""
-          )
-            .toString()
-            .trim()
-            .toLowerCase();
+// ==================================================
+// MONEY RECEIVED WHILE MAKING TODAY'S BILLS
+// ==================================================
+
+for (
+  const sale of todaySales
+) {
+  const billing =
+    getSaleBillingPaymentBreakup(
+      sale
+    );
 
 
-        // TOTAL
-        todayCollectionAmount +=
-          amount;
+  if (
+    billing.total <= 0.001
+  ) {
+    continue;
+  }
 
 
-        // CASH
-        if (
-          mode ===
-          "cash"
-        ) {
-
-          todayCashCollection +=
-            amount;
-        }
+  billingPaymentReceipts +=
+    1;
 
 
-        // UPI FAMILY
-        else if (
-          mode ===
-            "upi" ||
+  todayCollectionAmount +=
+    billing.total;
 
-          mode ===
-            "phonepe" ||
+  todayCashCollection +=
+    billing.cash;
 
-          mode ===
-            "google pay" ||
+  todayUpiCollection +=
+    billing.upi;
 
-          mode ===
-            "paytm"
-        ) {
-
-          todayUpiCollection +=
-            amount;
-        }
+  todayOtherCollection +=
+    billing.bankTransfer +
+    billing.cheque +
+    billing.other;
+}
 
 
-        // BANK TRANSFER / OTHER
-        else {
+// ==================================================
+// LATER COLLECTION RECEIPTS CREATED TODAY
+// ==================================================
 
-          todayOtherCollection +=
-            amount;
-        }
-      }
-
-
-      todayCollectionAmount =
-        Number(
-          todayCollectionAmount
-            .toFixed(2)
-        );
-
-
-      todayCashCollection =
-        Number(
-          todayCashCollection
-            .toFixed(2)
-        );
+for (
+  const collection of
+  todayCollections
+) {
+  const amount =
+    Math.max(
+      0,
+      Number(
+        collection.amount || 0
+      )
+    );
 
 
-      todayUpiCollection =
-        Number(
-          todayUpiCollection
-            .toFixed(2)
-        );
+  const mode =
+    classifyHistoryPaymentMode(
+      collection.paymentMode
+    );
 
 
-      todayOtherCollection =
-        Number(
-          todayOtherCollection
-            .toFixed(2)
-        );
+  todayCollectionAmount +=
+    amount;
 
+
+  if (
+    mode === "cash"
+  ) {
+    todayCashCollection +=
+      amount;
+  }
+
+  else if (
+    mode === "upi"
+  ) {
+    todayUpiCollection +=
+      amount;
+  }
+
+  else {
+    todayOtherCollection +=
+      amount;
+  }
+}
+
+
+todayCollectionAmount =
+  Number(
+    todayCollectionAmount
+      .toFixed(2)
+  );
+
+
+todayCashCollection =
+  Number(
+    todayCashCollection
+      .toFixed(2)
+  );
+
+
+todayUpiCollection =
+  Number(
+    todayUpiCollection
+      .toFixed(2)
+  );
+
+
+todayOtherCollection =
+  Number(
+    todayOtherCollection
+      .toFixed(2)
+  );
 
       // ==================================================
       // TODAY ALLOCATION
@@ -36114,50 +36847,96 @@ app.get(
         // TODAY COLLECTION MAP
         // ==================================================
 
-        const todayCollectionMap =
-          new Map();
+    const todayCollectionMap =
+  new Map();
 
 
-        for (
-          const collection
-          of todayCollections
-        ) {
+// ==================================================
+// BILL-TIME PAYMENT BY CUSTOMER
+// ==================================================
 
-          const customerId =
-            (
-              collection.customerId ||
-              ""
-            )
-              .toString()
-              .trim()
-              .toUpperCase();
-
-
-          if (!customerId) {
-
-            continue;
-          }
+for (
+  const sale of todaySales
+) {
+  const customerId =
+    (
+      sale.customerId ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
 
 
-          todayCollectionMap.set(
-            customerId,
+  if (!customerId) {
+    continue;
+  }
 
-            (
-              todayCollectionMap.get(
-                customerId
-              ) ||
-              0
-            ) +
 
-            (
-              Number(
-                collection.amount
-              ) ||
-              0
-            )
-          );
-        }
+  const billing =
+    getSaleBillingPaymentBreakup(
+      sale
+    );
 
+
+  if (
+    billing.total <= 0.001
+  ) {
+    continue;
+  }
+
+
+  todayCollectionMap.set(
+    customerId,
+
+    (
+      todayCollectionMap.get(
+        customerId
+      ) || 0
+    ) +
+      billing.total
+  );
+}
+
+
+// ==================================================
+// LATER COLLECTION RECEIPT BY CUSTOMER
+// ==================================================
+
+for (
+  const collection of
+  todayCollections
+) {
+  const customerId =
+    (
+      collection.customerId ||
+      ""
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
+
+
+  if (!customerId) {
+    continue;
+  }
+
+
+  todayCollectionMap.set(
+    customerId,
+
+    (
+      todayCollectionMap.get(
+        customerId
+      ) || 0
+    ) +
+      (
+        Number(
+          collection.amount
+        ) || 0
+      )
+  );
+}
 
         // ==================================================
         // BUILD CUSTOMER LIST
@@ -36409,9 +37188,9 @@ app.get(
             todayUpiCollection,
 
             todayOtherCollection,
-
-            collectionReceipts:
-              todayCollections.length,
+collectionReceipts:
+  todayCollections.length +
+  billingPaymentReceipts,
 
 
             // ==================================================
@@ -37985,21 +38764,24 @@ app.get(
               ],
             },
           })
-            .select(
-              [
-                "allocationId",
-                "allocationNo",
-                "allocationDate",
-                "createdAt",
-                "salesmanId",
-                "salesmanName",
-                "routeId",
-                "routeName",
-                "totalQuantity",
-                "products",
-                "status",
-              ].join(" ")
-            )
+          .select(
+  [
+    "saleId",
+    "saleNo",
+    "saleDate",
+
+    "salesmanId",
+    "salesmanName",
+
+    "products",
+    "totalQuantity",
+    "grandTotal",
+
+    "paymentMode",
+    "payments",
+    "paidAmount",
+  ].join(" ")
+)
             .sort({
               allocationDate: 1,
               createdAt: 1,
@@ -38273,14 +39055,37 @@ app.get(
             salesmanId
           )
         ) {
-          todaySalesMap.set(
-            salesmanId,
-            {
-              soldQuantity: 0,
-              salesAmount: 0,
-              billCount: 0,
-            }
-          );
+       todaySalesMap.set(
+  salesmanId,
+  {
+    soldQuantity:
+      0,
+
+    salesAmount:
+      0,
+
+    billCount:
+      0,
+
+    billingReceiptCount:
+      0,
+
+    billingCollectionAmount:
+      0,
+
+    billingCashCollectionAmount:
+      0,
+
+    billingOnlineCollectionAmount:
+      0,
+
+    billingUpiCollectionAmount:
+      0,
+
+    billingBankCollectionAmount:
+      0,
+  }
+);
         }
 
         const todaySale =
@@ -38298,6 +39103,40 @@ app.get(
           Number(
             sale.grandTotal
           ) || 0;
+          // ==============================================
+// PAYMENT RECEIVED DURING THIS SALE
+// ==============================================
+
+const billing =
+  getSaleBillingPaymentBreakup(
+    sale
+  );
+
+
+if (
+  billing.total > 0.001
+) {
+  todaySale.billingReceiptCount +=
+    1;
+
+  todaySale.billingCollectionAmount +=
+    billing.total;
+
+  todaySale.billingCashCollectionAmount +=
+    billing.cash;
+
+  todaySale.billingUpiCollectionAmount +=
+    billing.upi;
+
+  todaySale.billingBankCollectionAmount +=
+    billing.bankTransfer;
+
+  todaySale.billingOnlineCollectionAmount +=
+    (
+      billing.total -
+      billing.cash
+    );
+}
       }
 
       // ==================================================
@@ -38782,19 +39621,37 @@ app.get(
                   [],
               };
 
-            const sale =
-              todaySalesMap.get(
-                salesmanId
-              ) || {
-                soldQuantity:
-                  0,
+const sale =
+  todaySalesMap.get(
+    salesmanId
+  ) || {
+    soldQuantity:
+      0,
 
-                salesAmount:
-                  0,
+    salesAmount:
+      0,
 
-                billCount:
-                  0,
-              };
+    billCount:
+      0,
+
+    billingReceiptCount:
+      0,
+
+    billingCollectionAmount:
+      0,
+
+    billingCashCollectionAmount:
+      0,
+
+    billingOnlineCollectionAmount:
+      0,
+
+    billingUpiCollectionAmount:
+      0,
+
+    billingBankCollectionAmount:
+      0,
+  };
 
             const collection =
               collectionMap.get(
@@ -39032,39 +39889,75 @@ app.get(
               // TODAY COLLECTION
               // =========================================
 
-              receiptCount:
-                collection
-                  .receiptCount,
+           receiptCount:
+  Number(
+    collection.receiptCount ||
+      0
+  ) +
+  Number(
+    sale.billingReceiptCount ||
+      0
+  ),
 
-              collectionAmount:
-                round2(
-                  collection
-                    .collectionAmount
-                ),
+collectionAmount:
+  round2(
+    Number(
+      collection.collectionAmount ||
+        0
+    ) +
+    Number(
+      sale.billingCollectionAmount ||
+        0
+    )
+  ),
 
-              cashCollectionAmount:
-                round2(
-                  collection
-                    .cashCollectionAmount
-                ),
+cashCollectionAmount:
+  round2(
+    Number(
+      collection.cashCollectionAmount ||
+        0
+    ) +
+    Number(
+      sale.billingCashCollectionAmount ||
+        0
+    )
+  ),
 
-              onlineCollectionAmount:
-                round2(
-                  collection
-                    .onlineCollectionAmount
-                ),
+onlineCollectionAmount:
+  round2(
+    Number(
+      collection.onlineCollectionAmount ||
+        0
+    ) +
+    Number(
+      sale.billingOnlineCollectionAmount ||
+        0
+    )
+  ),
 
-              upiCollectionAmount:
-                round2(
-                  collection
-                    .upiCollectionAmount
-                ),
+upiCollectionAmount:
+  round2(
+    Number(
+      collection.upiCollectionAmount ||
+        0
+    ) +
+    Number(
+      sale.billingUpiCollectionAmount ||
+        0
+    )
+  ),
 
-              bankCollectionAmount:
-                round2(
-                  collection
-                    .bankCollectionAmount
-                ),
+bankCollectionAmount:
+  round2(
+    Number(
+      collection.bankCollectionAmount ||
+        0
+    ) +
+    Number(
+      sale.billingBankCollectionAmount ||
+        0
+    )
+  ),
 
               status,
             };
@@ -39476,20 +40369,324 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
   return { rangeStart, rangeEnd };
 }
 
-function classifyHistoryPaymentMode(rawMode) {
-  const mode = String(rawMode || "").trim().toLowerCase();
-  if (mode === "cash") return "cash";
+function classifyHistoryPaymentMode(
+  rawMode
+) {
+  const mode =
+    String(
+      rawMode || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    mode === "cash"
+  ) {
+    return "cash";
+  }
+
   if (
     mode === "upi" ||
     mode === "phonepe" ||
     mode === "google pay" ||
+    mode === "gpay" ||
     mode === "paytm"
   ) {
     return "upi";
   }
-  if (mode === "bank transfer") return "bankTransfer";
-  if (mode === "cheque") return "cheque";
+
+  if (
+    mode === "bank transfer" ||
+    mode === "bank" ||
+    mode === "neft" ||
+    mode === "rtgs" ||
+    mode === "imps"
+  ) {
+    return "bankTransfer";
+  }
+
+  if (
+    mode === "cheque"
+  ) {
+    return "cheque";
+  }
+
   return "other";
+}
+
+
+// ======================================================
+// SALE PAYMENT RECEIVED AT BILLING
+//
+// IMPORTANT:
+// This DOES NOT create TRN_COLLECTION.
+//
+// It only reads money already stored in TRN_SALE:
+//   paidAmount
+//   payments[]
+//   paymentMode
+//
+// Therefore outstanding is NOT reduced twice.
+// ======================================================
+
+function getSaleBillingPaymentBreakup(
+  sale
+) {
+  const paidAmount =
+    Math.max(
+      0,
+      Number(
+        sale?.paidAmount || 0
+      )
+    );
+
+  const result = {
+    total:
+      Number(
+        paidAmount.toFixed(2)
+      ),
+
+    cash: 0,
+    upi: 0,
+    bankTransfer: 0,
+    cheque: 0,
+    other: 0,
+  };
+
+
+  if (
+    paidAmount <= 0.001
+  ) {
+    return result;
+  }
+
+
+  const addAmountByMode = (
+    rawMode,
+    amount
+  ) => {
+    const safeAmount =
+      Math.max(
+        0,
+        Number(
+          amount || 0
+        )
+      );
+
+    if (
+      safeAmount <= 0.001
+    ) {
+      return;
+    }
+
+    const group =
+      classifyHistoryPaymentMode(
+        rawMode
+      );
+
+    if (
+      group === "cash"
+    ) {
+      result.cash +=
+        safeAmount;
+    }
+
+    else if (
+      group === "upi"
+    ) {
+      result.upi +=
+        safeAmount;
+    }
+
+    else if (
+      group ===
+      "bankTransfer"
+    ) {
+      result.bankTransfer +=
+        safeAmount;
+    }
+
+    else if (
+      group === "cheque"
+    ) {
+      result.cheque +=
+        safeAmount;
+    }
+
+    else {
+      result.other +=
+        safeAmount;
+    }
+  };
+
+
+  const payments =
+    Array.isArray(
+      sale?.payments
+    )
+      ? sale.payments
+      : [];
+
+
+  let remaining =
+    paidAmount;
+
+
+  // ==================================================
+  // SPLIT / MULTIPLE PAYMENT
+  // ==================================================
+
+  for (
+    const payment of payments
+  ) {
+    if (
+      remaining <= 0.001
+    ) {
+      break;
+    }
+
+    const requestedAmount =
+      Math.max(
+        0,
+        Number(
+          payment?.amount || 0
+        )
+      );
+
+    const amount =
+      Math.min(
+        requestedAmount,
+        remaining
+      );
+
+    addAmountByMode(
+      payment?.mode ||
+        payment?.paymentMode ||
+        "",
+      amount
+    );
+
+    remaining -=
+      amount;
+  }
+
+
+  // ==================================================
+  // LEGACY SINGLE PAYMENT / FALLBACK
+  // ==================================================
+
+  if (
+    remaining > 0.001
+  ) {
+    addAmountByMode(
+      sale?.paymentMode ||
+        "",
+      remaining
+    );
+  }
+
+
+  result.cash =
+    Number(
+      result.cash.toFixed(2)
+    );
+
+  result.upi =
+    Number(
+      result.upi.toFixed(2)
+    );
+
+  result.bankTransfer =
+    Number(
+      result.bankTransfer
+        .toFixed(2)
+    );
+
+  result.cheque =
+    Number(
+      result.cheque.toFixed(2)
+    );
+
+  result.other =
+    Number(
+      result.other.toFixed(2)
+    );
+
+
+  return result;
+}
+
+
+// ======================================================
+// PAYMENT MODE FILTER
+// Works for bill-time payment AND collection receipt.
+// ======================================================
+
+function getHistoryPaymentFilterAmount(
+  breakup,
+  requestedPaymentMode
+) {
+  const mode =
+    String(
+      requestedPaymentMode ||
+        "ALL"
+    )
+      .trim()
+      .toUpperCase();
+
+
+  if (
+    mode === "ALL"
+  ) {
+    return Number(
+      breakup?.total || 0
+    );
+  }
+
+
+  if (
+    mode === "CASH"
+  ) {
+    return Number(
+      breakup?.cash || 0
+    );
+  }
+
+
+  if (
+    mode === "UPI"
+  ) {
+    return Number(
+      breakup?.upi || 0
+    );
+  }
+
+
+  if (
+    mode ===
+      "BANK TRANSFER" ||
+    mode ===
+      "BANK_TRANSFER"
+  ) {
+    return Number(
+      breakup?.bankTransfer ||
+        0
+    );
+  }
+
+
+  if (
+    mode === "CHEQUE"
+  ) {
+    return Number(
+      breakup?.cheque || 0
+    );
+  }
+
+
+  return Number(
+    breakup?.other || 0
+  );
 }
 
 async function calculateHistoryAccountPosition(
@@ -39937,9 +41134,37 @@ app.get(
         accountPosition,
         allTimePosition,
       ] = await Promise.all([
-        Sale.find(saleFilter)
-          .select("saleId saleNo saleDate customerId customerName route grandTotal salesmanId salesmanName createdRole")
-          .lean(),
+      Sale.find(
+  saleFilter
+)
+  .select(
+    [
+      "saleId",
+      "saleNo",
+      "saleDate",
+
+      "customerId",
+      "customerName",
+      "customerMobile",
+      "route",
+
+      "grandTotal",
+
+      "paymentMode",
+      "payments",
+      "paidAmount",
+      "paymentApplied",
+      "advanceCreated",
+      "advanceUsed",
+      "outstandingAmount",
+      "paymentStatus",
+
+      "salesmanId",
+      "salesmanName",
+      "createdRole",
+    ].join(" ")
+  )
+  .lean(),
         Collection.find(collectionFilter)
           .select("collectionId receiptNo collectionDate customerId customerName route amount paymentMode salesmanId salesmanName")
           .lean(),
@@ -39988,57 +41213,233 @@ app.get(
       totalSales = Number(totalSales.toFixed(2));
       const salesBillsCount = periodSales.length;
 
-      // Payment Modes breakdown across all matching collections
-      let cashCollected = 0;
-      let upiCollected = 0;
-      let bankTransferCollected = 0;
-      let chequeCollected = 0;
-      let otherCollected = 0;
+   // ======================================================
+// RECEIVED PAYMENT TOTALS
+//
+// Includes:
+//
+// 1. Payment received directly while making sale
+// 2. Later TRN_COLLECTION receipts
+//
+// Does NOT alter outstanding.
+// ======================================================
 
-      let filteredCollectionsCount = 0;
-      let filteredCollectionAmount = 0;
+let cashCollected = 0;
+let upiCollected = 0;
+let bankTransferCollected = 0;
+let chequeCollected = 0;
+let otherCollected = 0;
 
-      for (const col of periodCollections) {
-        const amt = Math.max(0, Number(col.amount || 0));
-        const modeGroup = classifyHistoryPaymentMode(col.paymentMode);
+let filteredCollectionsCount =
+  0;
 
-        if (modeGroup === "cash") cashCollected += amt;
-        else if (modeGroup === "upi") upiCollected += amt;
-        else if (modeGroup === "bankTransfer") bankTransferCollected += amt;
-        else if (modeGroup === "cheque") chequeCollected += amt;
-        else otherCollected += amt;
+let filteredCollectionAmount =
+  0;
 
-        // Apply requested paymentMode filter to collections KPI
-        let matchesPaymentModeFilter = true;
-        if (requestedPaymentMode !== "ALL") {
-          if (requestedPaymentMode === "CASH" && modeGroup !== "cash") {
-            matchesPaymentModeFilter = false;
-          } else if (requestedPaymentMode === "UPI" && modeGroup !== "upi") {
-            matchesPaymentModeFilter = false;
-          } else if (
-            (requestedPaymentMode === "BANK TRANSFER" || requestedPaymentMode === "BANK_TRANSFER") &&
-            modeGroup !== "bankTransfer"
-          ) {
-            matchesPaymentModeFilter = false;
-          } else if (requestedPaymentMode === "CHEQUE" && modeGroup !== "cheque") {
-            matchesPaymentModeFilter = false;
-          }
-        }
 
-        if (matchesPaymentModeFilter) {
-          filteredCollectionAmount += amt;
-          filteredCollectionsCount += 1;
-        }
-      }
+// ======================================================
+// BILL-TIME PAYMENTS
+// ======================================================
 
-      cashCollected = Number(cashCollected.toFixed(2));
-      upiCollected = Number(upiCollected.toFixed(2));
-      bankTransferCollected = Number(bankTransferCollected.toFixed(2));
-      chequeCollected = Number(chequeCollected.toFixed(2));
-      otherCollected = Number(otherCollected.toFixed(2));
+for (
+  const sale of periodSales
+) {
+  const billing =
+    getSaleBillingPaymentBreakup(
+      sale
+    );
 
-      const totalCollected = Number(filteredCollectionAmount.toFixed(2));
-      const collectionTransactions = filteredCollectionsCount;
+  cashCollected +=
+    billing.cash;
+
+  upiCollected +=
+    billing.upi;
+
+  bankTransferCollected +=
+    billing.bankTransfer;
+
+  chequeCollected +=
+    billing.cheque;
+
+  otherCollected +=
+    billing.other;
+
+
+  const matchingAmount =
+    getHistoryPaymentFilterAmount(
+      billing,
+      requestedPaymentMode
+    );
+
+
+  if (
+    matchingAmount > 0.001
+  ) {
+    filteredCollectionAmount +=
+      matchingAmount;
+
+    filteredCollectionsCount +=
+      1;
+  }
+}
+
+
+// ======================================================
+// LATER COLLECTION RECEIPTS
+// ======================================================
+
+for (
+  const col of
+  periodCollections
+) {
+  const amt =
+    Math.max(
+      0,
+      Number(
+        col.amount || 0
+      )
+    );
+
+  const modeGroup =
+    classifyHistoryPaymentMode(
+      col.paymentMode
+    );
+
+
+  if (
+    modeGroup === "cash"
+  ) {
+    cashCollected +=
+      amt;
+  }
+
+  else if (
+    modeGroup === "upi"
+  ) {
+    upiCollected +=
+      amt;
+  }
+
+  else if (
+    modeGroup ===
+    "bankTransfer"
+  ) {
+    bankTransferCollected +=
+      amt;
+  }
+
+  else if (
+    modeGroup === "cheque"
+  ) {
+    chequeCollected +=
+      amt;
+  }
+
+  else {
+    otherCollected +=
+      amt;
+  }
+
+
+  let matchesPaymentModeFilter =
+    true;
+
+
+  if (
+    requestedPaymentMode !==
+    "ALL"
+  ) {
+    if (
+      requestedPaymentMode ===
+        "CASH" &&
+      modeGroup !== "cash"
+    ) {
+      matchesPaymentModeFilter =
+        false;
+    }
+
+    else if (
+      requestedPaymentMode ===
+        "UPI" &&
+      modeGroup !== "upi"
+    ) {
+      matchesPaymentModeFilter =
+        false;
+    }
+
+    else if (
+      (
+        requestedPaymentMode ===
+          "BANK TRANSFER" ||
+        requestedPaymentMode ===
+          "BANK_TRANSFER"
+      ) &&
+      modeGroup !==
+        "bankTransfer"
+    ) {
+      matchesPaymentModeFilter =
+        false;
+    }
+
+    else if (
+      requestedPaymentMode ===
+        "CHEQUE" &&
+      modeGroup !== "cheque"
+    ) {
+      matchesPaymentModeFilter =
+        false;
+    }
+  }
+
+
+  if (
+    matchesPaymentModeFilter
+  ) {
+    filteredCollectionAmount +=
+      amt;
+
+    filteredCollectionsCount +=
+      1;
+  }
+}
+
+
+cashCollected =
+  Number(
+    cashCollected.toFixed(2)
+  );
+
+upiCollected =
+  Number(
+    upiCollected.toFixed(2)
+  );
+
+bankTransferCollected =
+  Number(
+    bankTransferCollected
+      .toFixed(2)
+  );
+
+chequeCollected =
+  Number(
+    chequeCollected.toFixed(2)
+  );
+
+otherCollected =
+  Number(
+    otherCollected.toFixed(2)
+  );
+
+
+const totalCollected =
+  Number(
+    filteredCollectionAmount
+      .toFixed(2)
+  );
+
+
+const collectionTransactions =
+  filteredCollectionsCount;
 
       // ----------------------------------------------------
       // SALESMEN SUMMARY (For Admin view or Single Salesman)
@@ -40090,29 +41491,208 @@ app.get(
       };
 
       // Populate sales into salesman maps
-      for (const sale of periodSales) {
-        const sId = String(sale.salesmanId || "").trim().toUpperCase();
-        const amt = Math.max(0, Number(sale.grandTotal || 0));
-        const cId = String(sale.customerId || "").trim().toUpperCase();
-        const sDate = sale.saleDate || null;
+ // ======================================================
+// POPULATE SALES + BILL-TIME COLLECTION
+// INTO SALESMAN SUMMARY
+// ======================================================
 
-        if (sId && salesmanDataMap.has(sId)) {
-          const entry = salesmanDataMap.get(sId);
-          entry.totalSales += amt;
-          entry.salesBillsCount += 1;
-          if (cId) entry.customerSet.add(cId);
-          if (sDate && (!entry.lastSaleDate || new Date(sDate) > new Date(entry.lastSaleDate))) {
-            entry.lastSaleDate = sDate;
-          }
-        } else {
-          unassignedSummary.totalSales += amt;
-          unassignedSummary.salesBillsCount += 1;
-          if (sDate && (!unassignedSummary.lastSaleDate || new Date(sDate) > new Date(unassignedSummary.lastSaleDate))) {
-            unassignedSummary.lastSaleDate = sDate;
-          }
-        }
+for (
+  const sale of periodSales
+) {
+  const sId =
+    String(
+      sale.salesmanId || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const amt =
+    Math.max(
+      0,
+      Number(
+        sale.grandTotal || 0
+      )
+    );
+
+  const cId =
+    String(
+      sale.customerId || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const sDate =
+    sale.saleDate ||
+    null;
+
+
+  const billing =
+    getSaleBillingPaymentBreakup(
+      sale
+    );
+
+  const matchingBillingAmount =
+    getHistoryPaymentFilterAmount(
+      billing,
+      requestedPaymentMode
+    );
+
+
+  if (
+    sId &&
+    salesmanDataMap.has(
+      sId
+    )
+  ) {
+    const entry =
+      salesmanDataMap.get(
+        sId
+      );
+
+    entry.totalSales +=
+      amt;
+
+    entry.salesBillsCount +=
+      1;
+
+
+    entry.cash +=
+      billing.cash;
+
+    entry.upi +=
+      billing.upi;
+
+    entry.bankTransfer +=
+      billing.bankTransfer;
+
+    entry.cheque +=
+      billing.cheque;
+
+    entry.other +=
+      billing.other;
+
+
+    if (
+      matchingBillingAmount >
+      0.001
+    ) {
+      entry.totalCollected +=
+        matchingBillingAmount;
+
+      entry.collectionTransactions +=
+        1;
+
+      if (
+        sDate &&
+        (
+          !entry.lastCollectionDate ||
+          new Date(
+            sDate
+          ) >
+            new Date(
+              entry.lastCollectionDate
+            )
+        )
+      ) {
+        entry.lastCollectionDate =
+          sDate;
       }
+    }
 
+
+    if (cId) {
+      entry.customerSet.add(
+        cId
+      );
+    }
+
+
+    if (
+      sDate &&
+      (
+        !entry.lastSaleDate ||
+        new Date(
+          sDate
+        ) >
+          new Date(
+            entry.lastSaleDate
+          )
+      )
+    ) {
+      entry.lastSaleDate =
+        sDate;
+    }
+  }
+
+  else {
+    unassignedSummary.totalSales +=
+      amt;
+
+    unassignedSummary.salesBillsCount +=
+      1;
+
+
+    unassignedSummary.cash +=
+      billing.cash;
+
+    unassignedSummary.upi +=
+      billing.upi;
+
+    unassignedSummary.bankTransfer +=
+      billing.bankTransfer;
+
+    unassignedSummary.cheque +=
+      billing.cheque;
+
+    unassignedSummary.other +=
+      billing.other;
+
+
+    if (
+      matchingBillingAmount >
+      0.001
+    ) {
+      unassignedSummary.totalCollected +=
+        matchingBillingAmount;
+
+      unassignedSummary.collectionTransactions +=
+        1;
+
+      if (
+        sDate &&
+        (
+          !unassignedSummary.lastCollectionDate ||
+          new Date(
+            sDate
+          ) >
+            new Date(
+              unassignedSummary.lastCollectionDate
+            )
+        )
+      ) {
+        unassignedSummary.lastCollectionDate =
+          sDate;
+      }
+    }
+
+
+    if (
+      sDate &&
+      (
+        !unassignedSummary.lastSaleDate ||
+        new Date(
+          sDate
+        ) >
+          new Date(
+            unassignedSummary.lastSaleDate
+          )
+      )
+    ) {
+      unassignedSummary.lastSaleDate =
+        sDate;
+    }
+  }
+}
       // Populate collections into salesman maps
       for (const col of periodCollections) {
         const sId = String(col.salesmanId || "").trim().toUpperCase();
@@ -40431,12 +42011,41 @@ app.get(
 
       // Fetch All Matching Sales & Collections for this target within period
       const [allSales, allCollections, accountPos, allTimePos] = await Promise.all([
-        Sale.find(saleFilter)
-          .select("saleId saleNo saleDate customerId customerName customerMobile route grandTotal paymentMode paidAmount outstandingAmount paymentStatus status salesmanId salesmanName")
+        Sale.find(
+  saleFilter
+)
+  .select(
+    [
+      "saleId",
+      "saleNo",
+      "saleDate",
+
+      "customerId",
+      "customerName",
+      "customerMobile",
+      "route",
+
+      "grandTotal",
+
+      "paymentMode",
+      "payments",
+      "paidAmount",
+      "paymentApplied",
+      "advanceCreated",
+      "advanceUsed",
+      "outstandingAmount",
+      "paymentStatus",
+
+      "status",
+
+      "salesmanId",
+      "salesmanName",
+    ].join(" ")
+  )
           .sort({ saleDate: -1, createdAt: -1 })
           .lean(),
         Collection.find(collectionFilter)
-          .select("collectionId receiptNo collectionDate customerId customerName customerMobile route amount appliedAmount paymentMode referenceNo remarks status salesmanId salesmanName")
+          .select("collectionId receiptNo collectionDate customerId customerName customerMobile route amount appliedAmount advanceAmount previousOutstanding remainingOutstanding paymentMode referenceNo remarks status cancelReason salesmanId salesmanName allocations")
           .sort({ collectionDate: -1, createdAt: -1 })
           .lean(),
         calculateHistoryAccountPosition(farmId, {
@@ -40459,44 +42068,209 @@ app.get(
       totalSales = Number(totalSales.toFixed(2));
       const salesBillsCount = allSales.length;
 
-      let cash = 0;
-      let upi = 0;
-      let bankTransfer = 0;
-      let cheque = 0;
-      let other = 0;
-      let totalCollected = 0;
-      let collectionTransactions = 0;
+ let cash = 0;
+let upi = 0;
+let bankTransfer = 0;
+let cheque = 0;
+let other = 0;
 
-      for (const col of allCollections) {
-        const amt = Math.max(0, Number(col.amount || 0));
-        const modeGroup = classifyHistoryPaymentMode(col.paymentMode);
+let totalCollected = 0;
+let collectionTransactions =
+  0;
 
-        if (modeGroup === "cash") cash += amt;
-        else if (modeGroup === "upi") upi += amt;
-        else if (modeGroup === "bankTransfer") bankTransfer += amt;
-        else if (modeGroup === "cheque") cheque += amt;
-        else other += amt;
 
-        let matchesFilter = true;
-        if (requestedPaymentMode !== "ALL") {
-          if (requestedPaymentMode === "CASH" && modeGroup !== "cash") matchesFilter = false;
-          else if (requestedPaymentMode === "UPI" && modeGroup !== "upi") matchesFilter = false;
-          else if ((requestedPaymentMode === "BANK TRANSFER" || requestedPaymentMode === "BANK_TRANSFER") && modeGroup !== "bankTransfer") matchesFilter = false;
-          else if (requestedPaymentMode === "CHEQUE" && modeGroup !== "cheque") matchesFilter = false;
-        }
+// ======================================================
+// PAYMENT RECEIVED AT BILLING
+// ======================================================
 
-        if (matchesFilter) {
-          totalCollected += amt;
-          collectionTransactions += 1;
-        }
-      }
+for (
+  const sale of allSales
+) {
+  const billing =
+    getSaleBillingPaymentBreakup(
+      sale
+    );
 
-      totalCollected = Number(totalCollected.toFixed(2));
-      cash = Number(cash.toFixed(2));
-      upi = Number(upi.toFixed(2));
-      bankTransfer = Number(bankTransfer.toFixed(2));
-      cheque = Number(cheque.toFixed(2));
-      other = Number(other.toFixed(2));
+  cash +=
+    billing.cash;
+
+  upi +=
+    billing.upi;
+
+  bankTransfer +=
+    billing.bankTransfer;
+
+  cheque +=
+    billing.cheque;
+
+  other +=
+    billing.other;
+
+
+  const matchingAmount =
+    getHistoryPaymentFilterAmount(
+      billing,
+      requestedPaymentMode
+    );
+
+
+  if (
+    matchingAmount > 0.001
+  ) {
+    totalCollected +=
+      matchingAmount;
+
+    collectionTransactions +=
+      1;
+  }
+}
+
+
+// ======================================================
+// LATER COLLECTION RECEIPTS
+// ======================================================
+
+for (
+  const col of
+  allCollections
+) {
+  const amt =
+    Math.max(
+      0,
+      Number(
+        col.amount || 0
+      )
+    );
+
+  const modeGroup =
+    classifyHistoryPaymentMode(
+      col.paymentMode
+    );
+
+
+  if (
+    modeGroup === "cash"
+  ) {
+    cash += amt;
+  }
+
+  else if (
+    modeGroup === "upi"
+  ) {
+    upi += amt;
+  }
+
+  else if (
+    modeGroup ===
+    "bankTransfer"
+  ) {
+    bankTransfer +=
+      amt;
+  }
+
+  else if (
+    modeGroup === "cheque"
+  ) {
+    cheque += amt;
+  }
+
+  else {
+    other += amt;
+  }
+
+
+  let matchesFilter =
+    true;
+
+
+  if (
+    requestedPaymentMode !==
+    "ALL"
+  ) {
+    if (
+      requestedPaymentMode ===
+        "CASH" &&
+      modeGroup !== "cash"
+    ) {
+      matchesFilter =
+        false;
+    }
+
+    else if (
+      requestedPaymentMode ===
+        "UPI" &&
+      modeGroup !== "upi"
+    ) {
+      matchesFilter =
+        false;
+    }
+
+    else if (
+      (
+        requestedPaymentMode ===
+          "BANK TRANSFER" ||
+        requestedPaymentMode ===
+          "BANK_TRANSFER"
+      ) &&
+      modeGroup !==
+        "bankTransfer"
+    ) {
+      matchesFilter =
+        false;
+    }
+
+    else if (
+      requestedPaymentMode ===
+        "CHEQUE" &&
+      modeGroup !== "cheque"
+    ) {
+      matchesFilter =
+        false;
+    }
+  }
+
+
+  if (
+    matchesFilter
+  ) {
+    totalCollected +=
+      amt;
+
+    collectionTransactions +=
+      1;
+  }
+}
+
+
+totalCollected =
+  Number(
+    totalCollected.toFixed(2)
+  );
+
+cash =
+  Number(
+    cash.toFixed(2)
+  );
+
+upi =
+  Number(
+    upi.toFixed(2)
+  );
+
+bankTransfer =
+  Number(
+    bankTransfer.toFixed(2)
+  );
+
+cheque =
+  Number(
+    cheque.toFixed(2)
+  );
+
+other =
+  Number(
+    other.toFixed(2)
+  );
 
       // ----------------------------------------------------
       // SALES TAB (with search and pagination)
@@ -40524,45 +42298,378 @@ app.get(
       );
 
       // ----------------------------------------------------
-      // COLLECTIONS TAB (with payment mode, search, and pagination)
-      // ----------------------------------------------------
-      let filteredCollections = allCollections;
-      if (requestedPaymentMode !== "ALL") {
-        filteredCollections = filteredCollections.filter((c) => {
-          const modeGroup = classifyHistoryPaymentMode(c.paymentMode);
-          if (requestedPaymentMode === "CASH") return modeGroup === "cash";
-          if (requestedPaymentMode === "UPI") return modeGroup === "upi";
-          if (requestedPaymentMode === "BANK TRANSFER" || requestedPaymentMode === "BANK_TRANSFER") {
-            return modeGroup === "bankTransfer";
-          }
-          if (requestedPaymentMode === "CHEQUE") return modeGroup === "cheque";
-          return true;
-        });
-      }
+// COLLECTIONS TAB
+//
+// Unified list:
+//
+// BILL_PAYMENT
+//   Money received while making sale
+//
+// COLLECTION
+//   Money received later through TRN_COLLECTION
+// ----------------------------------------------------
 
-      if (search) {
-        filteredCollections = filteredCollections.filter((c) => {
-          const rNo = String(c.receiptNo || "").toLowerCase();
-          const cName = String(c.customerName || "").toLowerCase();
-          const cId = String(c.customerId || "").toLowerCase();
-          const mode = String(c.paymentMode || "").toLowerCase();
-          const refNo = String(c.referenceNo || "").toLowerCase();
-          return (
-            rNo.includes(search) ||
-            cName.includes(search) ||
-            cId.includes(search) ||
-            mode.includes(search) ||
-            refNo.includes(search)
+const billingReceiptRows =
+  allSales
+    .filter(
+      (sale) =>
+        Math.max(
+          0,
+          Number(
+            sale.paidAmount || 0
+          )
+        ) > 0.001
+    )
+    .map(
+      (sale) => {
+        const billing =
+          getSaleBillingPaymentBreakup(
+            sale
           );
-        });
+
+        return {
+          sourceType:
+            "BILL_PAYMENT",
+
+          collectionId:
+            `BILL-${sale.saleId}`,
+
+          receiptNo:
+            sale.saleNo ||
+            sale.saleId,
+
+          collectionDate:
+            sale.saleDate,
+
+          customerId:
+            sale.customerId ||
+            "",
+
+          customerName:
+            sale.customerName ||
+            "",
+
+          customerMobile:
+            String(
+              sale.customerMobile ||
+              ""
+            ),
+
+          route:
+            sale.route ||
+            "",
+
+          amount:
+            billing.total,
+
+          paymentMode:
+            sale.paymentMode ||
+            "",
+
+          payments:
+            Array.isArray(
+              sale.payments
+            )
+              ? sale.payments
+              : [],
+
+          paymentBreakup:
+            billing,
+
+          referenceNo:
+            sale.saleNo ||
+            "",
+
+          remarks:
+            "Payment received at billing.",
+
+          status:
+            "POSTED",
+
+          salesmanId:
+            sale.salesmanId ||
+            "",
+
+          salesmanName:
+            sale.salesmanName ||
+            "",
+
+          saleId:
+            sale.saleId ||
+            "",
+
+          saleNo:
+            sale.saleNo ||
+            "",
+
+          billAmount:
+            Number(
+              sale.grandTotal ||
+              0
+            ),
+
+          paidAmount:
+            billing.total,
+
+          paymentApplied:
+            Number(
+              (
+                sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                  ? Number(sale.paymentApplied)
+                  : Math.min(billing.total, Number(sale.grandTotal || 0))
+              ).toFixed(2)
+            ),
+
+          paymentAppliedAtBilling:
+            Number(
+              (
+                sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                  ? Number(sale.paymentApplied)
+                  : Math.min(billing.total, Number(sale.grandTotal || 0))
+              ).toFixed(2)
+            ),
+
+          outstandingAmount:
+            Number(
+              sale.outstandingAmount ||
+              0
+            ),
+
+          paymentStatus:
+            sale.paymentStatus ||
+            "",
+
+          advanceCreated:
+            Number(
+              sale.advanceCreated ||
+              0
+            ),
+
+          advanceUsed:
+            Number(
+              sale.advanceUsed ||
+              0
+            ),
+
+          canDownloadReceipt:
+            true,
+
+          canCollectPayment:
+            Number(
+              sale.outstandingAmount ||
+              0
+            ) > 0.001,
+        };
       }
+    );
 
-      const totalCollectionsCount = filteredCollections.length;
-      const paginatedCollections = filteredCollections.slice(
-        (collectionPage - 1) * collectionLimit,
-        collectionPage * collectionLimit
-      );
 
+const laterCollectionRows =
+  allCollections.map(
+    (collection) => ({
+      ...collection,
+
+      sourceType:
+        "COLLECTION",
+
+      customerMobile:
+        String(
+          collection.customerMobile ||
+          ""
+        ),
+
+      canDownloadReceipt:
+        true,
+    })
+  );
+
+
+let filteredCollections = [
+  ...billingReceiptRows,
+  ...laterCollectionRows,
+];
+
+
+// NEWEST FIRST
+
+filteredCollections.sort(
+  (a, b) =>
+    new Date(
+      b.collectionDate || 0
+    ) -
+    new Date(
+      a.collectionDate || 0
+    )
+);
+
+
+// PAYMENT MODE FILTER
+
+if (
+  requestedPaymentMode !==
+  "ALL"
+) {
+  filteredCollections =
+    filteredCollections.filter(
+      (item) => {
+        if (
+          item.sourceType ===
+          "BILL_PAYMENT"
+        ) {
+          return (
+            getHistoryPaymentFilterAmount(
+              item.paymentBreakup,
+              requestedPaymentMode
+            ) > 0.001
+          );
+        }
+
+
+        const modeGroup =
+          classifyHistoryPaymentMode(
+            item.paymentMode
+          );
+
+
+        if (
+          requestedPaymentMode ===
+          "CASH"
+        ) {
+          return (
+            modeGroup ===
+            "cash"
+          );
+        }
+
+
+        if (
+          requestedPaymentMode ===
+          "UPI"
+        ) {
+          return (
+            modeGroup ===
+            "upi"
+          );
+        }
+
+
+        if (
+          requestedPaymentMode ===
+            "BANK TRANSFER" ||
+          requestedPaymentMode ===
+            "BANK_TRANSFER"
+        ) {
+          return (
+            modeGroup ===
+            "bankTransfer"
+          );
+        }
+
+
+        if (
+          requestedPaymentMode ===
+          "CHEQUE"
+        ) {
+          return (
+            modeGroup ===
+            "cheque"
+          );
+        }
+
+
+        return true;
+      }
+    );
+}
+
+
+// SEARCH
+
+if (search) {
+  filteredCollections =
+    filteredCollections.filter(
+      (item) => {
+        const rNo =
+          String(
+            item.receiptNo || ""
+          ).toLowerCase();
+
+        const saleNo =
+          String(
+            item.saleNo || ""
+          ).toLowerCase();
+
+        const cName =
+          String(
+            item.customerName ||
+              ""
+          ).toLowerCase();
+
+        const cId =
+          String(
+            item.customerId || ""
+          ).toLowerCase();
+
+        const mobile =
+          String(
+            item.customerMobile ||
+              ""
+          ).toLowerCase();
+
+        const mode =
+          String(
+            item.paymentMode || ""
+          ).toLowerCase();
+
+        const refNo =
+          String(
+            item.referenceNo ||
+              ""
+          ).toLowerCase();
+
+
+        return (
+          rNo.includes(
+            search
+          ) ||
+          saleNo.includes(
+            search
+          ) ||
+          cName.includes(
+            search
+          ) ||
+          cId.includes(
+            search
+          ) ||
+          mobile.includes(
+            search
+          ) ||
+          mode.includes(
+            search
+          ) ||
+          refNo.includes(
+            search
+          )
+        );
+      }
+    );
+}
+
+
+const totalCollectionsCount =
+  filteredCollections.length;
+
+
+const paginatedCollections =
+  filteredCollections.slice(
+    (
+      collectionPage - 1
+    ) *
+      collectionLimit,
+
+    collectionPage *
+      collectionLimit
+  );
       // ----------------------------------------------------
       // CUSTOMER SUMMARY TAB
       // ----------------------------------------------------
@@ -40588,6 +42695,38 @@ app.get(
         const item = custSummaryMap.get(cId);
         item.periodSales += Math.max(0, Number(s.grandTotal || 0));
         item.salesCount += 1;
+        const billing =
+  getSaleBillingPaymentBreakup(
+    s
+  );
+
+
+if (
+  billing.total > 0.001
+) {
+  item.periodCollections +=
+    billing.total;
+
+  item.collectionCount +=
+    1;
+
+
+  if (
+    s.saleDate &&
+    (
+      !item.lastCollectionDate ||
+      new Date(
+        s.saleDate
+      ) >
+        new Date(
+          item.lastCollectionDate
+        )
+    )
+  ) {
+    item.lastCollectionDate =
+      s.saleDate;
+  }
+}
         if (s.saleDate && (!item.lastSaleDate || new Date(s.saleDate) > new Date(item.lastSaleDate))) {
           item.lastSaleDate = s.saleDate;
         }
@@ -40640,6 +42779,15 @@ app.get(
         const dStr = (s.saleDate || s.createdAt || "").toISOString().substring(0, 10);
         if (!trendMap.has(dStr)) trendMap.set(dStr, { date: dStr, sales: 0, collections: 0 });
         trendMap.get(dStr).sales += Math.max(0, Number(s.grandTotal || 0));
+        const billing =
+  getSaleBillingPaymentBreakup(
+    s
+  );
+
+trendMap
+  .get(dStr)
+  .collections +=
+  billing.total;
       }
       for (const c of allCollections) {
         const dStr = (c.collectionDate || c.createdAt || "").toISOString().substring(0, 10);
