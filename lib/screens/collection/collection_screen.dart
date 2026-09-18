@@ -1219,6 +1219,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                     ? (data['receiptNo'] ?? '').toString()
                                     : '';
 
+                                ScaffoldMessenger.of(this.context).showSnackBar(
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
@@ -1795,6 +1796,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       if (!mounted) return;
       Navigator.pop(sheetContext); // Close receipt sheet
 
+      ScaffoldMessenger.of(this.context).showSnackBar(
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Receipt ${receipt.receiptNo} cancelled successfully.'),
@@ -1804,6 +1806,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       await _loadCollectionData();
     } catch (error) {
       if (!mounted) return;
+      ScaffoldMessenger.of(this.context).showSnackBar(
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
@@ -1890,6 +1893,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: customer.receiptHistory.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
                       separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, idx) {
                         final receipt = customer.receiptHistory[idx];
