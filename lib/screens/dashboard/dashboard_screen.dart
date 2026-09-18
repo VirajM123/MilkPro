@@ -19,6 +19,7 @@ import '../expenses/expenses_screen.dart';
 import '../profile/profile_screen.dart';
 import '../products/products_screen.dart';
 import '../payments/payments_screen.dart';
+import '../history/sales_collection_history_screen.dart';
 import '../ledger/ledger_screen.dart';
 import '../purchase/purchase_screen.dart';
 import '../reports/reports_screen.dart';
@@ -445,88 +446,305 @@ int _performanceInteger(
                 title: 'Today at a Glance',
                 subtitle: 'Your field activity',
               ),
-              const SizedBox(height: 11),
-              Row(
-                children: [
-                  Expanded(
-                    child: SummaryCard(
-                      label: 'Sales Bills',
 
-                      value: _dashboard.todayBills.toString(),
+              const SizedBox(
+  height: 11,
+),
 
-                      icon: Icons.shopping_bag_outlined,
+// ============================================================
+// SALE BILLS + SALES
+// ============================================================
 
-                      color: AppColors.primary,
+Row(
+  children: [
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Sale Bills',
 
-                      caption: 'Today',
+        value:
+            _dashboard.todayBills
+                .toString(),
 
-                      imagePath: 'assets/img/TotalQuantityAllocation.png',
-                    ),
-                  ),
+        icon:
+            Icons.shopping_bag_outlined,
 
-                  const SizedBox(width: 10),
+        color:
+            AppColors.primary,
 
-                  Expanded(
-                    child: SummaryCard(
-                      label: 'Sales',
+        caption:
+            'Today',
 
-                      value: _money(_dashboard.todaySalesAmount),
+        imagePath:
+            'assets/img/TotalQuantityAllocation.png',
+      ),
+    ),
 
-                      icon: Icons.receipt_long_outlined,
+    const SizedBox(
+      width: 10,
+    ),
 
-                      color: AppColors.success,
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Sales',
 
-                      caption: '${_qty(_dashboard.todaySalesQuantity)} qty',
+        value:
+            _money(
+          _dashboard
+              .todaySalesAmount,
+        ),
 
-                      imagePath: 'assets/img/TotalSales.png',
-                    ),
-                  ),
-                ],
-              ),
+        icon:
+            Icons.receipt_long_outlined,
 
-              const SizedBox(height: 10),
+        color:
+            AppColors.success,
 
-              Row(
-                children: [
-                  Expanded(
-                    child: SummaryCard(
-                      label: 'Collection',
+        caption:
+            '${_qty(_dashboard.todaySalesQuantity)} qty',
 
-                      value: _money(_dashboard.todayCollectionAmount),
+        imagePath:
+            'assets/img/TotalSales.png',
+      ),
+    ),
+  ],
+),
 
-                      icon: Icons.payments_outlined,
 
-                      color: AppColors.purple,
+const SizedBox(
+  height: 10,
+),
 
-                      caption: '${_dashboard.collectionReceipts} receipts',
 
-                      imagePath: 'assets/img/TotalCollection.png',
-                    ),
-                  ),
+// ============================================================
+// TOTAL COLLECTION — ALL MODES
+// ============================================================
 
-                  const SizedBox(width: 10),
+SummaryCard(
+  label:
+      'Total Collection',
 
-                  Expanded(
-                    child: SummaryCard(
-                      label: 'Pending Delivery',
+  value:
+      _money(
+    _dashboard
+        .todayCollectionAmount,
+  ),
 
-                      value: _qty(_dashboard.pendingDeliveryQuantity),
+  icon:
+      Icons.payments_outlined,
 
-                      icon: Icons.local_shipping_outlined,
+  color:
+      AppColors.purple,
 
-                      color: AppColors.warning,
+  caption:
+      '${_dashboard.collectionReceipts} receipts · All modes',
 
-                      caption: 'Qty remaining',
+  imagePath:
+      'assets/img/TotalCollection.png',
+),
 
-                      imagePath: 'assets/img/TotalAllocationVehicle.png',
-                    ),
-                  ),
-                ],
-              ),
+
+const SizedBox(
+  height: 10,
+),
+
+
+// ============================================================
+// CASH + UPI COLLECTION
+// ============================================================
+
+Row(
+  children: [
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Cash Collected',
+
+        value:
+            _money(
+          _dashboard
+              .todayCashCollection,
+        ),
+
+        icon:
+            Icons.payments_rounded,
+
+        color:
+            AppColors.success,
+
+        caption:
+            'Cash receipts',
+      ),
+    ),
+
+    const SizedBox(
+      width: 10,
+    ),
+
+    Expanded(
+      child: SummaryCard(
+        label:
+            'UPI Collected',
+
+        value:
+            _money(
+          _dashboard
+              .todayUpiCollection,
+        ),
+
+        icon:
+            Icons.qr_code_rounded,
+
+        color:
+            AppColors.primary,
+
+        caption:
+            'UPI / PhonePe / GPay',
+      ),
+    ),
+  ],
+),
+
+
+const SizedBox(
+  height: 10,
+),
+
+
+// ============================================================
+// OUTSTANDING + ADVANCE
+// ============================================================
+
+Row(
+  children: [
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Total Outstanding',
+
+        value:
+            _money(
+          _dashboard
+              .totalOutstanding,
+        ),
+
+        icon:
+            Icons.account_balance_wallet_outlined,
+
+        color:
+            AppColors.warning,
+
+        caption:
+            'Current net due',
+
+        imagePath:
+            'assets/img/DueAmt.png',
+      ),
+    ),
+
+    const SizedBox(
+      width: 10,
+    ),
+
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Total Advance',
+
+        value:
+            _money(
+          _dashboard
+              .totalAdvance,
+        ),
+
+        icon:
+            Icons.savings_outlined,
+
+        color:
+            AppColors.info,
+
+        caption:
+            'Current net advance',
+      ),
+    ),
+  ],
+),
+
+
+const SizedBox(
+  height: 10,
+),
+
+
+// ============================================================
+// TWO DIFFERENT PENDING QUANTITIES
+// ============================================================
+
+Row(
+  children: [
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Today Pending Qty',
+
+        value:
+            _qty(
+          _dashboard
+              .pendingDeliveryQuantity,
+        ),
+
+        icon:
+            Icons.local_shipping_outlined,
+
+        color:
+            AppColors.warning,
+
+        caption:
+            'Today allocation remaining',
+
+        imagePath:
+            'assets/img/TotalAllocationVehicle.png',
+      ),
+    ),
+
+    const SizedBox(
+      width: 10,
+    ),
+
+    Expanded(
+      child: SummaryCard(
+        label:
+            'Pending Return Qty',
+
+        value:
+            _qty(
+          _dashboard
+              .pendingReturnQuantity,
+        ),
+
+        icon:
+            Icons.assignment_return_outlined,
+
+        color:
+            AppColors.purple,
+
+        caption:
+            'Previous allocation pending',
+      ),
+    ),
+  ],
+),
+
+
+const SizedBox(
+  height: 22,
+),
               const SizedBox(height: 22),
 
               const AppSectionTitle(
                 title: 'My Sales Performance',
+
                 subtitle:
                     'Customer-wise product sales',
               ),
@@ -2816,6 +3034,10 @@ Widget _customerPreview() {
       return const ExpensesScreen();
     }
 
+    if (feature == AppFeatures.salesCollectionHistory) {
+      return const SalesCollectionHistoryScreen();
+    }
+
     return const DashboardScreen();
   }
 
@@ -2857,63 +3079,102 @@ class _DashboardData {
     this.todaySalesAmount = 0,
     this.todaySalesQuantity = 0,
     this.todayBills = 0,
+
     this.todayCollectionAmount = 0,
+    this.todayCashCollection = 0,
+    this.todayUpiCollection = 0,
+    this.todayOtherCollection = 0,
+
     this.collectionReceipts = 0,
+
+    this.totalOutstanding = 0,
+    this.totalAdvance = 0,
+
     this.pendingCollection = 0,
     this.pendingAccounts = 0,
+
     this.todayAllocations = 0,
     this.todayAllocatedQuantity = 0,
     this.todayReturnQuantity = 0,
+
     this.pendingDeliveryQuantity = 0,
+    this.pendingReturnQuantity = 0,
+
     this.salesProgress = 0,
     this.collectionProgress = 0,
     this.returnProgress = 0,
+
     this.todayCustomers = const [],
   });
 
-  final double
-      todaySalesAmount;
 
-  final double
-      todaySalesQuantity;
+  final double todaySalesAmount;
+  final double todaySalesQuantity;
+  final int todayBills;
 
-  final int
-      todayBills;
 
-  final double
-      todayCollectionAmount;
+  // ============================================================
+  // COLLECTION
+  // ============================================================
 
-  final int
-      collectionReceipts;
+  final double todayCollectionAmount;
 
-  final double
-      pendingCollection;
+  final double todayCashCollection;
 
-  final int
-      pendingAccounts;
+  final double todayUpiCollection;
 
-  final int
-      todayAllocations;
+  final double todayOtherCollection;
 
-  final double
-      todayAllocatedQuantity;
+  final int collectionReceipts;
 
-  final double
-      todayReturnQuantity;
 
-  final double
-      pendingDeliveryQuantity;
+  // ============================================================
+  // CURRENT CUSTOMER ACCOUNT POSITION
+  // ============================================================
 
-  final double
-      salesProgress;
+  final double totalOutstanding;
 
-  final double
-      collectionProgress;
+  final double totalAdvance;
 
-  final double
-      returnProgress;
-      final List<_DashboardCustomer>
-    todayCustomers;
+
+  // Existing admin dashboard values.
+  final double pendingCollection;
+
+  final int pendingAccounts;
+
+
+  // ============================================================
+  // ALLOCATION
+  // ============================================================
+
+  final int todayAllocations;
+
+  final double todayAllocatedQuantity;
+
+  final double todayReturnQuantity;
+
+
+  // Current-day allocation still pending.
+  final double pendingDeliveryQuantity;
+
+
+  // Older allocation quantity still pending return.
+  final double pendingReturnQuantity;
+
+
+  // ============================================================
+  // PROGRESS
+  // ============================================================
+
+  final double salesProgress;
+
+  final double collectionProgress;
+
+  final double returnProgress;
+
+
+  final List<_DashboardCustomer>
+      todayCustomers;
 
 
   factory _DashboardData.fromJson(
@@ -2930,6 +3191,7 @@ class _DashboardData {
           0;
     }
 
+
     int integer(
       String key,
     ) {
@@ -2940,23 +3202,26 @@ class _DashboardData {
           ) ??
           0;
     }
+
+
     final todayCustomers =
-    (json['todayCustomers']
-                as List? ??
-            const [])
-        .whereType<Map>()
-        .map(
-          (item) =>
-              _DashboardCustomer
-                  .fromJson(
-            Map<String, dynamic>.from(
-              item,
-            ),
-          ),
-        )
-        .toList(
-          growable: false,
-        );
+        (json['todayCustomers']
+                    as List? ??
+                const [])
+            .whereType<Map>()
+            .map(
+              (item) =>
+                  _DashboardCustomer
+                      .fromJson(
+                Map<String, dynamic>.from(
+                  item,
+                ),
+              ),
+            )
+            .toList(
+              growable: false,
+            );
+
 
     return _DashboardData(
       todaySalesAmount:
@@ -2974,15 +3239,43 @@ class _DashboardData {
         'todayBills',
       ),
 
+
       todayCollectionAmount:
           number(
         'todayCollectionAmount',
+      ),
+
+      todayCashCollection:
+          number(
+        'todayCashCollection',
+      ),
+
+      todayUpiCollection:
+          number(
+        'todayUpiCollection',
+      ),
+
+      todayOtherCollection:
+          number(
+        'todayOtherCollection',
       ),
 
       collectionReceipts:
           integer(
         'collectionReceipts',
       ),
+
+
+      totalOutstanding:
+          number(
+        'totalOutstanding',
+      ),
+
+      totalAdvance:
+          number(
+        'totalAdvance',
+      ),
+
 
       pendingCollection:
           number(
@@ -2993,6 +3286,7 @@ class _DashboardData {
           integer(
         'pendingAccounts',
       ),
+
 
       todayAllocations:
           integer(
@@ -3014,6 +3308,12 @@ class _DashboardData {
         'pendingDeliveryQuantity',
       ),
 
+      pendingReturnQuantity:
+          number(
+        'pendingReturnQuantity',
+      ),
+
+
       salesProgress:
           number(
         'salesProgress',
@@ -3028,8 +3328,9 @@ class _DashboardData {
           number(
         'returnProgress',
       ),
+
       todayCustomers:
-    todayCustomers,
+          todayCustomers,
     );
   }
 }

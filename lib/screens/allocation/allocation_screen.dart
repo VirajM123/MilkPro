@@ -61,6 +61,15 @@ final List<Map<String, dynamic>> _allocations =
     <Map<String, dynamic>>[];
 
 DateTime _selectedDate = DateTime.now();
+String _allocationSection = 'today';
+
+Map<String, int> _allocationSummary = <String, int>{
+  'today': 0,
+  'pending': 0,
+  'all': 0,
+  'completed': 0,
+  'cancelled': 0,
+};
 
 bool _loadingAllocationData = false;
 bool _syncing = false;
@@ -398,15 +407,34 @@ Future<void> _loadCustomers() async {
 
   Future<void> _loadAllocations() async {
   final int requestToken = ++_allocationRequestToken;
-  final response = await http.get(
+final Uri allocationUri =
     Uri.parse(
       '${ApiConfig.baseUrl}/api/allocations',
-    ),
-    headers: _apiHeaders,
-  );
+    ).replace(
+      queryParameters:
+          <String, String>{
+        'section':
+            _allocationSection,
+      },
+    );
+
+final response =
+    await http.get(
+  allocationUri,
+  headers: _apiHeaders,
+);
 
   final dynamic decoded =
       jsonDecode(response.body);
+      final Map<String, dynamic> summary =
+    decoded is Map &&
+            decoded['summary']
+                is Map
+        ? Map<String, dynamic>.from(
+            decoded['summary']
+                as Map,
+          )
+        : <String, dynamic>{};
 
   if (response.statusCode != 200) {
     throw Exception(
@@ -558,23 +586,23 @@ Future<void> _loadCustomers() async {
                     ?.toString() ??
                 'Pcs',
 
-       'qty':
-    _asInt(
+'qty':
+    _asDouble(
       product['quantity'],
     ),
 
 'soldQty':
-    _asInt(
+    _asDouble(
       product['soldQuantity'],
     ),
 
 'returnedQty':
-    _asInt(
+    _asDouble(
       product['returnedQuantity'],
     ),
 
 'remainingQty':
-    _asInt(
+    _asDouble(
       product['remainingQuantity'],
     ),
 
@@ -595,11 +623,39 @@ Future<void> _loadCustomers() async {
     return;
   }
 
-  setState(() {
-    _allocations
-      ..clear()
-      ..addAll(loadedLines);
-  });
+ setState(() {
+  _allocations
+    ..clear()
+    ..addAll(loadedLines);
+
+  _allocationSummary =
+      <String, int>{
+    'today':
+        _asInt(
+          summary['today'],
+        ),
+
+    'pending':
+        _asInt(
+          summary['pending'],
+        ),
+
+    'all':
+        _asInt(
+          summary['all'],
+        ),
+
+    'completed':
+        _asInt(
+          summary['completed'],
+        ),
+
+    'cancelled':
+        _asInt(
+          summary['cancelled'],
+        ),
+  };
+});
 }
 void _showApiMessage(String message) {
   if (!mounted) {
@@ -628,6 +684,37 @@ void _showApiMessage(String message) {
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
+  double _asDouble(dynamic value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+
+  return double.tryParse(
+        value?.toString().trim() ?? '',
+      ) ??
+      0.0;
+}
+
+String _formatQty(num value) {
+  final double number =
+      value.toDouble();
+
+  if (number ==
+      number.roundToDouble()) {
+    return number.toStringAsFixed(0);
+  }
+
+  return number
+      .toStringAsFixed(2)
+      .replaceFirst(
+        RegExp(r'0+$'),
+        '',
+      )
+      .replaceFirst(
+        RegExp(r'\.$'),
+        '',
+      );
+}
 
   String _batchIdOf(Map<String, dynamic> item, int fallbackIndex) {
     final String stored = (item['batchId'] ?? '').toString().trim();
@@ -636,31 +723,13 @@ void _showApiMessage(String message) {
     // Backward compatibility for older single-product allocations.
     return 'legacy_$fallbackIndex';
   }
-
-List<Map<String, dynamic>> get _filteredAllocations {
-  return _allocations.where((item) {
-    final String status =
-        (item['status'] ?? 'POSTED')
-            .toString()
-            .trim()
-            .toUpperCase();
-
-    if (status == 'CANCELLED') {
-      return false;
-    }
-
-    final dynamic rawDate =
-        item['date'];
-
-      if (rawDate is! DateTime) {
-        return false;
-      }
-
-      return rawDate.year == _selectedDate.year &&
-          rawDate.month == _selectedDate.month &&
-          rawDate.day == _selectedDate.day;
-    }).toList();
-  }
+List<Map<String, dynamic>>
+    get _filteredAllocations {
+  return List<
+      Map<String, dynamic>>.from(
+    _allocations,
+  );
+}
 
   List<_AllocationGroup> get _filteredGroups {
     final List<Map<String, dynamic>> items = _filteredAllocations;
@@ -686,37 +755,46 @@ List<Map<String, dynamic>> get _filteredAllocations {
         .toList();
   }
 
-  int get _totalAllocated {
-    int total = 0;
-
-    for (final item in _allocations) {
-      total += _asInt(item['qty']);
-    }
-
-    return total;
-  }
-
-int get _totalSold {
-  int total = 0;
+ double get _totalAllocated {
+  double total = 0;
 
   for (final item in _allocations) {
-    total += _asInt(item['soldQty']);
+    total +=
+        _asDouble(
+          item['qty'],
+        );
   }
 
   return total;
 }
 
-int get _totalReturned {
-  int total = 0;
+double get _totalSold {
+  double total = 0;
 
   for (final item in _allocations) {
-    total += _asInt(item['returnedQty']);
+    total +=
+        _asDouble(
+          item['soldQty'],
+        );
   }
 
   return total;
 }
 
-int get _totalPending =>
+double get _totalReturned {
+  double total = 0;
+
+  for (final item in _allocations) {
+    total +=
+        _asDouble(
+          item['returnedQty'],
+        );
+  }
+
+  return total;
+}
+
+double get _totalPending =>
     _totalAllocated -
     _totalSold -
     _totalReturned;
@@ -737,15 +815,21 @@ int get _totalPending =>
         .length;
   }
 
-  int get _selectedDateQuantity {
-    int total = 0;
+ double get _selectedDateQuantity {
+  double total = 0;
 
-    for (final item in _filteredAllocations) {
-      total += _asInt(item['qty']);
-    }
-
-    return total;
+  for (
+    final item
+    in _filteredAllocations
+  ) {
+    total +=
+        _asDouble(
+          item['qty'],
+        );
   }
+
+  return total;
+}
 
   int get _selectedDateRoutes {
     return _filteredAllocations
@@ -836,7 +920,7 @@ Future<void> _openAssignAllocation() async {
 // Soft delete - backend keeps audit history
 // ============================================================
 
-Future<void> _cancelAllocation(
+Future<void> _deleteAllocation(
   _AllocationGroup group,
 ) async {
   if (UiSession.instance.role != UserRole.admin) {
@@ -956,13 +1040,19 @@ Future<void> _cancelAllocation(
   }
 
   try {
-    final http.Response response =
-        await http.put(
-      Uri.parse(
-        '${ApiConfig.baseUrl}/api/allocations/$allocationId/cancel',
-      ),
-      headers: _apiHeaders,
-    );
+final http.Response response =
+    await http.delete(
+  Uri.parse(
+    '${ApiConfig.baseUrl}/api/allocations/$allocationId',
+  ),
+  headers: _apiHeaders,
+  body: jsonEncode(
+    <String, dynamic>{
+      'reason':
+          'Deleted by admin from mobile allocation screen',
+    },
+  ),
+);
 
     dynamic decoded;
 
@@ -992,9 +1082,9 @@ Future<void> _cancelAllocation(
       return;
     }
 
-    _showApiMessage(
-      'Allocation deleted successfully. Stock restored.',
-    );
+  _showApiMessage(
+  'Allocation deleted successfully.',
+);
     DataSyncService.instance.notifyAllocationChanged();
   } catch (error) {
     if (!mounted) {
@@ -1110,27 +1200,25 @@ Future<void> _openEditAllocation(
                       (item['unit'] ??
                               'Pcs')
                           .toString(),
+'quantity':
+    _asDouble(
+      item['qty'],
+    ),
 
-                  'quantity':
-                      _asInt(
-                        item['qty'],
-                      ),
+'soldQuantity':
+    _asDouble(
+      item['soldQty'],
+    ),
 
-                  'soldQuantity':
-                      _asInt(
-                        item['soldQty'],
-                      ),
+'returnedQuantity':
+    _asDouble(
+      item['returnedQty'],
+    ),
 
-                  'returnedQuantity':
-                      _asInt(
-                        item['returnedQty'],
-                      ),
-
-                  'remainingQuantity':
-                      _asInt(
-                        item[
-                            'remainingQty'],
-                      ),
+'remainingQuantity':
+    _asDouble(
+      item['remainingQty'],
+    ),
                 };
               },
             )
@@ -1295,10 +1383,14 @@ Future<void> _openEditAllocation(
               parent: BouncingScrollPhysics(),
             ),
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 30),
-            children: [
-              _buildDateSelector(),
-              const SizedBox(height: 14),
-              _buildStatistics(),
+    children: [
+  _buildAllocationSections(),
+
+  const SizedBox(
+    height: 14,
+  ),
+
+  _buildStatistics(),
               const SizedBox(height: 20),
               _buildAllocationSection(),
             ],
@@ -1531,6 +1623,196 @@ Future<void> _openEditAllocation(
     );
   }
 
+Widget _buildAllocationSections() {
+  return Row(
+    children: [
+      Expanded(
+        child:
+            _allocationSectionButton(
+          section: 'today',
+          title: 'Today',
+          count:
+              _allocationSummary[
+                      'today'] ??
+                  0,
+          icon:
+              Icons.today_rounded,
+        ),
+      ),
+
+      const SizedBox(width: 8),
+
+      Expanded(
+        child:
+            _allocationSectionButton(
+          section: 'pending',
+          title: 'Pending',
+          count:
+              _allocationSummary[
+                      'pending'] ??
+                  0,
+          icon:
+              Icons.schedule_rounded,
+        ),
+      ),
+
+      const SizedBox(width: 8),
+
+      Expanded(
+        child:
+            _allocationSectionButton(
+          section: 'all',
+          title: 'All',
+          count:
+              _allocationSummary[
+                      'all'] ??
+                  0,
+          icon:
+              Icons
+                  .format_list_bulleted_rounded,
+        ),
+      ),
+    ],
+  );
+}
+
+Widget _allocationSectionButton({
+  required String section,
+  required String title,
+  required int count,
+  required IconData icon,
+}) {
+  final bool selected =
+      _allocationSection ==
+      section;
+
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius:
+          BorderRadius.circular(
+        14,
+      ),
+      onTap: () async {
+        if (selected ||
+            _loadingAllocationData) {
+          return;
+        }
+
+        setState(() {
+          _allocationSection =
+              section;
+        });
+
+        await _loadAllocations();
+      },
+      child: AnimatedContainer(
+        duration:
+            const Duration(
+          milliseconds: 180,
+        ),
+        padding:
+            const EdgeInsets.symmetric(
+          horizontal: 9,
+          vertical: 12,
+        ),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.surfaceBlue
+              : AppColors.surface,
+          borderRadius:
+              BorderRadius.circular(
+            14,
+          ),
+          border: Border.all(
+            color: selected
+                ? AppColors.primary
+                : AppColors.border,
+            width:
+                selected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment:
+                  MainAxisAlignment
+                      .center,
+              children: [
+                Icon(
+                  icon,
+                  size: 17,
+                  color: selected
+                      ? AppColors.primary
+                      : AppColors
+                          .textSecondary,
+                ),
+
+                const SizedBox(
+                  width: 4,
+                ),
+
+                Container(
+                  padding:
+                      const EdgeInsets
+                          .symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration:
+                      BoxDecoration(
+                    color: selected
+                        ? AppColors
+                            .primary
+                        : AppColors
+                            .background,
+                    borderRadius:
+                        BorderRadius
+                            .circular(
+                      20,
+                    ),
+                  ),
+                  child: Text(
+                    '$count',
+                    style:
+                        TextStyle(
+                      color: selected
+                          ? Colors.white
+                          : AppColors
+                              .textPrimary,
+                      fontSize: 10,
+                      fontWeight:
+                          FontWeight
+                              .w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(
+              height: 6,
+            ),
+
+            Text(
+              title,
+              maxLines: 1,
+              style: TextStyle(
+                color: selected
+                    ? AppColors.primary
+                    : AppColors
+                        .textPrimary,
+                fontSize: 11,
+                fontWeight:
+                    FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
   // ============================================================
   // SUMMARY CARDS
   // ============================================================
@@ -1553,7 +1835,8 @@ Future<void> _openEditAllocation(
             _simpleStatCard(
               width: cardWidth,
               label: 'Total quantity',
-              value: '$_selectedDateQuantity Ltr',
+              value:
+    '${_formatQty(_selectedDateQuantity)} Ltr',
               icon: Icons.local_drink_outlined,
               color: green,
             ),
@@ -1804,16 +2087,34 @@ Future<void> _openEditAllocation(
     final String salesman = (first['salesman'] ?? '').toString();
     final String route = (first['route'] ?? '').toString();
 
-int totalQty = 0;
-int soldQty = 0;
-int returnedQty = 0;
-int remainingQty = 0;
+double totalQty = 0;
+double soldQty = 0;
+double returnedQty = 0;
+double remainingQty = 0;
 
-for (final item in group.items) {
-  totalQty += _asInt(item['qty']);
-  soldQty += _asInt(item['soldQty']);
-  returnedQty += _asInt(item['returnedQty']);
-  remainingQty += _asInt(item['remainingQty']);
+for (
+  final item
+  in group.items
+) {
+  totalQty +=
+      _asDouble(
+        item['qty'],
+      );
+
+  soldQty +=
+      _asDouble(
+        item['soldQty'],
+      );
+
+  returnedQty +=
+      _asDouble(
+        item['returnedQty'],
+      );
+
+  remainingQty +=
+      _asDouble(
+        item['remainingQty'],
+      );
 }
 
     return Container(
@@ -1873,9 +2174,9 @@ trailing: UiSession.instance.role == UserRole.admin
       _openEditAllocation(group);
     }
 
-    if (value == 'delete') {
-      _cancelAllocation(group);
-    }
+if (value == 'delete') {
+  _deleteAllocation(group);
+}
   },
   itemBuilder: (BuildContext context) {
     return const [
@@ -2020,25 +2321,33 @@ leading: Container(
   children: [
     _miniMetric(
       label: 'Allocated',
-      value: '$totalQty',
+      value:
+    _formatQty(totalQty),
       color: primaryBlue,
     ),
     const SizedBox(width: 5),
     _miniMetric(
       label: 'Sold',
-      value: '$soldQty',
+     value:
+    _formatQty(soldQty),
       color: green,
     ),
     const SizedBox(width: 5),
     _miniMetric(
       label: 'Returned',
-      value: '$returnedQty',
+    value:
+    _formatQty(
+      returnedQty,
+    ),
       color: orange,
     ),
     const SizedBox(width: 5),
     _miniMetric(
       label: 'Remaining',
-      value: '$remainingQty',
+     value:
+    _formatQty(
+      remainingQty,
+    ),
       color: remainingQty <= 0
           ? green
           : purple,
@@ -2146,17 +2455,25 @@ leading: Container(
 final String unit =
     (item['unit'] ?? '').toString();
 
-final int qty =
-    _asInt(item['qty']);
+final double qty =
+    _asDouble(
+      item['qty'],
+    );
 
-final int sold =
-    _asInt(item['soldQty']);
+final double sold =
+    _asDouble(
+      item['soldQty'],
+    );
 
-final int returned =
-    _asInt(item['returnedQty']);
+final double returned =
+    _asDouble(
+      item['returnedQty'],
+    );
 
-final int remaining =
-    _asInt(item['remainingQty']);
+final double remaining =
+    _asDouble(
+      item['remainingQty'],
+    );
 
 final bool hasSettlement =
     item['settlement'] is Map;
@@ -2208,7 +2525,7 @@ Wrap(
   runSpacing: 3,
   children: [
     Text(
-      'Allocated $qty $unit',
+     'Allocated ${_formatQty(qty)} $unit',
       style: const TextStyle(
         color: primaryBlue,
         fontSize: 8.5,
@@ -2217,7 +2534,7 @@ Wrap(
     ),
 
     Text(
-      'Sold $sold $unit',
+     'Sold ${_formatQty(sold)} $unit',
       style: const TextStyle(
         color: green,
         fontSize: 8.5,
@@ -2226,7 +2543,7 @@ Wrap(
     ),
 
     Text(
-      'Returned $returned $unit',
+     'Returned ${_formatQty(returned)} $unit',
       style: const TextStyle(
         color: orange,
         fontSize: 8.5,
@@ -2235,7 +2552,7 @@ Wrap(
     ),
 
     Text(
-      'Remaining $remaining $unit',
+      'Remaining ${_formatQty(remaining)} $unit',
       style: TextStyle(
         color:
             remaining <= 0
@@ -2254,7 +2571,7 @@ Wrap(
           SizedBox(
             width: 65,
             child: Text(
-             '$remaining $unit',
+             '${_formatQty(remaining)} $unit',
               textAlign: TextAlign.right,
               maxLines: 1,
               style: const TextStyle(
@@ -2382,7 +2699,7 @@ Wrap(
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '$_selectedDateQuantity Ltr',
+                 '${_formatQty(_selectedDateQuantity)} Ltr',
                   maxLines: 1,
                   style: const TextStyle(
                     color: textDark,
@@ -2477,7 +2794,7 @@ Wrap(
                 const SizedBox(height: 16),
                 _summaryLine(
                   'Selected Date Quantity',
-                  '$_selectedDateQuantity Ltr',
+                 '${_formatQty(_selectedDateQuantity)} Ltr',
                   primaryBlue,
                 ),
                 const SizedBox(height: 8),
@@ -2489,7 +2806,9 @@ Wrap(
                 const SizedBox(height: 8),
           _summaryLine(
   'Total Allocated',
-  '$_totalAllocated',
+  _formatQty(
+  _totalAllocated,
+),
   primaryBlue,
 ),
 
@@ -2497,7 +2816,9 @@ const SizedBox(height: 8),
 
 _summaryLine(
   'Total Sold',
-  '$_totalSold',
+ _formatQty(
+  _totalSold,
+),
   green,
 ),
 
@@ -2505,7 +2826,9 @@ const SizedBox(height: 8),
 
 _summaryLine(
   'Total Returned',
-  '$_totalReturned',
+ _formatQty(
+  _totalReturned,
+),
   orange,
 ),
 
@@ -2513,7 +2836,9 @@ const SizedBox(height: 8),
 
 _summaryLine(
   'Remaining Quantity',
-  '$_totalPending',
+  _formatQty(
+  _totalPending,
+),
   purple,
 ),
                 const SizedBox(height: 8),

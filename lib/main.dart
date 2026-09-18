@@ -13,6 +13,7 @@ import 'screens/customers/customers_screen.dart';
 import 'screens/customer_rates/customer_rates_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/expenses/expenses_screen.dart';
+import 'screens/history/sales_collection_history_screen.dart';
 import 'screens/ledger/ledger_screen.dart';
 import 'screens/payments/payments_screen.dart';
 import 'screens/profile/profile_screen.dart';
@@ -78,10 +79,11 @@ class MilkDistributionApp extends StatelessWidget {
       '/expenses' => const ExpensesScreen(),
       '/settings' => const SettingsScreen(),
       '/profile' => const ProfileScreen(),
-   '/products' => const ProductsScreen(),
-'/salesmen' => const SalesmanManagementScreen(),
-'/suppliers' => const SupplierScreen(),
-_ => const DashboardScreen(),
+      '/products' => const ProductsScreen(),
+      '/salesmen' => const SalesmanManagementScreen(),
+      '/suppliers' => const SupplierScreen(),
+      '/sales-collection-history' => const SalesCollectionHistoryScreen(),
+      _ => const DashboardScreen(),
     };
     return _page(screen, settings);
   }

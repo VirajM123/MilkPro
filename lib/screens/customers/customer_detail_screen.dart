@@ -398,7 +398,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                         ),
                       ),
                       const Text(
-                        'Opening Balance',
+                        'Available Advance',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 10,
@@ -438,7 +438,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
                 _info(
                   Icons.account_balance_wallet_outlined,
-                  'Opening Balance',
+                  'Available Advance',
                   '₹${customer.balance.toStringAsFixed(2)}',
                 ),
 
@@ -446,10 +446,16 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
                 _info(
                   Icons.receipt_long_outlined,
-                  'Current Ledger Balance',
+
+                  'Current Account Position',
+
                   _loadingLedger
                       ? 'Loading...'
-                      : '₹${_ledgerBalance.toStringAsFixed(2)}',
+                      : _ledgerBalance > 0.001
+                      ? '₹${_ledgerBalance.toStringAsFixed(2)} Due'
+                      : _ledgerBalance < -0.001
+                      ? '₹${_ledgerBalance.abs().toStringAsFixed(2)} Advance'
+                      : 'Settled',
                 ),
               ],
             ),
@@ -503,11 +509,22 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                     SizedBox(
                       width: width,
                       child: _accountSummaryCard(
-                        label: 'Outstanding',
-                        value: _ledgerBalance,
-                        icon: Icons.account_balance_wallet_outlined,
-                        color: AppColors.warning,
-                      ),
+  label:
+      'Outstanding',
+
+  value:
+      _ledgerBalance >
+              0
+          ? _ledgerBalance
+          : 0,
+
+  icon:
+      Icons
+          .account_balance_wallet_outlined,
+
+  color:
+      AppColors.warning,
+),
                     ),
 
                     SizedBox(
@@ -519,6 +536,32 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                         color: AppColors.success,
                       ),
                     ),
+                    SizedBox(
+  width:
+      width,
+
+  child:
+      _accountSummaryCard(
+    label:
+        'Net Advance',
+
+    value:
+        _ledgerBalance <
+                0
+            ? _ledgerBalance
+                .abs()
+            : 0,
+
+    icon:
+        Icons
+            .savings_outlined,
+
+    color:
+        const Color(
+      0xFF2563EB,
+    ),
+  ),
+),
                   ],
                 );
               },
@@ -1106,17 +1149,47 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                     const SizedBox(height: 8),
 
                     ...allocations.map((allocation) {
-                      final String saleNo =
-                          (allocation['saleNo'] ?? allocation['saleId'] ?? '-')
-                              .toString();
+                  final sourceType =
+    (
+      allocation[
+              'sourceType'] ??
+          'SALE'
+    )
+        .toString()
+        .toUpperCase();
 
-                      final double applied = _number(
-                        allocation['amountApplied'],
-                      );
 
-                      return _detailAmountRow(
-                        saleNo,
-                        applied,
+final reference =
+    (
+      allocation[
+              'referenceNo'] ??
+          allocation[
+              'saleNo'] ??
+          allocation[
+              'referenceId'] ??
+          allocation[
+              'saleId'] ??
+          '-'
+    ).toString();
+
+
+final applied =
+    _number(
+  allocation[
+      'amountApplied'],
+);
+
+
+final label =
+    sourceType ==
+            'MANUAL_OUTSTANDING'
+        ? 'Manual • $reference'
+        : 'Sale • $reference';
+
+
+return _detailAmountRow(
+  label,
+  applied,
                         valueColor: AppColors.success,
                       );
                     }),
@@ -1177,11 +1250,33 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                   SizedBox(
                     width: width,
                     child: _ledgerSummary(
-                      'Outstanding',
-                      _ledgerBalance,
-                      AppColors.warning,
-                    ),
+  'Outstanding',
+  _ledgerBalance >
+          0
+      ? _ledgerBalance
+      : 0,
+  AppColors.warning,
+),
                   ),
+                  SizedBox(
+  width:
+      width,
+
+  child:
+      _ledgerSummary(
+    'Net Advance',
+
+    _ledgerBalance <
+            0
+        ? _ledgerBalance
+            .abs()
+        : 0,
+
+    const Color(
+      0xFF2563EB,
+    ),
+  ),
+),
 
                   SizedBox(
                     width: width,
@@ -1218,250 +1313,330 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     );
   }
 
- Widget _ledgerEntry(
-  Map<String, dynamic> entry,
+  Widget _ledgerEntry(Map<String, dynamic> entry) {
+    final String type = (entry['type'] ?? '').toString().toUpperCase();
+
+    if (type == 'SALE') {
+      return _customerLedgerSale(entry);
+    }
+
+   if (
+  type ==
+  'COLLECTION'
 ) {
-  final String type =
-      (entry['type'] ?? '')
-          .toString()
-          .toUpperCase();
-
-  if (type == 'SALE') {
-    return _customerLedgerSale(
-      entry,
-    );
-  }
-
-  if (type == 'COLLECTION') {
-    return _customerLedgerCollection(
-      entry,
-    );
-  }
-
-  return const SizedBox.shrink();
+  return _customerLedgerCollection(
+    entry,
+  );
 }
-Widget _customerLedgerSale(
-  Map<String, dynamic> entry,
+
+
+if (
+  type ==
+  'MANUAL_OUTSTANDING'
 ) {
-  final List<Map<String, dynamic>> products =
-      entry['products'] is List
-          ? (entry['products'] as List)
-              .whereType<Map>()
-              .map(
-                (item) =>
-                    Map<String, dynamic>.from(
-                  item,
-                ),
-              )
-              .toList()
-          : <Map<String, dynamic>>[];
+  return _customerLedgerManualOutstanding(
+    entry,
+  );
+}
 
-  final List<Map<String, dynamic>> payments =
-      entry['payments'] is List
-          ? (entry['payments'] as List)
-              .whereType<Map>()
-              .map(
-                (item) =>
-                    Map<String, dynamic>.from(
-                  item,
-                ),
-              )
-              .toList()
-          : <Map<String, dynamic>>[];
 
-  final String salesman =
-      (entry['salesmanName'] ?? '')
-          .toString();
+return const SizedBox
+    .shrink();
+  }
 
-  final double billAmount =
+Widget
+    _customerLedgerManualOutstanding(
+  Map<String, dynamic>
+      entry,
+) {
+  final amount =
       _number(
-    entry['billAmount'] ??
+    entry['debit'] ??
         entry['amount'],
   );
 
-  final double paid =
-      _number(
-    entry['paidAmount'],
-  );
 
-  final double outstanding =
-      _number(
-    entry['outstandingAmount'],
-  );
+  final adjustmentNo =
+      (
+        entry[
+                'adjustmentNo'] ??
+            entry[
+                'referenceNo'] ??
+            entry[
+                'adjustmentId'] ??
+            'Manual Outstanding'
+      ).toString();
 
-  final double running =
-      _number(
-    entry['balance'],
-  );
+
+  final remarks =
+      (
+        entry['reference'] ??
+        ''
+      ).toString();
+
 
   return Card(
     margin:
         const EdgeInsets.only(
-      bottom: 12,
+      bottom: 10,
     ),
+
     child: Padding(
       padding:
           const EdgeInsets.all(
         14,
       ),
+
       child: Column(
         crossAxisAlignment:
-            CrossAxisAlignment.start,
+            CrossAxisAlignment
+                .start,
+
         children: [
           Row(
             children: [
-              Container(
-                height: 38,
-                width: 38,
-                decoration:
-                    BoxDecoration(
-                  color:
-                      AppColors.primarySoft,
-                  borderRadius:
-                      BorderRadius.circular(
-                    10,
-                  ),
-                ),
-                child: const Icon(
-                  Icons
-                      .receipt_long_outlined,
-                  color:
-                      AppColors.primary,
-                  size: 19,
-                ),
+              const Icon(
+                Icons
+                    .post_add_outlined,
+
+                color:
+                    AppColors.error,
+
+                size:
+                    19,
               ),
 
               const SizedBox(
-                width: 10,
+                width: 8,
               ),
 
               Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      (entry['referenceNo'] ??
-                              'Sale')
-                          .toString(),
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(
-                        fontWeight:
-                            FontWeight.w900,
-                        fontSize: 13,
-                      ),
-                    ),
+                child: Text(
+                  adjustmentNo,
 
-                    const SizedBox(
-                      height: 2,
-                    ),
+                  style:
+                      const TextStyle(
+                    fontWeight:
+                        FontWeight
+                            .w800,
+                  ),
+                ),
+              ),
 
-                    Text(
-                      _formatDate(
-                        entry['date'],
-                      ),
-                      style:
-                          const TextStyle(
-                        color:
-                            AppColors
-                                .textSecondary,
-                        fontSize: 9.5,
-                      ),
-                    ),
-                  ],
+              Text(
+                '₹${amount.toStringAsFixed(2)}',
+
+                style:
+                    const TextStyle(
+                  color:
+                      AppColors.error,
+
+                  fontWeight:
+                      FontWeight
+                          .w900,
                 ),
               ),
             ],
           ),
 
-          if (salesman
-              .trim()
-              .isNotEmpty) ...[
+          const SizedBox(
+            height: 6,
+          ),
+
+          const Text(
+            'Manual / Opening Outstanding',
+
+            style:
+                TextStyle(
+              color:
+                  AppColors
+                      .textSecondary,
+
+              fontSize:
+                  10,
+            ),
+          ),
+
+          if (
+            remarks
+                .trim()
+                .isNotEmpty
+          ) ...[
             const SizedBox(
-              height: 10,
+              height: 6,
             ),
 
-            _paymentDetailRow(
-              'Salesman',
-              salesman,
+            Text(
+              remarks,
+
+              style:
+                  const TextStyle(
+                color:
+                    AppColors
+                        .textSecondary,
+
+                fontSize:
+                    10.5,
+              ),
             ),
           ],
 
-          if (products.isNotEmpty) ...[
-            const Divider(
-              height: 22,
+          if (
+            entry['date'] !=
+            null
+          ) ...[
+            const SizedBox(
+              height: 7,
             ),
 
-            ...products.map(
-              (product) {
-                final double quantity =
-                    _number(
-                  product['quantity'],
-                );
+            Text(
+              _formatDate(
+                entry['date'],
+              ),
 
-                final double rate =
-                    _number(
-                  product['rate'],
-                );
+              style:
+                  const TextStyle(
+                color:
+                    AppColors
+                        .textSecondary,
 
-                final double amount =
-                    _number(
-                  product['amount'],
-                );
+                fontSize:
+                    10,
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+  Widget _customerLedgerSale(Map<String, dynamic> entry) {
+    final List<Map<String, dynamic>> products = entry['products'] is List
+        ? (entry['products'] as List)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
 
-                final String name =
-                    (product['productName'] ??
-                            'Product')
-                        .toString();
+    final List<Map<String, dynamic>> payments = entry['payments'] is List
+        ? (entry['payments'] as List)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
 
-                final String unit =
-                    (product['unit'] ?? '')
-                        .toString();
+    final String salesman = (entry['salesmanName'] ?? '').toString();
+
+    final double billAmount = _number(entry['billAmount'] ?? entry['amount']);
+
+    final double paid = _number(entry['paidAmount']);
+
+    final double outstanding = _number(entry['outstandingAmount']);
+
+    final double running = _number(entry['balance']);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  height: 38,
+                  width: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.receipt_long_outlined,
+                    color: AppColors.primary,
+                    size: 19,
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (entry['referenceNo'] ?? 'Sale').toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
+                      ),
+
+                      const SizedBox(height: 2),
+
+                      Text(
+                        _formatDate(entry['date']),
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 9.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            if (salesman.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+
+              _paymentDetailRow('Salesman', salesman),
+            ],
+
+            if (products.isNotEmpty) ...[
+              const Divider(height: 22),
+
+              ...products.map((product) {
+                final double quantity = _number(product['quantity']);
+
+                final double rate = _number(product['rate']);
+
+                final double amount = _number(product['amount']);
+
+                final String name = (product['productName'] ?? 'Product')
+                    .toString();
+
+                final String unit = (product['unit'] ?? '').toString();
 
                 return Padding(
-                  padding:
-                      const EdgeInsets.only(
-                    bottom: 8,
-                  ),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               name,
                               maxLines: 2,
-                              overflow:
-                                  TextOverflow
-                                      .ellipsis,
-                              style:
-                                  const TextStyle(
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
                                 fontSize: 10.5,
-                                fontWeight:
-                                    FontWeight.w700,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
 
-                            const SizedBox(
-                              height: 2,
-                            ),
+                            const SizedBox(height: 2),
 
                             Text(
                               '${_qtyText(quantity)}'
                               '${unit.trim().isEmpty ? '' : ' $unit'}'
                               ' × ₹${rate.toStringAsFixed(2)}',
-                              style:
-                                  const TextStyle(
-                                color:
-                                    AppColors
-                                        .textSecondary,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
                                 fontSize: 9.5,
                               ),
                             ),
@@ -1469,296 +1644,183 @@ Widget _customerLedgerSale(
                         ),
                       ),
 
-                      const SizedBox(
-                        width: 10,
-                      ),
+                      const SizedBox(width: 10),
 
                       Text(
                         '₹${amount.toStringAsFixed(2)}',
-                        style:
-                            const TextStyle(
+                        style: const TextStyle(
                           fontSize: 11,
-                          fontWeight:
-                              FontWeight.w800,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
                   ),
                 );
-              },
-            ),
-          ],
-
-          const Divider(
-            height: 20,
-          ),
-
-          _detailAmountRow(
-            'Bill Total',
-            billAmount,
-            strong: true,
-          ),
-
-          if (payments.isNotEmpty)
-            ...payments.map(
-              (payment) =>
-                  _detailAmountRow(
-                (payment['mode'] ??
-                        payment[
-                            'paymentMode'] ??
-                        'Payment')
-                    .toString(),
-                _number(
-                  payment['amount'],
-                ),
-                valueColor:
-                    AppColors.success,
-              ),
-            ),
-
-          _detailAmountRow(
-            'Received',
-            paid,
-            valueColor:
-                AppColors.success,
-          ),
-
-          _detailAmountRow(
-            'Bill Outstanding',
-            outstanding,
-            strong: true,
-            valueColor:
-                outstanding > 0
-                    ? AppColors.warning
-                    : AppColors.success,
-          ),
-
-          const Divider(
-            height: 20,
-          ),
-
-          _detailAmountRow(
-            'Running Outstanding',
-            running,
-            strong: true,
-            valueColor:
-                running > 0
-                    ? AppColors.warning
-                    : AppColors.success,
-          ),
-        ],
-      ),
-    ),
-  );
-}
-Widget _customerLedgerCollection(
-  Map<String, dynamic> entry,
-) {
-  final List<Map<String, dynamic>> allocations =
-      entry['allocations'] is List
-          ? (entry['allocations'] as List)
-              .whereType<Map>()
-              .map(
-                (item) =>
-                    Map<String, dynamic>.from(
-                  item,
-                ),
-              )
-              .toList()
-          : <Map<String, dynamic>>[];
-
-  final double amount =
-      _number(
-    entry['credit'],
-  );
-
-  final double running =
-      _number(
-    entry['balance'],
-  );
-
-  final String salesman =
-      (entry['salesmanName'] ?? '')
-          .toString();
-
-  return Card(
-    margin:
-        const EdgeInsets.only(
-      bottom: 12,
-    ),
-    child: Padding(
-      padding:
-          const EdgeInsets.all(
-        14,
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                height: 38,
-                width: 38,
-                decoration:
-                    BoxDecoration(
-                  color: const Color(
-                    0xFFE8F8EE,
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(
-                    10,
-                  ),
-                ),
-                child: const Icon(
-                  Icons
-                      .payments_outlined,
-                  color:
-                      AppColors.success,
-                  size: 19,
-                ),
-              ),
-
-              const SizedBox(
-                width: 10,
-              ),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      (entry['referenceNo'] ??
-                              'Payment Received')
-                          .toString(),
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow.ellipsis,
-                      style:
-                          const TextStyle(
-                        fontWeight:
-                            FontWeight.w900,
-                        fontSize: 13,
-                      ),
-                    ),
-
-                    Text(
-                      _formatDate(
-                        entry['date'],
-                      ),
-                      style:
-                          const TextStyle(
-                        color:
-                            AppColors
-                                .textSecondary,
-                        fontSize: 9.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(
-                width: 8,
-              ),
-
-              Text(
-                '₹${amount.toStringAsFixed(2)}',
-                style:
-                    const TextStyle(
-                  color:
-                      AppColors.success,
-                  fontSize: 14,
-                  fontWeight:
-                      FontWeight.w900,
-                ),
-              ),
+              }),
             ],
-          ),
 
-          const SizedBox(
-            height: 12,
-          ),
+            const Divider(height: 20),
 
-          _paymentDetailRow(
-            'Mode',
-            (entry['paymentMode'] ??
-                    '-')
-                .toString(),
-          ),
+            _detailAmountRow('Bill Total', billAmount, strong: true),
 
-          if (salesman
-              .trim()
-              .isNotEmpty) ...[
-            const SizedBox(
-              height: 6,
+            if (payments.isNotEmpty)
+              ...payments.map(
+                (payment) => _detailAmountRow(
+                  (payment['mode'] ?? payment['paymentMode'] ?? 'Payment')
+                      .toString(),
+                  _number(payment['amount']),
+                  valueColor: AppColors.success,
+                ),
+              ),
+
+            _detailAmountRow('Received', paid, valueColor: AppColors.success),
+
+            _detailAmountRow(
+              'Bill Outstanding',
+              outstanding,
+              strong: true,
+              valueColor: outstanding > 0
+                  ? AppColors.warning
+                  : AppColors.success,
             ),
 
-            _paymentDetailRow(
-              'Collected By',
-              salesman,
+            const Divider(height: 20),
+
+            _detailAmountRow(
+              'Running Outstanding',
+              running,
+              strong: true,
+              valueColor: running > 0 ? AppColors.warning : AppColors.success,
             ),
           ],
+        ),
+      ),
+    );
+  }
 
-          if (allocations.isNotEmpty) ...[
-            const Divider(
-              height: 22,
+  Widget _customerLedgerCollection(Map<String, dynamic> entry) {
+    final List<Map<String, dynamic>> allocations = entry['allocations'] is List
+        ? (entry['allocations'] as List)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+
+    final double amount = _number(entry['credit']);
+
+    final double running = _number(entry['balance']);
+
+    final String salesman = (entry['salesmanName'] ?? '').toString();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  height: 38,
+                  width: 38,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F8EE),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.payments_outlined,
+                    color: AppColors.success,
+                    size: 19,
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (entry['referenceNo'] ?? 'Payment Received').toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
+                      ),
+
+                      Text(
+                        _formatDate(entry['date']),
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 9.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                Text(
+                  '₹${amount.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    color: AppColors.success,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
             ),
 
-            const Text(
-              'Applied Bills',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight:
-                    FontWeight.w800,
+            const SizedBox(height: 12),
+
+            _paymentDetailRow('Mode', (entry['paymentMode'] ?? '-').toString()),
+
+            if (salesman.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+
+              _paymentDetailRow('Collected By', salesman),
+            ],
+
+            if (allocations.isNotEmpty) ...[
+              const Divider(height: 22),
+
+  const Text(
+  'Applied Outstanding',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
               ),
-            ),
 
-            const SizedBox(
-              height: 8,
-            ),
+              const SizedBox(height: 8),
 
-            ...allocations.map(
-              (allocation) {
+              ...allocations.map((allocation) {
                 final String bill =
-                    (
-                      allocation['saleNo'] ??
-                      allocation['saleId'] ??
-                      '-'
-                    ).toString();
+                    (allocation['saleNo'] ?? allocation['saleId'] ?? '-')
+                        .toString();
 
                 return _detailAmountRow(
                   bill,
-                  _number(
-                    allocation[
-                        'amountApplied'],
-                  ),
-                  valueColor:
-                      AppColors.success,
+                  _number(allocation['amountApplied']),
+                  valueColor: AppColors.success,
                 );
-              },
+              }),
+            ],
+
+            const Divider(height: 20),
+
+            _detailAmountRow(
+              'Outstanding After Payment',
+              running,
+              strong: true,
+              valueColor: running > 0 ? AppColors.warning : AppColors.success,
             ),
           ],
-
-          const Divider(
-            height: 20,
-          ),
-
-          _detailAmountRow(
-            'Outstanding After Payment',
-            running,
-            strong: true,
-            valueColor:
-                running > 0
-                    ? AppColors.warning
-                    : AppColors.success,
-          ),
-        ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _detailAmountRow(
     String label,

@@ -106,6 +106,12 @@ static String productById(
   static const String salesmanDefaultPermissions =
       '$baseUrl/api/settings/salesman-permissions';
 
+  // History
+  static const String historySummary =
+      '$baseUrl/api/history/sales-collection-summary';
+  static const String historySalesmanDetails =
+      '$baseUrl/api/history/salesman-details';
+
   // Current session
   static String token = '';
   static String farmId = '';

@@ -54,100 +54,180 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
 
   String get _editingAllocationId =>
       (widget.existingAllocation?['allocationId'] ?? '').toString().trim();
+      double _asDouble(dynamic value) {
+  if (value is num) {
+    return value.toDouble();
+  }
 
-  bool get _hasExistingActivity {
-    final dynamic rawProducts = widget.existingAllocation?['products'];
+  return double.tryParse(
+        value?.toString().trim() ?? '',
+      ) ??
+      0.0;
+}
 
-    if (rawProducts is! List) {
-      return false;
-    }
+String _formatQty(num value) {
+  final double number =
+      value.toDouble();
 
-    for (final dynamic raw in rawProducts) {
-      if (raw is! Map) {
-        continue;
-      }
+  if (number ==
+      number.roundToDouble()) {
+    return number.toStringAsFixed(0);
+  }
 
-      final int sold =
-          int.tryParse(raw['soldQuantity']?.toString() ?? '0') ?? 0;
+  return number
+      .toStringAsFixed(2)
+      .replaceFirst(
+        RegExp(r'0+$'),
+        '',
+      )
+      .replaceFirst(
+        RegExp(r'\.$'),
+        '',
+      );
+}
 
-      final int returned =
-          int.tryParse(raw['returnedQuantity']?.toString() ?? '0') ?? 0;
+bool get _hasExistingActivity {
+  final dynamic rawProducts =
+      widget.existingAllocation?[
+          'products'];
 
-      if (sold > 0 || returned > 0) {
-        return true;
-      }
-    }
-
+  if (rawProducts is! List) {
     return false;
   }
 
-  int _oldAllocatedQuantity(String productId) {
-    final dynamic rawProducts = widget.existingAllocation?['products'];
-
-    if (rawProducts is! List) {
-      return 0;
+  for (
+    final dynamic raw
+    in rawProducts
+  ) {
+    if (raw is! Map) {
+      continue;
     }
 
-    for (final dynamic raw in rawProducts) {
-      if (raw is! Map) {
-        continue;
-      }
+    final double sold =
+        _asDouble(
+          raw['soldQuantity'],
+        );
 
-      final String id = (raw['productId'] ?? '').toString().trim();
+    final double returned =
+        _asDouble(
+          raw['returnedQuantity'],
+        );
 
-      if (id == productId) {
-        return int.tryParse(raw['quantity']?.toString() ?? '0') ?? 0;
-      }
+    if (
+      sold > 0 ||
+      returned > 0
+    ) {
+      return true;
     }
+  }
 
+  return false;
+}
+
+double _oldAllocatedQuantity(
+  String productId,
+) {
+  final dynamic rawProducts =
+      widget.existingAllocation?[
+          'products'];
+
+  if (rawProducts is! List) {
     return 0;
   }
 
-  int _minimumAllowedQuantity(String productId) {
-    final dynamic rawProducts = widget.existingAllocation?['products'];
-
-    if (rawProducts is! List) {
-      return 0;
+  for (
+    final dynamic raw
+    in rawProducts
+  ) {
+    if (raw is! Map) {
+      continue;
     }
 
-    for (final dynamic raw in rawProducts) {
-      if (raw is! Map) {
-        continue;
-      }
+    final String id =
+        (
+          raw['productId'] ??
+          ''
+        )
+            .toString()
+            .trim();
 
-      final String id = (raw['productId'] ?? '').toString().trim();
-
-      if (id != productId) {
-        continue;
-      }
-
-      final int sold =
-          int.tryParse(raw['soldQuantity']?.toString() ?? '0') ?? 0;
-
-      final int returned =
-          int.tryParse(raw['returnedQuantity']?.toString() ?? '0') ?? 0;
-
-      return sold + returned;
+    if (id == productId) {
+      return _asDouble(
+        raw['quantity'],
+      );
     }
+  }
 
+  return 0;
+}
+
+double _minimumAllowedQuantity(
+  String productId,
+) {
+  final dynamic rawProducts =
+      widget.existingAllocation?[
+          'products'];
+
+  if (rawProducts is! List) {
     return 0;
   }
 
-  int _maximumAllowedQuantity(Map<String, dynamic> product) {
-    final String productId = _productId(product);
-
-    final int warehouseStock = _productStock(product).toInt();
-
-    if (!_isEditing) {
-      return warehouseStock;
+  for (
+    final dynamic raw
+    in rawProducts
+  ) {
+    if (raw is! Map) {
+      continue;
     }
 
-    // Existing allocated quantity is already outside
-    // MAS_PRODUCT stock, so it must be added back only
-    // for edit validation.
-    return warehouseStock + _oldAllocatedQuantity(productId);
+    final String id =
+        (
+          raw['productId'] ??
+          ''
+        )
+            .toString()
+            .trim();
+
+    if (id != productId) {
+      continue;
+    }
+
+    final double sold =
+        _asDouble(
+          raw['soldQuantity'],
+        );
+
+    final double returned =
+        _asDouble(
+          raw['returnedQuantity'],
+        );
+
+    return sold +
+        returned;
   }
 
+  return 0;
+}
+
+double _maximumAllowedQuantity(
+  Map<String, dynamic> product,
+) {
+  final String productId =
+      _productId(product);
+
+  final double warehouseStock =
+      _productStock(product)
+          .toDouble();
+
+  if (!_isEditing) {
+    return warehouseStock;
+  }
+
+  return warehouseStock +
+      _oldAllocatedQuantity(
+        productId,
+      );
+}
   // ============================================================
   // PRODUCT HELPERS
   // ============================================================
@@ -227,9 +307,14 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
       if (!_selectedProductIds.contains(productId)) {
         continue;
       }
-
-      final int quantity =
-          int.tryParse(_quantities[productId]?.text ?? '') ?? 0;
+final double quantity =
+    double.tryParse(
+      _quantities[productId]
+              ?.text
+              .trim() ??
+          '',
+    ) ??
+    0;
 
       if (quantity <= 0) {
         continue;
@@ -249,7 +334,10 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
 
   String get _summaryText {
     final String totals = _unitTotals.entries
-        .map((entry) => '${entry.value} ${entry.key}')
+        .map(
+  (entry) =>
+      '${_formatQty(entry.value)} ${entry.key}',
+)
         .join(' • ');
 
     return totals.isEmpty ? 'No quantity entered' : totals;
@@ -333,8 +421,10 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
 
         final String productId = (raw['productId'] ?? '').toString().trim();
 
-        final int quantity =
-            int.tryParse(raw['quantity']?.toString() ?? '0') ?? 0;
+      final double quantity =
+    _asDouble(
+      raw['quantity'],
+    );
 
         if (productId.isEmpty || quantity <= 0) {
           continue;
@@ -346,7 +436,10 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
 
         _selectedProductIds.add(productId);
 
-        _quantities[productId]!.text = quantity.toString();
+       _quantities[productId]!.text =
+    _formatQty(
+      quantity,
+    );
       }
     }
   }
@@ -405,29 +498,58 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
     });
   }
 
-  void _changeQuantity(Map<String, dynamic> product, int change) {
-    final String productId = _productId(product);
+  void _changeQuantity(
+  Map<String, dynamic> product,
+  double change,
+) {
+  final String productId =
+      _productId(product);
 
-    final TextEditingController controller = _quantities[productId]!;
+  final TextEditingController
+      controller =
+      _quantities[productId]!;
 
-    final int current = int.tryParse(controller.text) ?? 0;
+  final double current =
+      double.tryParse(
+        controller.text.trim(),
+      ) ??
+      0;
 
-    final int maximumQuantity = _maximumAllowedQuantity(product);
+  final double maximumQuantity =
+      _maximumAllowedQuantity(
+        product,
+      );
 
-    final int minimumQuantity = _isEditing
-        ? _minimumAllowedQuantity(productId)
-        : 0;
+  final double minimumQuantity =
+      _isEditing
+          ? _minimumAllowedQuantity(
+              productId,
+            )
+          : 0;
 
-    final int next = (current + change).clamp(minimumQuantity, maximumQuantity);
+  final double next =
+      (current + change)
+          .clamp(
+            minimumQuantity,
+            maximumQuantity,
+          )
+          .toDouble();
 
-    setState(() {
-      controller.text = next == 0 ? '' : '$next';
+  setState(() {
+    controller.text =
+        next <= 0
+            ? ''
+            : _formatQty(
+                next,
+              );
 
-      if (next > 0) {
-        _selectedProductIds.add(productId);
-      }
-    });
-  }
+    if (next > 0) {
+      _selectedProductIds.add(
+        productId,
+      );
+    }
+  });
+}
 
   // ============================================================
   // ROUTE CHANGE
@@ -497,19 +619,30 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
 
       final String productName = _productName(product);
 
-      final int quantity =
-          int.tryParse(_quantities[productId]?.text.trim() ?? '') ?? 0;
+  final double quantity =
+    double.tryParse(
+      _quantities[productId]
+              ?.text
+              .trim() ??
+          '',
+    ) ??
+    0;
 
       if (quantity <= 0) {
         _message('Enter a quantity for $productName.');
         return;
       }
+final double maximumQuantity =
+    _maximumAllowedQuantity(
+      product,
+    );
 
-      final int maximumQuantity = _maximumAllowedQuantity(product);
-
-      final int minimumQuantity = _isEditing
-          ? _minimumAllowedQuantity(productId)
-          : 0;
+final double minimumQuantity =
+    _isEditing
+        ? _minimumAllowedQuantity(
+            productId,
+          )
+        : 0;
 
       if (quantity > maximumQuantity) {
         _message(
@@ -1366,13 +1499,31 @@ if (response.statusCode !=
 
     final String unit = _productUnit(product);
 
-    final num stock = _productStock(product);
+final double stock =
+    _productStock(product)
+        .toDouble();
 
-    final bool selected = _selectedProductIds.contains(productId);
+final bool selected =
+    _selectedProductIds
+        .contains(productId);
 
-    final int quantity = int.tryParse(_quantities[productId]?.text ?? '') ?? 0;
+final double quantity =
+    double.tryParse(
+      _quantities[productId]
+              ?.text
+              .trim() ??
+          '',
+    ) ??
+    0;
 
-    final bool exceedsStock = quantity > stock;
+final double maxAllowed =
+    _maximumAllowedQuantity(
+      product,
+    );
+
+final bool exceedsStock =
+    quantity >
+    maxAllowed;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1414,7 +1565,7 @@ if (response.statusCode !=
                       const SizedBox(height: 3),
                       Text(
                         '${variant.isEmpty ? 'Standard' : variant} • Available: '
-                        '${stock.toStringAsFixed(0)} $unit',
+                        '${_formatQty(stock)} $unit',
                         style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,
@@ -1443,11 +1594,33 @@ if (response.statusCode !=
                               controller: _quantities[productId],
                               enabled: !_saving,
                               textAlign: TextAlign.center,
-                              keyboardType: TextInputType.number,
-                              textInputAction: TextInputAction.next,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                              ],
+                            keyboardType:
+    const TextInputType
+        .numberWithOptions(
+      decimal: true,
+      signed: false,
+    ),
+
+inputFormatters: [
+  TextInputFormatter
+      .withFunction(
+    (
+      oldValue,
+      newValue,
+    ) {
+      final bool valid =
+          RegExp(
+            r'^\d*\.?\d{0,2}$',
+          ).hasMatch(
+            newValue.text,
+          );
+
+      return valid
+          ? newValue
+          : oldValue;
+    },
+  ),
+],
                               onChanged: (_) {
                                 setState(() {});
                               },

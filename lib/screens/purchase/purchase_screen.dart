@@ -51,6 +51,23 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   String? _editingPurchaseNo;
 
   final List<_PurchaseRecord> _savedPurchases = [];
+  // ============================================================
+// PURCHASE HISTORY FILTERS
+// ============================================================
+
+final TextEditingController
+    _purchaseHistorySearchController =
+    TextEditingController();
+
+String _purchaseHistorySearch = '';
+
+String _purchasePeriodFilter = 'all';
+
+String _purchaseSupplierFilter = 'all';
+
+String _purchasePaymentFilter = 'all';
+
+String _purchaseStatusFilter = 'all';
 
   DateTime purchaseDate = DateTime(2026, 8, 20);
   DateTime billDate = DateTime(2026, 8, 20);
@@ -144,6 +161,187 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
         .toList(growable: false);
   }
 
+// ============================================================
+// PURCHASE HISTORY FILTER HELPERS
+// ============================================================
+
+bool _isSameDay(
+  DateTime first,
+  DateTime second,
+) {
+  return first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
+}
+
+List<_PurchaseRecord>
+    get _filteredPurchaseHistory {
+  final DateTime now =
+      DateTime.now();
+
+  final String query =
+      _purchaseHistorySearch
+          .trim()
+          .toLowerCase();
+
+  return _savedPurchases.where(
+    (purchase) {
+      final DateTime purchaseLocalDate =
+          purchase.date.toLocal();
+
+      // ========================================================
+      // PERIOD
+      // ========================================================
+
+      bool matchesPeriod = true;
+
+      if (
+        _purchasePeriodFilter ==
+        'today'
+      ) {
+        matchesPeriod =
+            _isSameDay(
+          purchaseLocalDate,
+          now,
+        );
+      } else if (
+        _purchasePeriodFilter ==
+        'month'
+      ) {
+        matchesPeriod =
+            purchaseLocalDate.year ==
+                now.year &&
+            purchaseLocalDate.month ==
+                now.month;
+      }
+
+      if (!matchesPeriod) {
+        return false;
+      }
+
+      // ========================================================
+      // SEARCH
+      // ========================================================
+
+      final String productText =
+          purchase.products
+              .map(
+                (product) =>
+                    '${product.name} '
+                    '${product.description} '
+                    '${product.productId}',
+              )
+              .join(' ')
+              .toLowerCase();
+
+      final bool matchesSearch =
+          query.isEmpty ||
+              purchase.number
+                  .toLowerCase()
+                  .contains(query) ||
+              purchase.purchaseId
+                  .toLowerCase()
+                  .contains(query) ||
+              purchase.invoice
+                  .toLowerCase()
+                  .contains(query) ||
+              purchase.supplier
+                  .toLowerCase()
+                  .contains(query) ||
+              purchase.paymentType
+                  .toLowerCase()
+                  .contains(query) ||
+              purchase.godown
+                  .toLowerCase()
+                  .contains(query) ||
+              productText.contains(
+                query,
+              );
+
+      if (!matchesSearch) {
+        return false;
+      }
+
+      // ========================================================
+      // SUPPLIER
+      // ========================================================
+
+      final bool matchesSupplier =
+          _purchaseSupplierFilter ==
+                  'all' ||
+              purchase.supplierId ==
+                  _purchaseSupplierFilter;
+
+      if (!matchesSupplier) {
+        return false;
+      }
+
+      // ========================================================
+      // PAYMENT TYPE
+      // ========================================================
+
+      final bool matchesPayment =
+          _purchasePaymentFilter ==
+                  'all' ||
+              purchase.paymentType
+                      .toLowerCase() ==
+                  _purchasePaymentFilter
+                      .toLowerCase();
+
+      if (!matchesPayment) {
+        return false;
+      }
+
+      // ========================================================
+      // STATUS
+      // ========================================================
+
+      final String status =
+          purchase.status
+              .trim()
+              .toUpperCase();
+
+      final bool matchesStatus =
+          _purchaseStatusFilter ==
+                  'all' ||
+              status ==
+                  _purchaseStatusFilter;
+
+      return matchesStatus;
+    },
+  ).toList();
+}
+
+bool get _hasPurchaseHistoryFilters =>
+    _purchasePeriodFilter != 'all' ||
+    _purchaseSupplierFilter != 'all' ||
+    _purchasePaymentFilter != 'all' ||
+    _purchaseStatusFilter != 'all' ||
+    _purchaseHistorySearch
+        .trim()
+        .isNotEmpty;
+
+void _clearPurchaseHistoryFilters() {
+  setState(() {
+    _purchasePeriodFilter =
+        'all';
+
+    _purchaseSupplierFilter =
+        'all';
+
+    _purchasePaymentFilter =
+        'all';
+
+    _purchaseStatusFilter =
+        'all';
+
+    _purchaseHistorySearch =
+        '';
+
+    _purchaseHistorySearchController
+        .clear();
+  });
+}
   // ============================================================
   // DATE
   // ============================================================
@@ -378,9 +576,13 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
             number: map['purchaseNo']?.toString() ?? '',
 
-            date:
-                DateTime.tryParse(map['purchaseDate']?.toString() ?? '') ??
-                DateTime.now(),
+          date:
+    DateTime.tryParse(
+      map['purchaseDate']
+              ?.toString() ??
+          '',
+    )?.toLocal() ??
+    DateTime.now(),
 
             supplierId: map['supplierId']?.toString() ?? '',
 
@@ -388,15 +590,23 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
             invoice: map['invoiceNo']?.toString() ?? '',
 
-            billDate:
-                DateTime.tryParse(map['billDate']?.toString() ?? '') ??
-                DateTime.now(),
+          billDate:
+    DateTime.tryParse(
+      map['billDate']
+              ?.toString() ??
+          '',
+    )?.toLocal() ??
+    DateTime.now(),
 
             paymentType: map['paymentType']?.toString() ?? 'Credit',
 
-            dueDate:
-                DateTime.tryParse(map['dueDate']?.toString() ?? '') ??
-                DateTime.now(),
+           dueDate:
+    DateTime.tryParse(
+      map['dueDate']
+              ?.toString() ??
+          '',
+    )?.toLocal() ??
+    DateTime.now(),
 
             godown: map['godown']?.toString() ?? 'Main Godown',
 
@@ -1231,221 +1441,1066 @@ Future<void> _savePurchase() async {
       ),
     );
   }
+  Future<void>
+    _openPurchaseHistoryFilters() async {
+  String tempSupplier =
+      _purchaseSupplierFilter;
 
-  Widget _buildPurchaseHistory() {
-    final total = _savedPurchases.fold<double>(
-      0,
-      (sum, purchase) => sum + purchase.amount,
-    );
-    return Scaffold(
-      backgroundColor: pageBackground,
-      appBar: AppBar(
-        toolbarHeight: 86,
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        leadingWidth: 58,
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back_rounded, size: 28),
-        ),
-        titleSpacing: 2,
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              'My Purchases',
-              style: TextStyle(
-                color: textBlue,
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
+  String tempPayment =
+      _purchasePaymentFilter;
+
+  String tempStatus =
+      _purchaseStatusFilter;
+
+  final Map<String, String>
+      supplierOptions =
+      <String, String>{};
+
+  for (
+    final purchase
+    in _savedPurchases
+  ) {
+    if (
+      purchase.supplierId
+              .trim()
+              .isNotEmpty &&
+      purchase.supplier
+              .trim()
+              .isNotEmpty
+    ) {
+      supplierOptions[
+              purchase.supplierId] =
+          purchase.supplier;
+    }
+  }
+
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor:
+        Colors.transparent,
+    builder: (
+      sheetContext,
+    ) {
+      return StatefulBuilder(
+        builder: (
+          context,
+          setSheetState,
+        ) {
+          return Container(
+            padding:
+                EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              20 +
+                  MediaQuery.of(
+                    context,
+                  ).viewInsets.bottom,
+            ),
+            decoration:
+                const BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  BorderRadius.vertical(
+                top:
+                    Radius.circular(
+                  24,
+                ),
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-              'View all saved purchase entries',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+            child: Column(
+              mainAxisSize:
+                  MainAxisSize.min,
+              crossAxisAlignment:
+                  CrossAxisAlignment
+                      .start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Filter Purchases',
+                        style: TextStyle(
+                          color:
+                              textBlue,
+                          fontSize:
+                              19,
+                          fontWeight:
+                              FontWeight
+                                  .w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () =>
+                          Navigator.pop(
+                        sheetContext,
+                      ),
+                      icon: const Icon(
+                        Icons
+                            .close_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(
+                  height: 14,
+                ),
+
+                DropdownButtonFormField<
+                    String>(
+                  value:
+                      tempSupplier,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Supplier',
+                    prefixIcon: Icon(
+                      Icons
+                          .business_outlined,
+                    ),
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: 'all',
+                      child: Text(
+                        'All Suppliers',
+                      ),
+                    ),
+                    ...supplierOptions
+                        .entries
+                        .map(
+                      (entry) =>
+                          DropdownMenuItem(
+                        value:
+                            entry.key,
+                        child: Text(
+                          entry.value,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (
+                    value,
+                  ) {
+                    setSheetState(
+                      () {
+                        tempSupplier =
+                            value ??
+                                'all';
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(
+                  height: 12,
+                ),
+
+                DropdownButtonFormField<
+                    String>(
+                  value:
+                      tempPayment,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Payment Type',
+                    prefixIcon: Icon(
+                      Icons
+                          .payments_outlined,
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'all',
+                      child: Text(
+                        'All Payment Types',
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Credit',
+                      child:
+                          Text('Credit'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Cash',
+                      child:
+                          Text('Cash'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'UPI',
+                      child:
+                          Text('UPI'),
+                    ),
+                    DropdownMenuItem(
+                      value:
+                          'Bank Transfer',
+                      child: Text(
+                        'Bank Transfer',
+                      ),
+                    ),
+                  ],
+                  onChanged: (
+                    value,
+                  ) {
+                    setSheetState(
+                      () {
+                        tempPayment =
+                            value ??
+                                'all';
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(
+                  height: 12,
+                ),
+
+                DropdownButtonFormField<
+                    String>(
+                  value:
+                      tempStatus,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Status',
+                    prefixIcon: Icon(
+                      Icons
+                          .task_alt_rounded,
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'all',
+                      child: Text(
+                        'All Status',
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'POSTED',
+                      child:
+                          Text('Posted'),
+                    ),
+                    DropdownMenuItem(
+                      value:
+                          'CANCELLED',
+                      child: Text(
+                        'Cancelled',
+                      ),
+                    ),
+                  ],
+                  onChanged: (
+                    value,
+                  ) {
+                    setSheetState(
+                      () {
+                        tempStatus =
+                            value ??
+                                'all';
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(
+                  height: 20,
+                ),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child:
+                          OutlinedButton(
+                        onPressed:
+                            () {
+                          setSheetState(
+                            () {
+                              tempSupplier =
+                                  'all';
+
+                              tempPayment =
+                                  'all';
+
+                              tempStatus =
+                                  'all';
+                            },
+                          );
+                        },
+                        child:
+                            const Text(
+                          'Reset',
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(
+                      width: 10,
+                    ),
+
+                    Expanded(
+                      child:
+                          ElevatedButton(
+                        onPressed:
+                            () {
+                          setState(
+                            () {
+                              _purchaseSupplierFilter =
+                                  tempSupplier;
+
+                              _purchasePaymentFilter =
+                                  tempPayment;
+
+                              _purchaseStatusFilter =
+                                  tempStatus;
+                            },
+                          );
+
+                          Navigator.pop(
+                            sheetContext,
+                          );
+                        },
+                        child:
+                            const Text(
+                          'Apply Filter',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+
+ Widget _buildPurchaseHistory() {
+  final List<_PurchaseRecord>
+      filteredPurchases =
+      _filteredPurchaseHistory;
+
+  final double total =
+      filteredPurchases.fold<double>(
+    0,
+    (
+      sum,
+      purchase,
+    ) =>
+        sum +
+        purchase.amount,
+  );
+
+  return Scaffold(
+    backgroundColor:
+        pageBackground,
+
+    appBar: AppBar(
+      toolbarHeight: 86,
+      backgroundColor:
+          Colors.white,
+      surfaceTintColor:
+          Colors.transparent,
+      leadingWidth: 58,
+
+      leading: IconButton(
+        tooltip: 'Back',
+        onPressed: () =>
+            Navigator.maybePop(
+          context,
+        ),
+        icon: const Icon(
+          Icons
+              .arrow_back_rounded,
+          size: 28,
+        ),
+      ),
+
+      titleSpacing: 2,
+
+      title: const Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            'My Purchases',
+            style: TextStyle(
+              color: textBlue,
+              fontSize: 24,
+              fontWeight:
+                  FontWeight.w900,
+            ),
+          ),
+          SizedBox(height: 2),
+          Text(
+            'View and filter saved purchase entries',
+            style: TextStyle(
+              color: AppColors
+                  .textSecondary,
+              fontSize: 13,
+              fontWeight:
+                  FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+
+      actions: [
+        IconButton(
+          tooltip:
+              'Purchase filters',
+          onPressed:
+              _openPurchaseHistoryFilters,
+          icon: Stack(
+            clipBehavior:
+                Clip.none,
+            children: [
+              const Icon(
+                Icons
+                    .filter_alt_outlined,
+                color:
+                    textBlue,
+                size: 27,
               ),
+
+              if (
+                _purchaseSupplierFilter !=
+                        'all' ||
+                    _purchasePaymentFilter !=
+                        'all' ||
+                    _purchaseStatusFilter !=
+                        'all'
+              )
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child:
+                      Container(
+                    width: 8,
+                    height: 8,
+                    decoration:
+                        const BoxDecoration(
+                      color:
+                          AppColors.error,
+                      shape:
+                          BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        if (
+          _hasPurchaseHistoryFilters
+        )
+          IconButton(
+            tooltip:
+                'Clear filters',
+            onPressed:
+                _clearPurchaseHistoryFilters,
+            icon: const Icon(
+              Icons
+                  .filter_alt_off_outlined,
+              color:
+                  AppColors.error,
+              size: 25,
+            ),
+          ),
+
+        const SizedBox(
+          width: 7,
+        ),
+      ],
+    ),
+
+    body: ListView(
+      padding:
+          const EdgeInsets.fromLTRB(
+        20,
+        18,
+        20,
+        112,
+      ),
+      children: [
+        // ======================================================
+        // SUMMARY
+        // ======================================================
+
+        Container(
+          height: 104,
+          padding:
+              const EdgeInsets.symmetric(
+            horizontal: 20,
+          ),
+          decoration:
+              BoxDecoration(
+            color: Colors.white,
+            borderRadius:
+                BorderRadius.circular(
+              16,
+            ),
+            border: Border.all(
+              color: borderColor,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment:
+                      MainAxisAlignment
+                          .center,
+                  crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+                  children: [
+                    const Text(
+                      'Purchase Value',
+                      style:
+                          TextStyle(
+                        color:
+                            AppColors
+                                .textSecondary,
+                        fontSize:
+                            13,
+                        fontWeight:
+                            FontWeight
+                                .w600,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 7,
+                    ),
+
+                    Text(
+                      '₹${_money(total)}',
+                      style:
+                          const TextStyle(
+                        color:
+                            textBlue,
+                        fontSize:
+                            25,
+                        fontWeight:
+                            FontWeight
+                                .w900,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 3,
+                    ),
+
+                    Text(
+                      '${filteredPurchases.length} purchase${filteredPurchases.length == 1 ? '' : 's'}',
+                      style:
+                          const TextStyle(
+                        color:
+                            AppColors
+                                .textSecondary,
+                        fontSize:
+                            10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              Container(
+                width: 58,
+                height: 58,
+                decoration:
+                    BoxDecoration(
+                  color:
+                      softBlue,
+                  borderRadius:
+                      BorderRadius
+                          .circular(
+                    14,
+                  ),
+                  border: Border.all(
+                    color: AppColors
+                        .primaryBorder,
+                  ),
+                ),
+                child:
+                    const Icon(
+                  Icons
+                      .shopping_cart_outlined,
+                  color:
+                      primaryBlue,
+                  size: 29,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(
+          height: 14,
+        ),
+
+        // ======================================================
+        // PERIOD FILTER
+        // ======================================================
+
+        Row(
+          children: [
+            _purchaseFilter(
+              keyName: 'all',
+              label:
+                  'All Purchases',
+              icon: Icons
+                  .list_alt_rounded,
+            ),
+
+            const SizedBox(
+              width: 8,
+            ),
+
+            _purchaseFilter(
+              keyName: 'today',
+              label: 'Today',
+              icon: Icons
+                  .calendar_today_outlined,
+            ),
+
+            const SizedBox(
+              width: 8,
+            ),
+
+            _purchaseFilter(
+              keyName: 'month',
+              label:
+                  'This Month',
+              icon: Icons
+                  .calendar_month_outlined,
             ),
           ],
         ),
-        actions: const <Widget>[
-          IconButton(
-            tooltip: 'Search purchases',
-            onPressed: null,
-            icon: Icon(Icons.search_rounded, color: textBlue, size: 28),
-          ),
-          IconButton(
-            tooltip: 'Filter purchases',
-            onPressed: null,
-            icon: Icon(Icons.filter_alt_outlined, color: textBlue, size: 27),
-          ),
-          SizedBox(width: 9),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 112),
-        children: <Widget>[
-          Container(
-            height: 104,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: borderColor),
+
+        const SizedBox(
+          height: 12,
+        ),
+
+        // ======================================================
+        // SEARCH
+        // ======================================================
+
+        TextField(
+          controller:
+              _purchaseHistorySearchController,
+          onChanged: (
+            value,
+          ) {
+            setState(() {
+              _purchaseHistorySearch =
+                  value;
+            });
+          },
+          textInputAction:
+              TextInputAction.search,
+          decoration:
+              InputDecoration(
+            hintText:
+                'Search purchase no, invoice, supplier, product...',
+            prefixIcon:
+                const Icon(
+              Icons
+                  .search_rounded,
             ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Text(
-                        'Total Purchases',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+            suffixIcon:
+                _purchaseHistorySearch
+                        .isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed:
+                            () {
+                          setState(
+                            () {
+                              _purchaseHistorySearchController
+                                  .clear();
+
+                              _purchaseHistorySearch =
+                                  '';
+                            },
+                          );
+                        },
+                        icon:
+                            const Icon(
+                          Icons
+                              .close_rounded,
                         ),
                       ),
-                      const SizedBox(height: 7),
-                      Text(
-                        '₹${_money(total)}',
-                        style: const TextStyle(
-                          color: textBlue,
-                          fontSize: 25,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
+            filled: true,
+            fillColor:
+                Colors.white,
+            border:
+                OutlineInputBorder(
+              borderRadius:
+                  BorderRadius
+                      .circular(
+                13,
+              ),
+              borderSide:
+                  const BorderSide(
+                color:
+                    borderColor,
+              ),
+            ),
+            enabledBorder:
+                OutlineInputBorder(
+              borderRadius:
+                  BorderRadius
+                      .circular(
+                13,
+              ),
+              borderSide:
+                  const BorderSide(
+                color:
+                    borderColor,
+              ),
+            ),
+          ),
+        ),
+
+        if (
+          _purchaseSupplierFilter !=
+                  'all' ||
+              _purchasePaymentFilter !=
+                  'all' ||
+              _purchaseStatusFilter !=
+                  'all'
+        ) ...[
+          const SizedBox(
+            height: 9,
+          ),
+
+          Row(
+            children: [
+              const Icon(
+                Icons
+                    .filter_alt_rounded,
+                size: 16,
+                color:
+                    primaryBlue,
+              ),
+
+              const SizedBox(
+                width: 5,
+              ),
+
+              const Expanded(
+                child: Text(
+                  'Additional filters applied',
+                  style:
+                      TextStyle(
+                    color:
+                        primaryBlue,
+                    fontSize:
+                        11,
+                    fontWeight:
+                        FontWeight
+                            .w700,
                   ),
                 ),
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: softBlue,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.primaryBorder),
+              ),
+
+              TextButton(
+                onPressed:
+                    _clearPurchaseHistoryFilters,
+                child:
+                    const Text(
+                  'Clear',
+                ),
+              ),
+            ],
+          ),
+        ],
+
+        const SizedBox(
+          height: 14,
+        ),
+
+        // ======================================================
+        // PURCHASE LIST
+        // ======================================================
+
+        if (_loadingPurchases)
+          const Padding(
+            padding:
+                EdgeInsets.symmetric(
+              vertical: 50,
+            ),
+            child: Center(
+              child:
+                  CircularProgressIndicator(),
+            ),
+          )
+        else if (
+          filteredPurchases
+              .isEmpty
+        )
+          Container(
+            padding:
+                const EdgeInsets.symmetric(
+              vertical: 42,
+              horizontal: 20,
+            ),
+            decoration:
+                BoxDecoration(
+              color:
+                  Colors.white,
+              borderRadius:
+                  BorderRadius
+                      .circular(
+                16,
+              ),
+              border:
+                  Border.all(
+                color:
+                    borderColor,
+              ),
+            ),
+            child:
+                const Column(
+              children: [
+                Icon(
+                  Icons
+                      .search_off_rounded,
+                  size: 42,
+                  color:
+                      AppColors
+                          .textSecondary,
+                ),
+                SizedBox(
+                  height: 10,
+                ),
+                Text(
+                  'No purchases found',
+                  style:
+                      TextStyle(
+                    color:
+                        textBlue,
+                    fontSize:
+                        15,
+                    fontWeight:
+                        FontWeight
+                            .w800,
                   ),
-                  child: const Icon(
-                    Icons.shopping_cart_outlined,
-                    color: primaryBlue,
-                    size: 29,
+                ),
+                SizedBox(
+                  height: 4,
+                ),
+                Text(
+                  'Try changing the date, search or filters.',
+                  textAlign:
+                      TextAlign.center,
+                  style:
+                      TextStyle(
+                    color:
+                        AppColors
+                            .textSecondary,
+                    fontSize:
+                        11,
                   ),
                 ),
               ],
             ),
+          )
+        else
+          ...filteredPurchases
+              .map(
+            _buildSavedPurchaseCard,
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: <Widget>[
-              _purchaseFilter('All Purchases', Icons.list_alt_rounded, true),
-              const SizedBox(width: 8),
-              _purchaseFilter('Today', Icons.calendar_today_outlined, false),
-              const SizedBox(width: 8),
-              _purchaseFilter(
-                'This Month',
-                Icons.calendar_month_outlined,
-                false,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (_loadingPurchases)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 50),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_savedPurchases.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 50),
-              child: Center(child: Text('No purchases found.')),
-            )
-          else
-            ..._savedPurchases.map(_buildSavedPurchaseCard),
-        ],
-      ),
-      floatingActionButton: UiSession.instance.role != UserRole.admin
-          ? null
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Material(
-                  color: Colors.white,
-                  elevation: 5,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    onTap: _openNewPurchase,
-                    borderRadius: BorderRadius.circular(12),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 17, vertical: 14),
-                      child: Text(
-                        'New Purchase',
-                        style: TextStyle(
-                          color: primaryBlue,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
+      ],
+    ),
+
+    floatingActionButton:
+        UiSession.instance.role !=
+                UserRole.admin
+            ? null
+            : Row(
+                mainAxisSize:
+                    MainAxisSize.min,
+                children: [
+                  Material(
+                    color:
+                        Colors.white,
+                    elevation: 5,
+                    borderRadius:
+                        BorderRadius
+                            .circular(
+                      12,
+                    ),
+                    child: InkWell(
+                      onTap:
+                          _openNewPurchase,
+                      borderRadius:
+                          BorderRadius
+                              .circular(
+                        12,
+                      ),
+                      child:
+                          const Padding(
+                        padding:
+                            EdgeInsets
+                                .symmetric(
+                          horizontal:
+                              17,
+                          vertical:
+                              14,
+                        ),
+                        child: Text(
+                          'New Purchase',
+                          style:
+                              TextStyle(
+                            color:
+                                primaryBlue,
+                            fontSize:
+                                13,
+                            fontWeight:
+                                FontWeight
+                                    .w900,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                FloatingActionButton(
-                  heroTag: 'new-purchase',
-                  onPressed: _openNewPurchase,
-                  backgroundColor: primaryBlue,
-                  foregroundColor: Colors.white,
-                  shape: const CircleBorder(),
-                  child: const Icon(Icons.add_rounded, size: 33),
-                ),
-              ],
-            ),
-    );
-  }
 
-  Widget _purchaseFilter(String label, IconData icon, bool selected) {
-    return Expanded(
-      child: Container(
-        height: 50,
-        padding: const EdgeInsets.symmetric(horizontal: 7),
-        decoration: BoxDecoration(
-          color: selected ? primaryBlue : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? primaryBlue : borderColor),
+                  const SizedBox(
+                    width: 10,
+                  ),
+
+                  FloatingActionButton(
+                    heroTag:
+                        'new-purchase',
+                    onPressed:
+                        _openNewPurchase,
+                    backgroundColor:
+                        primaryBlue,
+                    foregroundColor:
+                        Colors.white,
+                    shape:
+                        const CircleBorder(),
+                    child:
+                        const Icon(
+                      Icons
+                          .add_rounded,
+                      size: 33,
+                    ),
+                  ),
+                ],
+              ),
+  );
+}
+
+  Widget _purchaseFilter({
+  required String keyName,
+  required String label,
+  required IconData icon,
+}) {
+  final bool selected =
+      _purchasePeriodFilter ==
+      keyName;
+
+  return Expanded(
+    child: Material(
+      color:
+          Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _purchasePeriodFilter =
+                keyName;
+          });
+        },
+        borderRadius:
+            BorderRadius.circular(
+          12,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(
-              icon,
-              size: 17,
-              color: selected ? Colors.white : AppColors.textSecondary,
+        child:
+            AnimatedContainer(
+          duration:
+              const Duration(
+            milliseconds: 160,
+          ),
+          height: 50,
+          padding:
+              const EdgeInsets
+                  .symmetric(
+            horizontal: 7,
+          ),
+          decoration:
+              BoxDecoration(
+            color: selected
+                ? primaryBlue
+                : Colors.white,
+            borderRadius:
+                BorderRadius
+                    .circular(
+              12,
             ),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.fade,
-                softWrap: false,
-                style: TextStyle(
-                  color: selected ? Colors.white : textBlue,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
+            border:
+                Border.all(
+              color: selected
+                  ? primaryBlue
+                  : borderColor,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment:
+                MainAxisAlignment
+                    .center,
+            children: [
+              Icon(
+                icon,
+                size: 17,
+                color: selected
+                    ? Colors.white
+                    : AppColors
+                        .textSecondary,
+              ),
+
+              const SizedBox(
+                width: 5,
+              ),
+
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow:
+                      TextOverflow
+                          .fade,
+                  softWrap: false,
+                  style:
+                      TextStyle(
+                    color: selected
+                        ? Colors.white
+                        : textBlue,
+                    fontSize: 11,
+                    fontWeight:
+                        FontWeight
+                            .w800,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 Widget _buildSavedPurchaseCard(
   _PurchaseRecord purchase,
 ) {
@@ -4278,8 +5333,12 @@ Widget _buildPurchaseEntryHeader() {
   void dispose() {
     invoiceController.dispose();
     remarksController.dispose();
-    productSearchController.dispose();
-    discountController.dispose();
+  productSearchController.dispose();
+
+_purchaseHistorySearchController
+    .dispose();
+
+discountController.dispose();
     taxController.dispose();
     super.dispose();
   }

@@ -36,10 +36,17 @@ class _CustomersScreenState extends State<CustomersScreen> {
   bool _loadingRoutes = false;
 
   // ============================================================
-  // CURRENT CUSTOMER OUTSTANDING
+  // CURRENT CUSTOMER ACCOUNT POSITION
   //
-  // customer.balance = opening/master balance
-  // This map = live ledger balance
+  // customer.balance
+  // = AVAILABLE ADVANCE ONLY
+  //
+  // _currentBalances
+  // = signed NET OUTSTANDING
+  //
+  // +ve = customer owes us
+  // 0   = settled
+  // -ve = customer has net advance
   // ============================================================
 
   final Map<String, double> _currentBalances = <String, double>{};
@@ -80,20 +87,24 @@ class _CustomersScreenState extends State<CustomersScreen> {
     double total = 0;
 
     for (final CustomerModel customer in _customerList) {
-      total += _currentBalanceFor(customer);
+      final net = _currentBalanceFor(customer);
+
+      if (net > 0.001) {
+        total += net;
+      }
     }
 
     return total;
   }
 
   double _currentBalanceFor(CustomerModel customer) {
-    final String customerId = customer.customerId.trim().toUpperCase();
+    final customerId = customer.customerId.trim().toUpperCase();
 
     if (customerId.isEmpty) {
-      return customer.balance;
+      return 0;
     }
 
-    return _currentBalances[customerId] ?? customer.balance;
+    return _currentBalances[customerId] ?? 0;
   }
 
   @override
@@ -113,6 +124,14 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   Future<void> _loadCurrentBalances() async {
     if (_customerList.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _currentBalances.clear();
+
+          _loadingBalances = false;
+        });
+      }
+
       return;
     }
 
@@ -123,53 +142,62 @@ class _CustomersScreenState extends State<CustomersScreen> {
     }
 
     try {
-      final List<Future<void>> requests = [];
+      final response = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}'
+          '/api/collections/outstanding',
+        ),
 
-      final Map<String, double> loadedBalances = <String, double>{};
+        headers: {
+          'Content-Type': 'application/json',
 
-      for (final CustomerModel customer in _customerList) {
-        final String customerId = customer.customerId.trim().toUpperCase();
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
+      );
 
-        if (customerId.isEmpty) {
-          continue;
-        }
-
-        requests.add(() async {
-          try {
-            final http.Response response = await http.get(
-              Uri.parse(ApiConfig.customerLedger(customerId)),
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ${ApiConfig.token}',
-              },
-            );
-
-            if (response.statusCode != 200) {
-              return;
-            }
-
-            final dynamic decoded = jsonDecode(response.body);
-
-            if (decoded is! Map || decoded['success'] != true) {
-              return;
-            }
-
-            final dynamic ledgerData = decoded['data'];
-
-            if (ledgerData is! Map) {
-              return;
-            }
-
-            loadedBalances[customerId] =
-                double.tryParse(ledgerData['balance']?.toString() ?? '0') ?? 0;
-          } catch (_) {
-            // Keep existing value for this
-            // customer if one request fails.
-          }
-        }());
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Unable to load customer outstanding.');
       }
 
-      await Future.wait(requests);
+      final decoded = jsonDecode(response.body);
+
+      if (decoded is! Map || decoded['success'] != true) {
+        throw Exception(
+          decoded is Map
+              ? (decoded['message'] ?? 'Unable to load customer outstanding.')
+                    .toString()
+              : 'Unable to load customer outstanding.',
+        );
+      }
+
+      final loadedBalances = <String, double>{};
+
+      final rawData = decoded['data'];
+
+      if (rawData is List) {
+        for (final raw in rawData) {
+          if (raw is! Map) {
+            continue;
+          }
+
+          final item = Map<String, dynamic>.from(raw);
+
+          final customerId = (item['customerId'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          if (customerId.isEmpty) {
+            continue;
+          }
+
+          loadedBalances[customerId] =
+              double.tryParse(
+                (item['netOutstanding'] ?? item['outstanding'] ?? 0).toString(),
+              ) ??
+              0;
+        }
+      }
 
       if (!mounted) {
         return;
@@ -182,7 +210,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
         _loadingBalances = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
@@ -300,14 +328,20 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   Future<void> _addCustomer() async {
     final formKey = GlobalKey<FormState>();
+
     final nameController = TextEditingController();
+
     final mobileController = TextEditingController();
-    final balanceController = TextEditingController(text: '0');
+
+    final openingOutstandingController = TextEditingController(text: '0');
+
     String? route = _routeList.isNotEmpty ? _routeList.first : null;
 
-    final customer = await showModalBottomSheet<CustomerModel>(
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
+
       isScrollControlled: true,
+
       builder: (sheetContext) => SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
@@ -316,57 +350,83 @@ class _CustomersScreenState extends State<CustomersScreen> {
             18,
             MediaQuery.viewInsetsOf(sheetContext).bottom + 22,
           ),
+
           child: Form(
             key: formKey,
+
             child: Column(
               mainAxisSize: MainAxisSize.min,
+
               crossAxisAlignment: CrossAxisAlignment.start,
+
               children: [
                 Text(
                   'Add Customer',
+
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
+
                 const SizedBox(height: 16),
+
                 TextFormField(
                   controller: nameController,
+
                   decoration: const InputDecoration(
                     labelText: 'Customer name',
+
                     prefixIcon: Icon(Icons.person_outline),
                   ),
+
                   validator: (value) => value == null || value.trim().isEmpty
                       ? 'Enter customer name'
                       : null,
                 ),
+
                 const SizedBox(height: 11),
+
                 TextFormField(
                   controller: mobileController,
+
                   keyboardType: TextInputType.phone,
+
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
+
                     LengthLimitingTextInputFormatter(10),
                   ],
+
                   decoration: const InputDecoration(
                     labelText: 'Mobile number',
+
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
+
                   validator: (value) => value?.length == 10
                       ? null
                       : 'Enter a 10-digit mobile number',
                 ),
+
                 const SizedBox(height: 11),
+
                 DropdownButtonFormField<String>(
                   value: route,
+
                   isExpanded: true,
 
                   decoration: InputDecoration(
                     labelText: 'Route',
+
                     prefixIcon: const Icon(Icons.route_outlined),
+
                     suffixIcon: _loadingRoutes
                         ? const Padding(
                             padding: EdgeInsets.all(14),
+
                             child: SizedBox(
                               width: 16,
+
                               height: 16,
+
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           )
@@ -377,6 +437,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item,
+
                           child: Text(item, overflow: TextOverflow.ellipsis),
                         ),
                       )
@@ -396,39 +457,77 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 11),
-                TextFormField(
-                  controller: balanceController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+
+                // =========================================
+                // OPENING OUTSTANDING
+                //
+                // Backend allows non-zero opening
+                // outstanding for ADMIN only.
+                // =========================================
+                if (UiSession.instance.role == UserRole.admin) ...[
+                  const SizedBox(height: 11),
+
+                  TextFormField(
+                    controller: openingOutstandingController,
+
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d*\.?\d{0,2}'),
+                      ),
+                    ],
+
+                    decoration: const InputDecoration(
+                      labelText: 'Opening Outstanding',
+
+                      helperText: 'Previous amount payable by this customer',
+
+                      prefixIcon: Icon(Icons.currency_rupee_rounded),
+                    ),
+
+                    validator: (value) {
+                      final amount = double.tryParse(value ?? '0') ?? 0;
+
+                      if (amount < 0) {
+                        return 'Opening outstanding cannot be negative';
+                      }
+
+                      return null;
+                    },
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Opening balance',
-                    prefixIcon: Icon(Icons.currency_rupee_rounded),
-                  ),
-                ),
+                ],
+
                 const SizedBox(height: 16),
+
                 SizedBox(
                   width: double.infinity,
+
                   child: ElevatedButton(
                     onPressed: () {
                       if (!(formKey.currentState?.validate() ?? false)) {
                         return;
                       }
 
-                      Navigator.pop(
-                        sheetContext,
-                        CustomerModel(
-                          name: nameController.text.trim(),
+                      Navigator.pop(sheetContext, {
+                        'name': nameController.text.trim(),
 
-                          mobile: mobileController.text.trim(),
+                        'mobile': mobileController.text.trim(),
 
-                          route: route ?? '',
+                        'route': route ?? '',
 
-                          balance: double.tryParse(balanceController.text) ?? 0,
-                        ),
-                      );
+                        'openingOutstanding':
+                            UiSession.instance.role == UserRole.admin
+                            ? double.tryParse(
+                                    openingOutstandingController.text.trim(),
+                                  ) ??
+                                  0
+                            : 0,
+                      });
                     },
+
                     child: const Text('Save Customer'),
                   ),
                 ),
@@ -439,14 +538,14 @@ class _CustomersScreenState extends State<CustomersScreen> {
       ),
     );
 
-    if (customer == null || !mounted) {
+    if (result == null || !mounted) {
       return;
     }
 
-    await _saveCustomer(customer);
+    await _saveCustomer(result);
   }
 
-  Future<void> _saveCustomer(CustomerModel customer) async {
+  Future<void> _saveCustomer(Map<String, dynamic> customer) async {
     try {
       final response = await http.post(
         Uri.parse(ApiConfig.customers),
@@ -458,24 +557,27 @@ class _CustomersScreenState extends State<CustomersScreen> {
         },
 
         body: jsonEncode({
-          'name': customer.name,
+          'name': customer['name'],
 
-          'mobile': customer.mobile,
+          'mobile': customer['mobile'],
 
-          'route': customer.route,
+          'route': customer['route'],
 
-          'balance': customer.balance,
+          'openingOutstanding': customer['openingOutstanding'] ?? 0,
         }),
       );
 
       final Map<String, dynamic> data =
           jsonDecode(response.body) as Map<String, dynamic>;
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         showSavedMessage(
           context,
+
           data['message']?.toString() ?? 'Customer added successfully.',
         );
 
@@ -484,7 +586,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
         _message(data['message']?.toString() ?? 'Unable to add customer.');
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       _message('Unable to connect to backend.');
     }
@@ -501,10 +605,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
     final nameController = TextEditingController(text: customer.name);
 
     final mobileController = TextEditingController(text: customer.mobile);
-
-    final balanceController = TextEditingController(
-      text: customer.balance.toStringAsFixed(0),
-    );
 
     String? selectedRoute = customer.route.trim().isNotEmpty
         ? customer.route
@@ -646,24 +746,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
                       const SizedBox(height: 11),
 
-                      TextFormField(
-                        controller: balanceController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d{0,2}'),
-                          ),
-                        ],
-                        decoration: const InputDecoration(
-                          labelText: 'Opening / current balance',
-                          prefixIcon: Icon(Icons.currency_rupee_rounded),
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: isActive,
@@ -694,11 +776,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               sheetContext,
                               customer.copyWith(
                                 name: nameController.text.trim(),
+
                                 mobile: mobileController.text.trim(),
+
                                 route: selectedRoute ?? '',
-                                balance:
-                                    double.tryParse(balanceController.text) ??
-                                    0,
+
                                 isActive: isActive,
                               ),
                             );
@@ -734,9 +816,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
         },
         body: jsonEncode({
           'name': customer.name,
+
           'mobile': customer.mobile,
+
           'route': customer.route,
-          'balance': customer.balance,
+
           'isActive': customer.isActive,
         }),
       );
@@ -1109,10 +1193,28 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Widget _customerCard(CustomerModel customer, int index) {
     final avatarColor = _avatarColors[index % _avatarColors.length];
     final avatarTextColor = _avatarTextColors[index % _avatarTextColors.length];
-    final double currentBalance =
-    _currentBalanceFor(
-  customer,
-);
+    final double currentBalance = _currentBalanceFor(customer);
+    final bool hasDue = currentBalance > 0.001;
+
+    final bool hasAdvance = currentBalance < -0.001;
+
+    final double displayAmount = hasAdvance
+        ? currentBalance.abs()
+        : hasDue
+        ? currentBalance
+        : 0;
+
+    final String positionText = hasAdvance
+        ? 'Advance'
+        : hasDue
+        ? 'Outstanding'
+        : 'Clear';
+
+    final Color positionColor = hasAdvance
+        ? const Color(0xFF2563EB)
+        : hasDue
+        ? const Color(0xFFFF681D)
+        : AppColors.success;
     final canEdit = UiSession.instance.can(AppPermission.customersEdit);
     final canDelete = UiSession.instance.role == UserRole.admin;
     return Container(
@@ -1197,31 +1299,41 @@ class _CustomersScreenState extends State<CustomersScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                 Text(
+            Text(
   _loadingBalances
       ? '...'
-      : '₹${currentBalance.toStringAsFixed(0)}',
+      : '₹${displayAmount.toStringAsFixed(0)}',
+
   style: TextStyle(
-    color: currentBalance > 0.001
-        ? const Color(0xFFFF681D)
-        : AppColors.success,
-    fontSize: 15,
-    fontWeight: FontWeight.w900,
+    color:
+        positionColor,
+
+    fontSize:
+        15,
+
+    fontWeight:
+        FontWeight.w900,
   ),
 ),
 
-const SizedBox(height: 3),
+const SizedBox(
+  height: 3,
+),
 
 Text(
   _loadingBalances
       ? 'Checking...'
-      : currentBalance > 0.001
-          ? 'Outstanding'
-          : 'Clear',
-  style: const TextStyle(
+      : positionText,
+
+  style: TextStyle(
     color:
-        AppColors.textSecondary,
-    fontSize: 9.5,
+        positionColor,
+
+    fontSize:
+        9.5,
+
+    fontWeight:
+        FontWeight.w700,
   ),
 ),
                 ],
@@ -1261,8 +1373,7 @@ Text(
                         ),
                       ),
 
-                    if (canEdit && canDelete)
-                      const PopupMenuDivider(),
+                    if (canEdit && canDelete) const PopupMenuDivider(),
 
                     if (canDelete)
                       const PopupMenuItem<String>(

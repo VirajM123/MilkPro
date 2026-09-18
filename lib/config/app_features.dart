@@ -122,6 +122,13 @@ abstract final class AppFeatures {
     assetPath: 'assets/img/ExpenseQui.png',
   );
 
+  static const salesCollectionHistory = AppFeature(
+    title: 'Sales & Collection History',
+    icon: Icons.history_rounded,
+    route: '/sales-collection-history',
+    permission: AppPermission.collectionView,
+  );
+
 static const all = <AppFeature>[
   customers,
   customerRates,
@@ -131,6 +138,7 @@ static const all = <AppFeature>[
   sales,
   returns,
   collection,
+  salesCollectionHistory,
   routes,
   purchase,
   reports,

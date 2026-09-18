@@ -195,11 +195,15 @@ bool get _isSalesman =>
   Future<void> _handleManualSync() async {
     if (_syncing || _loadingSales) return;
     setState(() => _syncing = true);
-    try {
-      await _loadSales();
-      if (_selectedCustomer != null) {
-        await _loadCustomerProducts();
-      }
+  try {
+  await _loadSales();
+
+  // Refresh customer outstanding / advance position.
+  await _loadCustomers();
+
+  if (_selectedCustomer != null) {
+    await _loadCustomerProducts();
+  }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -306,24 +310,39 @@ void _clearSalePayments() {
 // MAS_CUSTOMER.balance = available customer advance
 // ============================================================
 
+// ============================================================
+// CUSTOMER USABLE ADVANCE
+//
+// IMPORTANT:
+//
+// DO NOT use:
+// customer['balance']
+//
+// because that is raw MAS_CUSTOMER credit.
+//
+// Use net free advance calculated from
+// /api/collections/outstanding.
+// ============================================================
+
 double get _customerAdvanceBalance {
-  final customer = _selectedCustomer;
+  final Map<String, dynamic>? customer =
+      _selectedCustomer;
 
   if (customer == null) {
     return 0;
   }
 
-  final balance =
+  final double usableAdvance =
       double.tryParse(
-        customer['balance']
-                ?.toString() ??
-            '0',
-      ) ??
-      0;
+            customer['usableAdvanceBalance']
+                    ?.toString() ??
+                '0',
+          ) ??
+          0;
 
-  return balance < 0
-      ? 0
-      : balance;
+  return usableAdvance > 0
+      ? usableAdvance
+      : 0;
 }
 
 
@@ -360,17 +379,38 @@ double get _availableAdvanceForSale {
       }
     }
 
-    if (editingSale != null &&
-        editingSale.customerId ==
-            (_selectedCustomer?['customerId']
-                    ?.toString() ??
-                '')) {
-      available +=
-          editingSale.advanceUsed;
-    }
+  if (
+  editingSale != null &&
+  editingSale.customerId ==
+      (
+        _selectedCustomer?[
+                    'customerId']
+                ?.toString() ??
+            ''
+      )
+) {
+  // ==========================================
+  // REVERSE ORIGINAL SALE ADVANCE EFFECT
+  //
+  // Old advance USED must be restored.
+  //
+  // Old advance CREATED must be removed.
+  //
+  // Backend performs the same reversal before
+  // recalculating the edited sale.
+  // ==========================================
+
+  available +=
+      editingSale.advanceUsed;
+
+  available -=
+      editingSale.advanceCreated;
+}
   }
 
-  return available;
+return available > 0
+    ? available
+    : 0;
 }
 
 
@@ -425,10 +465,65 @@ double get _outstandingAmount {
       : amount;
 }
 
+// ============================================================
+// PAYMENT APPLIED TO CURRENT BILL
+// ============================================================
 
-bool get _isPaymentOverAmount =>
-    _paidAmount >
-    _cartTotal;
+double get _paymentAppliedPreview {
+  if (
+    _paidAmount <= 0 ||
+    _cartTotal <= 0
+  ) {
+    return 0;
+  }
+
+  return _paidAmount >
+          _cartTotal
+      ? _cartTotal
+      : _paidAmount;
+}
+
+
+// ============================================================
+// EXTRA PAYMENT CREATED AS ADVANCE
+//
+// Example:
+// Bill = 500
+// Paid = 700
+//
+// Applied to bill = 500
+// Advance created = 200
+// ============================================================
+
+double get _advanceCreatedPreview {
+  final extra =
+      _paidAmount -
+      _cartTotal;
+
+  return extra > 0
+      ? extra
+      : 0;
+}
+
+
+// ============================================================
+// CUSTOMER ADVANCE AFTER SALE
+//
+// Old Advance
+// - Advance Used
+// + New Advance Created
+// ============================================================
+
+double get _customerAdvanceAfterSalePreview {
+  final value =
+      _availableAdvanceForSale -
+      _advanceUsedPreview +
+      _advanceCreatedPreview;
+
+  return value > 0
+      ? value
+      : 0;
+}
 
 
 // ============================================================
@@ -710,7 +805,17 @@ paidAmount:
 
 advanceUsed:
     double.tryParse(
-      sale['advanceUsed']?.toString() ?? '0',
+      sale['advanceUsed']
+              ?.toString() ??
+          '0',
+    ) ??
+    0,
+
+advanceCreated:
+    double.tryParse(
+      sale['advanceCreated']
+              ?.toString() ??
+          '0',
     ) ??
     0,
 
@@ -848,17 +953,32 @@ status: status,
               'Sale cancelled successfully. Stock has been adjusted automatically.',
           color: _green,
         );
+// ==========================================================
+// REFRESH SALES
+// ==========================================================
 
-        // Refresh sales status.
-        await _loadSales();
+await _loadSales();
 
-        // If customer is currently selected,
-        // refresh stock visible in Create Sale.
-        if (_selectedCustomer != null) {
-          await _loadCustomerProducts();
-        }
+// ==========================================================
+// REFRESH CUSTOMER ACCOUNT POSITION
+//
+// Cancellation can:
+// - return advanceUsed
+// - remove advanceCreated
+// ==========================================================
 
-        DataSyncService.instance.notifySaleChanged();
+await _loadCustomers();
+
+// ==========================================================
+// REFRESH PRODUCTS FOR SELECTED CUSTOMER
+// ==========================================================
+
+if (_selectedCustomer != null) {
+  await _loadCustomerProducts();
+}
+
+DataSyncService.instance
+    .notifySaleChanged();
       } else {
         _showMessage(
           data is Map
@@ -881,57 +1001,288 @@ status: status,
     }
   }
 
-  Future<void> _loadCustomers() async {
-    if (!mounted) return;
+ Future<void> _loadCustomers() async {
+  if (!mounted) {
+    return;
+  }
 
-    setState(() {
-      _loadingCustomers = true;
-    });
+  final String selectedCustomerId =
+      (_selectedCustomer?['customerId'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
 
-    try {
-      final response = await http.get(
-        Uri.parse(ApiConfig.customers),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${ApiConfig.token}',
-        },
+  setState(() {
+    _loadingCustomers = true;
+  });
+
+  try {
+    final Map<String, String> headers =
+        <String, String>{
+      'Content-Type': 'application/json',
+      'Authorization':
+          'Bearer ${ApiConfig.token}',
+    };
+
+    // ==========================================================
+    // 1. LOAD CUSTOMER MASTER
+    // ==========================================================
+
+    final http.Response customerResponse =
+        await http.get(
+      Uri.parse(
+        ApiConfig.customers,
+      ),
+      headers: headers,
+    );
+
+    final dynamic customerDecoded =
+        jsonDecode(
+      customerResponse.body,
+    );
+
+    if (customerResponse.statusCode != 200 ||
+        customerDecoded is! Map ||
+        customerDecoded['success'] != true) {
+      throw Exception(
+        customerDecoded is Map
+            ? (customerDecoded['message'] ??
+                    'Unable to load customers.')
+                .toString()
+            : 'Unable to load customers.',
+      );
+    }
+
+    // ==========================================================
+    // 2. LOAD LIVE ACCOUNT POSITION
+    //
+    // IMPORTANT:
+    //
+    // MAS_CUSTOMER.balance may be ₹950,
+    // but ₹800 may already be offsetting old outstanding.
+    //
+    // netOutstanding = -150
+    // therefore usable advance = ₹150.
+    // ==========================================================
+
+    final http.Response outstandingResponse =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}'
+        '/api/collections/outstanding',
+      ),
+      headers: headers,
+    );
+
+    final dynamic outstandingDecoded =
+        jsonDecode(
+      outstandingResponse.body,
+    );
+
+    if (outstandingResponse.statusCode != 200 ||
+        outstandingDecoded is! Map ||
+        outstandingDecoded['success'] != true) {
+      throw Exception(
+        outstandingDecoded is Map
+            ? (outstandingDecoded['message'] ??
+                    'Unable to load customer account position.')
+                .toString()
+            : 'Unable to load customer account position.',
+      );
+    }
+
+    // ==========================================================
+    // BUILD OUTSTANDING MAP
+    // customerId -> live position
+    // ==========================================================
+
+    final Map<String, Map<String, dynamic>>
+        outstandingMap =
+        <String, Map<String, dynamic>>{};
+
+    final List<dynamic> outstandingRecords =
+        outstandingDecoded['data'] is List
+            ? outstandingDecoded['data']
+                as List<dynamic>
+            : <dynamic>[];
+
+    for (final dynamic raw
+        in outstandingRecords) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final Map<String, dynamic> item =
+          Map<String, dynamic>.from(
+        raw,
       );
 
-      final data = jsonDecode(response.body);
+      final String customerId =
+          (item['customerId'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase();
 
-      if (!mounted) return;
-
-      if (response.statusCode == 200 &&
-          data is Map<String, dynamic> &&
-          data['success'] == true) {
-        final records = data['data'] as List<dynamic>? ?? <dynamic>[];
-
-        setState(() {
-          _customers
-            ..clear()
-            ..addAll(
-              records.map((item) => Map<String, dynamic>.from(item as Map)),
-            );
-        });
-      } else {
-        _showMessage(
-          data is Map
-              ? data['message']?.toString() ?? 'Unable to load customers.'
-              : 'Unable to load customers.',
-        );
+      if (customerId.isEmpty) {
+        continue;
       }
-    } catch (error) {
-      if (!mounted) return;
 
-      _showMessage('Unable to load customers from server: $error');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingCustomers = false;
-        });
+      outstandingMap[customerId] =
+          item;
+    }
+
+    // ==========================================================
+    // MERGE CUSTOMER MASTER + LIVE ACCOUNT POSITION
+    // ==========================================================
+
+    final List<dynamic> customerRecords =
+        customerDecoded['data'] is List
+            ? customerDecoded['data']
+                as List<dynamic>
+            : <dynamic>[];
+
+    final List<Map<String, dynamic>>
+        mergedCustomers =
+        <Map<String, dynamic>>[];
+
+    for (final dynamic raw
+        in customerRecords) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final Map<String, dynamic> customer =
+          Map<String, dynamic>.from(
+        raw,
+      );
+
+      final String customerId =
+          (customer['customerId'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase();
+
+      final Map<String, dynamic>? live =
+          outstandingMap[customerId];
+
+      // ==========================================
+      // RAW CREDIT STORED IN MAS_CUSTOMER
+      // ==========================================
+
+      final double rawAdvanceBalance =
+          double.tryParse(
+                (customer['balance'] ?? 0)
+                    .toString(),
+              ) ??
+              0;
+
+      // ==========================================
+      // SIGNED NET POSITION
+      //
+      // +ve = customer owes us
+      // 0   = settled
+      // -ve = customer has usable advance
+      // ==========================================
+
+      final double netOutstanding =
+          double.tryParse(
+                (live?['netOutstanding'] ??
+                        live?['outstanding'] ??
+                        0)
+                    .toString(),
+              ) ??
+              0;
+
+      // ==========================================
+      // ACTUALLY USABLE ADVANCE
+      // ==========================================
+
+      final double usableAdvanceBalance =
+          netOutstanding < -0.001
+              ? netOutstanding.abs()
+              : 0;
+
+      customer['rawAdvanceBalance'] =
+          rawAdvanceBalance;
+
+      customer['netOutstanding'] =
+          netOutstanding;
+
+      customer['usableAdvanceBalance'] =
+          usableAdvanceBalance;
+
+      customer['grossOutstanding'] =
+          double.tryParse(
+                (live?['grossOutstanding'] ?? 0)
+                    .toString(),
+              ) ??
+              0;
+
+      mergedCustomers.add(
+        customer,
+      );
+    }
+
+    // ==========================================================
+    // REBIND CURRENT SELECTED CUSTOMER
+    //
+    // This is important after:
+    // - sale save
+    // - sale cancel
+    // - customer balance change
+    // ==========================================================
+
+    Map<String, dynamic>? refreshedSelectedCustomer;
+
+    if (selectedCustomerId.isNotEmpty) {
+      for (final Map<String, dynamic> customer
+          in mergedCustomers) {
+        final String id =
+            (customer['customerId'] ?? '')
+                .toString()
+                .trim()
+                .toUpperCase();
+
+        if (id == selectedCustomerId) {
+          refreshedSelectedCustomer =
+              customer;
+          break;
+        }
       }
     }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _customers
+        ..clear()
+        ..addAll(
+          mergedCustomers,
+        );
+
+      if (refreshedSelectedCustomer != null) {
+        _selectedCustomer =
+            refreshedSelectedCustomer;
+      }
+    });
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    _showMessage(
+      'Unable to load customers: $error',
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingCustomers = false;
+      });
+    }
   }
+}
 Future<void> _loadCustomerProducts() async {
   final Map<String, dynamic>? customer =
       _selectedCustomer;
@@ -1125,15 +1476,20 @@ Future<void> _loadCustomerProducts() async {
         return;
       }
 
-      setState(() {
-        _saleProducts
-          ..clear()
-          ..addAll(
-            loadedProducts,
-          );
+     setState(() {
+  _saleProducts
+    ..clear()
+    ..addAll(
+      loadedProducts,
+    );
 
-        _selectFirstAvailableAllocation();
-      });
+  // New bill should start with
+  // no product automatically selected.
+  _selectedAllocation = null;
+
+  _quantityController.clear();
+  _rateController.clear();
+});
 
       return;
     }
@@ -1528,15 +1884,20 @@ Future<void> _loadCustomerProducts() async {
       return;
     }
 
-    setState(() {
-      _saleProducts
-        ..clear()
-        ..addAll(
-          loadedProducts,
-        );
+setState(() {
+  _saleProducts
+    ..clear()
+    ..addAll(
+      loadedProducts,
+    );
 
-      _selectFirstAvailableAllocation();
-    });
+  // New bill should start with
+  // no product automatically selected.
+  _selectedAllocation = null;
+
+  _quantityController.clear();
+  _rateController.clear();
+});
   } catch (error) {
     if (!mounted) {
       return;
@@ -1615,10 +1976,7 @@ Future<void> _loadCustomerProducts() async {
       _showMessage('Add at least one product before completing the sale.');
       return;
     }
-    if (_isPaymentOverAmount) {
-      _showMessage('Paid amount cannot be greater than bill amount.');
-      return;
-    }
+
 
     final customerId = customer['customerId']?.toString() ?? '';
 
@@ -1796,16 +2154,89 @@ final requestBody =
           }
         });
 
-        // ==========================================================
-        // REFRESH DATA
-        // ==========================================================
+      // ==========================================================
+// REFRESH CUSTOMER MASTER
+//
+// IMPORTANT:
+// Sale may:
+// - use old advance
+// - create new advance
+//
+// Reload customer master so next bill gets the latest
+// MAS_CUSTOMER.balance.
+// ==========================================================
 
-        if (!wasEditing && _selectedCustomer != null) {
-          await _loadCustomerProducts();
-        }
+await _loadCustomers();
 
-        await _loadSales();
-        DataSyncService.instance.notifySaleChanged();
+
+// ==========================================================
+// REBIND SELECTED CUSTOMER AFTER CREATE
+// ==========================================================
+
+if (
+  !wasEditing &&
+  customerId.isNotEmpty
+) {
+  Map<String, dynamic>?
+      refreshedCustomer;
+
+  for (
+    final item in
+    _customers
+  ) {
+    final id =
+        (
+          item[
+                  'customerId'] ??
+              ''
+        )
+            .toString()
+            .trim()
+            .toUpperCase();
+
+    if (
+      id ==
+      customerId
+          .trim()
+          .toUpperCase()
+    ) {
+      refreshedCustomer =
+          item;
+
+      break;
+    }
+  }
+
+
+  if (
+    refreshedCustomer !=
+        null &&
+    mounted
+  ) {
+    setState(() {
+      _selectedCustomer =
+          refreshedCustomer;
+    });
+  }
+
+
+  if (
+    _selectedCustomer !=
+    null
+  ) {
+    await _loadCustomerProducts();
+  }
+}
+
+
+// ==========================================================
+// REFRESH SALES
+// ==========================================================
+
+await _loadSales();
+
+DataSyncService.instance
+    .notifySaleChanged();
 
         return;
       }
@@ -4647,38 +5078,121 @@ _paymentMode =
               ),
               child: Column(
                 children: [
-                  _buildPaymentSummaryRow('Bill Amount', _cartTotal),
-
-                  const Divider(height: 20),
-
-             _buildPaymentSummaryRow(
-  'Paid Now',
-  _paidAmount,
-  valueColor: _green,
+                 _buildPaymentSummaryRow(
+  'Bill Amount',
+  _cartTotal,
 ),
 
-if (_advanceUsedPreview >
-    0.001) ...[
-  const SizedBox(height: 9),
+const Divider(
+  height: 20,
+),
+
+if (
+  _availableAdvanceForSale >
+  0.001
+) ...[
+  _buildPaymentSummaryRow(
+    'Available Advance',
+    _availableAdvanceForSale,
+    valueColor:
+        const Color(
+      0xFF2563EB,
+    ),
+  ),
+
+  const SizedBox(
+    height: 9,
+  ),
+],
+
+_buildPaymentSummaryRow(
+  'Payment Received',
+  _paidAmount,
+  valueColor:
+      _green,
+),
+
+if (
+  _paidAmount >
+  0.001
+) ...[
+  const SizedBox(
+    height: 9,
+  ),
 
   _buildPaymentSummaryRow(
-    'Advance Adjusted',
+    'Payment Applied',
+    _paymentAppliedPreview,
+    valueColor:
+        _green,
+  ),
+],
+
+if (
+  _advanceUsedPreview >
+  0.001
+) ...[
+  const SizedBox(
+    height: 9,
+  ),
+
+  _buildPaymentSummaryRow(
+    'Old Advance Used',
     _advanceUsedPreview,
     valueColor:
         AppColors.primary,
   ),
 ],
 
-const SizedBox(height: 9),
+if (
+  _advanceCreatedPreview >
+  0.001
+) ...[
+  const SizedBox(
+    height: 9,
+  ),
+
+  _buildPaymentSummaryRow(
+    'New Advance Created',
+    _advanceCreatedPreview,
+    valueColor:
+        const Color(
+      0xFF2563EB,
+    ),
+  ),
+],
+
+const SizedBox(
+  height: 9,
+),
 
 _buildPaymentSummaryRow(
   'Outstanding',
   _outstandingAmount,
   valueColor:
-      _outstandingAmount > 0
+      _outstandingAmount >
+              0.001
           ? AppColors.error
           : _green,
 ),
+
+if (
+  _customerAdvanceAfterSalePreview >
+  0.001
+) ...[
+  const SizedBox(
+    height: 9,
+  ),
+
+  _buildPaymentSummaryRow(
+    'Advance After Sale',
+    _customerAdvanceAfterSalePreview,
+    valueColor:
+        const Color(
+      0xFF2563EB,
+    ),
+  ),
+],
 
                   const Divider(height: 20),
 
@@ -4724,26 +5238,91 @@ _buildPaymentSummaryRow(
                     ],
                   ),
 
-                  if (_isPaymentOverAmount) ...[
-                    const SizedBox(height: 10),
+                 if (
+  _advanceCreatedPreview >
+  0.001
+) ...[
+  const SizedBox(
+    height: 10,
+  ),
 
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFE5E5),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'Paid amount cannot be greater than the bill amount.',
-                        style: TextStyle(
-                          color: AppColors.error,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
+  Container(
+    width:
+        double.infinity,
+
+    padding:
+        const EdgeInsets.all(
+      11,
+    ),
+
+    decoration:
+        BoxDecoration(
+      color:
+          const Color(
+        0xFFEFF6FF,
+      ),
+
+      border:
+          Border.all(
+        color:
+            const Color(
+          0xFFBFDBFE,
+        ),
+      ),
+
+      borderRadius:
+          BorderRadius.circular(
+        8,
+      ),
+    ),
+
+    child: Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+
+      children: [
+        const Icon(
+          Icons
+              .account_balance_wallet_outlined,
+
+          size:
+              18,
+
+          color:
+              Color(
+            0xFF2563EB,
+          ),
+        ),
+
+        const SizedBox(
+          width: 8,
+        ),
+
+        Expanded(
+          child: Text(
+            'Extra payment of '
+            '₹${_advanceCreatedPreview.toStringAsFixed(2)} '
+            'will be added to the customer advance balance.',
+
+            style:
+                const TextStyle(
+              color:
+                  Color(
+                0xFF1D4ED8,
+              ),
+
+              fontSize:
+                  10.5,
+
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  ),
+],
                 ],
               ),
             ),
@@ -4830,7 +5409,10 @@ _buildPaymentSummaryRow(
   Future<void> _selectSmartProduct(Map<String, dynamic> allocation) async {
     final available = _remainingFor(allocation);
     final product = (allocation['product'] ?? '').toString();
-    final controller = TextEditingController(text: '1');
+   final controller =
+    TextEditingController(
+  text: '0',
+);
     final quantity = await showDialog<int>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -5532,10 +6114,11 @@ _buildPaymentSummaryRow(
               const SizedBox(width: 9),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed:
-                      _cart.isEmpty || _savingSale || _isPaymentOverAmount
-                      ? null
-                      : _completeSale,
+               onPressed:
+    _cart.isEmpty ||
+            _savingSale
+        ? null
+        : _completeSale,
              icon: _savingSale
     ? const SizedBox(
         width: 18,

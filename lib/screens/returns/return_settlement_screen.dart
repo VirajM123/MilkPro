@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/api_config.dart';
@@ -361,31 +362,31 @@ Future<void> _loadAllocations() async {
                 (product['unit'] ?? '')
                     .toString(),
 
-            'qty':
-                _asInt(
-                  product['quantity'],
-                ),
+       'qty':
+    _asDouble(
+      product['quantity'],
+    ),
 
-            'soldQty':
-                _asInt(
-                  product[
-                    'soldQuantity'
-                  ],
-                ),
+'soldQty':
+    _asDouble(
+      product[
+        'soldQuantity'
+      ],
+    ),
 
-            'returnedQty':
-                _asInt(
-                  product[
-                    'returnedQuantity'
-                  ],
-                ),
+'returnedQty':
+    _asDouble(
+      product[
+        'returnedQuantity'
+      ],
+    ),
 
-            'remainingQty':
-                _asInt(
-                  product[
-                    'remainingQuantity'
-                  ],
-                ),
+'remainingQty':
+    _asDouble(
+      product[
+        'remainingQuantity'
+      ],
+    ),
                 'salesValue':
     _asDouble(
       product['salesValue'],
@@ -488,6 +489,34 @@ Future<void> _loadAllocations() async {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0;
   }
+  String _formatQty(num value) {
+  final double number =
+      value.toDouble();
+
+  if (
+    number ==
+    number.roundToDouble()
+  ) {
+    return number.toStringAsFixed(
+      0,
+    );
+  }
+
+  return number
+      .toStringAsFixed(2)
+      .replaceFirst(
+        RegExp(r'0+$'),
+        '',
+      )
+      .replaceFirst(
+        RegExp(r'\.$'),
+        '',
+      );
+}
+
+bool get _isBalanced =>
+    _differenceQty.abs() <
+    0.001;
 
   Map<String, dynamic>? get _settlement {
     final raw = _selectedAllocation?['settlement'];
@@ -496,18 +525,46 @@ Future<void> _loadAllocations() async {
 
   bool get _isEditing => _settlement != null;
 
-  int get _allocatedQty => _asInt(_selectedAllocation?['qty']);
-  int get _soldQty => _asInt(soldController.text);
-  int get _goodReturnQty => _asInt(goodReturnController.text);
-  int get _damageQty => _asInt(damageController.text);
-  int get _shortExcessQty => _asInt(shortExcessController.text);
+double get _allocatedQty =>
+    _asDouble(
+      _selectedAllocation?[
+        'qty'
+      ],
+    );
 
-  int get _newReturnQty => _goodReturnQty + _damageQty;
+double get _soldQty =>
+    _asDouble(
+      soldController.text,
+    );
 
-  int get _accountedQty =>
-      _soldQty + _goodReturnQty + _damageQty + _shortExcessQty;
+double get _goodReturnQty =>
+    _asDouble(
+      goodReturnController.text,
+    );
 
-  int get _differenceQty => _allocatedQty - _accountedQty;
+double get _damageQty =>
+    _asDouble(
+      damageController.text,
+    );
+
+double get _shortExcessQty =>
+    _asDouble(
+      shortExcessController.text,
+    );
+
+double get _newReturnQty =>
+    _goodReturnQty +
+    _damageQty;
+
+double get _accountedQty =>
+    _soldQty +
+    _goodReturnQty +
+    _damageQty +
+    _shortExcessQty;
+
+double get _differenceQty =>
+    _allocatedQty -
+    _accountedQty;
 
 double get _salesValue =>
     _asDouble(
@@ -529,21 +586,54 @@ double get _salesValue =>
         ? rawSettlement
         : null;
 
-    final qty = _asInt(allocation['qty']);
-    final alreadyReturned = _asInt(allocation['returnedQty']);
+    final double qty =
+    _asDouble(
+      allocation['qty'],
+    );
 
-    selectedReturnType = _asInt(settlement?['returnType']);
+final double alreadyReturned =
+    _asDouble(
+      allocation[
+        'returnedQty'
+      ],
+    );
+
+selectedReturnType =
+    _asInt(
+      settlement?[
+        'returnType'
+      ],
+    );
     if (selectedReturnType < 0 || selectedReturnType >= returnTypes.length) {
       selectedReturnType = 0;
     }
 
- final soldQty = _asInt(allocation['soldQty']);
+final double soldQty =
+    _asDouble(
+      allocation[
+        'soldQty'
+      ],
+    );
 
-soldController.text = '$soldQty';
-goodReturnController.text = '0';
+soldController.text =
+    _formatQty(
+      soldQty,
+    );
 
-damageController.text = '0';
-    shortExcessController.text = '${_asInt(settlement?['shortExcessQty'])}';
+goodReturnController.text =
+    '0';
+
+damageController.text =
+    '0';
+
+shortExcessController.text =
+    _formatQty(
+      _asDouble(
+        settlement?[
+          'shortExcessQty'
+        ],
+      ),
+    );
 
     reasonController.text = (settlement?['reason'] ?? '').toString();
     remarksController.text = (settlement?['remarks'] ?? '').toString();
@@ -609,15 +699,15 @@ List<Map<String, dynamic>>
 
   items.sort((a, b) {
 
-    final aRemaining =
-        _asInt(
-          a['remainingQty'],
-        );
+   final double aRemaining =
+    _asDouble(
+      a['remainingQty'],
+    );
 
-    final bRemaining =
-        _asInt(
-          b['remainingQty'],
-        );
+final double bRemaining =
+    _asDouble(
+      b['remainingQty'],
+    );
 
 
     // Pending returns first
@@ -900,16 +990,36 @@ List<Map<String, dynamic>>
     );
   }
 
-  Widget _buildReturnListSummary(List<Map<String, dynamic>> items) {
-    int totalQty = 0;
-    int returned = 0;
-    int settled = 0;
+Widget _buildReturnListSummary(
+  List<Map<String, dynamic>>
+      items,
+) {
+  double totalQty = 0;
+  double returned = 0;
+  int settled = 0;
 
-    for (final item in items) {
-      totalQty += _asInt(item['qty']);
-      returned += _asInt(item['returnedQty']);
-      if (item['settlement'] != null) settled++;
+  for (
+    final item in items
+  ) {
+    totalQty +=
+        _asDouble(
+          item['qty'],
+        );
+
+    returned +=
+        _asDouble(
+          item[
+            'returnedQty'
+          ],
+        );
+
+    if (
+      item['settlement'] !=
+      null
+    ) {
+      settled++;
     }
+  }
 
     return Row(
       children: [
@@ -925,7 +1035,8 @@ List<Map<String, dynamic>>
         Expanded(
           child: _summaryMiniCard(
             title: 'Allocated',
-            value: '$totalQty L',
+           value:
+    '${_formatQty(totalQty)} L',
             background: const Color(0xFFF2F7FF),
             foreground: darkBlue,
           ),
@@ -934,7 +1045,8 @@ List<Map<String, dynamic>>
         Expanded(
           child: _summaryMiniCard(
             title: 'Returned',
-            value: '$returned L',
+           value:
+    '${_formatQty(returned)} L',
             background: const Color(0xFFE7FAF0),
             foreground: green,
           ),
@@ -953,17 +1065,29 @@ List<Map<String, dynamic>>
   }
 
   Widget _buildSelectableAllocationCard(Map<String, dynamic> item) {
-final qty =
-    _asInt(item['qty']);
+final double qty =
+    _asDouble(
+      item['qty'],
+    );
 
-final sold =
-    _asInt(item['soldQty']);
+final double sold =
+    _asDouble(
+      item['soldQty'],
+    );
 
-final returned =
-    _asInt(item['returnedQty']);
+final double returned =
+    _asDouble(
+      item[
+        'returnedQty'
+      ],
+    );
 
-final balance =
-    _asInt(item['remainingQty']);
+final double balance =
+    _asDouble(
+      item[
+        'remainingQty'
+      ],
+    );
 
 final String unit =
     (item['unit'] ?? '')
@@ -1027,7 +1151,7 @@ final bool isCompleted =
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${item['product']}  |  $qty $unit allocated',
+                     '${item['product']}  |  ${_formatQty(qty)} $unit allocated',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -1055,7 +1179,7 @@ final bool isCompleted =
           : orange,
 ),
                         _statusPill(
-                        'Balance $balance $unit',
+                        'Balance ${_formatQty(balance)} $unit',
                           balance <= 0 ? green : primaryBlue,
                         ),
                       ],
@@ -1324,7 +1448,8 @@ final bool isCompleted =
               Expanded(
                 child: _summaryMiniCard(
                   title: 'Allocated',
-                  value: '$_allocatedQty L',
+                value:
+    '${_formatQty(_allocatedQty)} L',
                   background: const Color(0xFFE8F3FF),
                   foreground: primaryBlue,
                 ),
@@ -1333,7 +1458,8 @@ final bool isCompleted =
               Expanded(
                 child: _summaryMiniCard(
                   title: 'Return',
-                  value: '$_newReturnQty L',
+                value:
+    '${_formatQty(_newReturnQty)} L',
                   background: const Color(0xFFE7FAF0),
                   foreground: green,
                 ),
@@ -1342,11 +1468,12 @@ final bool isCompleted =
               Expanded(
                 child: _summaryMiniCard(
                   title: 'Difference',
-                  value: '${_differenceQty.abs()} L',
-                  background: _differenceQty == 0
+                value:
+    '${_formatQty(_differenceQty.abs())} L',
+                  background: _isBalanced
                       ? const Color(0xFFE7FAF0)
                       : const Color(0xFFFFEEEE),
-                  foreground: _differenceQty == 0
+                  foreground: _isBalanced
                       ? green
                       : const Color(0xFFB42318),
                 ),
@@ -1424,7 +1551,10 @@ final bool isCompleted =
               Expanded(
                 child: _qtyBox(
                   label: 'Issued',
-                  valueText: '$_allocatedQty',
+                valueText:
+    _formatQty(
+      _allocatedQty,
+    ),
                   enabled: false,
                 ),
               ),
@@ -1464,12 +1594,12 @@ final bool isCompleted =
                   height: 66,
                   padding: const EdgeInsets.symmetric(horizontal: 7),
                   decoration: BoxDecoration(
-                    color: _differenceQty == 0
+                    color: _isBalanced
                         ? const Color(0xFFE7FAF0)
                         : const Color(0xFFFFEEEE),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: _differenceQty == 0
+                      color: _isBalanced
                           ? const Color(0xFFB6EFD3)
                           : const Color(0xFFFFB4AB),
                     ),
@@ -1488,11 +1618,11 @@ final bool isCompleted =
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_differenceQty.abs()} L',
+                        '${_formatQty(_differenceQty.abs())} L',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w900,
-                          color: _differenceQty == 0
+                          color: _isBalanced
                               ? green
                               : const Color(0xFFB42318),
                         ),
@@ -1508,7 +1638,7 @@ final bool isCompleted =
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
-              color: _differenceQty == 0
+              color: _isBalanced
                   ? const Color(0xFFE4FBF0)
                   : const Color(0xFFFFF4E5),
               borderRadius: BorderRadius.circular(11),
@@ -1516,18 +1646,19 @@ final bool isCompleted =
             child: Row(
               children: [
                 Icon(
-                  _differenceQty == 0
+                  _isBalanced
                       ? Icons.check_circle
                       : Icons.warning_amber_rounded,
-                  color: _differenceQty == 0 ? green : orange,
+                  color: _isBalanced ? green : orange,
                   size: 18,
                 ),
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(
-                    _differenceQty == 0
+                    _isBalanced
                         ? 'Allocation quantity is fully reconciled.'
-                        : '$_differenceQty L is still unreconciled. You can save a draft, but complete only when balanced.',
+                        :'${_formatQty(_differenceQty)} L is still unreconciled. '
+'You can save a draft, but complete only when balanced.',
                     style: const TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
@@ -1553,9 +1684,39 @@ final bool isCompleted =
       child: TextField(
         controller: controller,
         enabled: enabled,
-        keyboardType: TextInputType.number,
-        textAlign: TextAlign.center,
-        onChanged: (_) => setState(() {}),
+       keyboardType:
+    const TextInputType
+        .numberWithOptions(
+      decimal: true,
+      signed: false,
+    ),
+
+inputFormatters: [
+  TextInputFormatter
+      .withFunction(
+    (
+      oldValue,
+      newValue,
+    ) {
+      final bool valid =
+          RegExp(
+            r'^\d*\.?\d{0,2}$',
+          ).hasMatch(
+            newValue.text,
+          );
+
+      return valid
+          ? newValue
+          : oldValue;
+    },
+  ),
+],
+
+textAlign:
+    TextAlign.center,
+
+onChanged: (_) =>
+    setState(() {}),
         decoration: InputDecoration(
           labelText: label,
           hintText: valueText,
@@ -1839,18 +2000,44 @@ Widget _moneyField({
   }
 
   Widget _buildBottomSummary() {
-    final data = [
-      ['Issued', '$_allocatedQty L', Icons.inventory_2_outlined, darkBlue],
-      ['Sold', '$_soldQty L', Icons.shopping_cart_outlined, primaryBlue],
-      ['Good Return', '$_goodReturnQty L', Icons.keyboard_return, green],
-      ['Damage', '$_damageQty L', Icons.warning_amber_outlined, orange],
-      [
-        'Balance',
-        '${_differenceQty.abs()} L',
-        _differenceQty == 0 ? Icons.check_circle : Icons.warning,
-        _differenceQty == 0 ? green : const Color(0xFFB10606),
-      ],
-    ];
+final data = [
+  [
+    'Issued',
+    '${_formatQty(_allocatedQty)} L',
+    Icons.inventory_2_outlined,
+    darkBlue,
+  ],
+  [
+    'Sold',
+    '${_formatQty(_soldQty)} L',
+    Icons.shopping_cart_outlined,
+    primaryBlue,
+  ],
+  [
+    'Good Return',
+    '${_formatQty(_goodReturnQty)} L',
+    Icons.keyboard_return,
+    green,
+  ],
+  [
+    'Damage',
+    '${_formatQty(_damageQty)} L',
+    Icons.warning_amber_outlined,
+    orange,
+  ],
+  [
+    'Balance',
+    '${_formatQty(_differenceQty.abs())} L',
+    _isBalanced
+        ? Icons.check_circle
+        : Icons.warning,
+    _isBalanced
+        ? green
+        : const Color(
+            0xFFB10606,
+          ),
+  ],
+];
 
     return Container(
       width: double.infinity,
@@ -2103,10 +2290,16 @@ Future<void> _saveSettlement({
     return;
   }
 
-  final returnQty = _goodReturnQty + _damageQty;
+final double returnQty =
+    _goodReturnQty +
+    _damageQty;
 
-  final availableQty =
-      _asInt(allocation['remainingQty']);
+final double availableQty =
+    _asDouble(
+      allocation[
+        'remainingQty'
+      ],
+    );
 
   if (returnQty <= 0) {
     _showMessage('Please enter return quantity.');
@@ -2115,7 +2308,8 @@ Future<void> _saveSettlement({
 
   if (returnQty > availableQty) {
     _showMessage(
-      'Return quantity cannot exceed available quantity $availableQty.',
+      'Return quantity cannot exceed available quantity '
+'${_formatQty(availableQty)}.',
     );
     return;
   }
@@ -2181,14 +2375,26 @@ Future<void> _saveSettlement({
     // USE VALUES RETURNED BY BACKEND
     // =========================================================
 
-    final returnedQty =
-        _asInt(data['returnedQuantity']);
+final double returnedQty =
+    _asDouble(
+      data[
+        'returnedQuantity'
+      ],
+    );
 
-    final soldQty =
-        _asInt(data['soldQuantity']);
+final double soldQty =
+    _asDouble(
+      data[
+        'soldQuantity'
+      ],
+    );
 
-    final remainingQty =
-        _asInt(data['remainingQuantity']);
+final double remainingQty =
+    _asDouble(
+      data[
+        'remainingQuantity'
+      ],
+    );
 
     final result = <String, dynamic>{
       'status':
@@ -2199,15 +2405,26 @@ Future<void> _saveSettlement({
 
       'soldQty':
           soldQty,
+'goodReturnQty':
+    _asDouble(
+      data[
+        'goodReturnQuantity'
+      ],
+    ),
 
-      'goodReturnQty':
-          _asInt(data['goodReturnQuantity']),
+'damageQty':
+    _asDouble(
+      data[
+        'damageQuantity'
+      ],
+    ),
 
-      'damageQty':
-          _asInt(data['damageQuantity']),
-
-      'shortExcessQty':
-          _asInt(data['shortExcessQuantity']),
+'shortExcessQty':
+    _asDouble(
+      data[
+        'shortExcessQuantity'
+      ],
+    ),
 
       'returnedQty':
           returnedQty,
@@ -2294,14 +2511,16 @@ Future<void> _saveSettlement({
   }
 }
 
-  void _completeSettlement() {
-    if (_differenceQty != 0) {
-      _showMessage(
-        'Allocation is not balanced. Difference is ${_differenceQty.abs()} L. '
-        'Correct Sold / Return / Damage / Short-Excess before completing.',
-      );
-      return;
-    }
+void _completeSettlement() {
+  if (!_isBalanced) {
+    _showMessage(
+      'Allocation is not balanced. Difference is '
+      '${_formatQty(_differenceQty.abs())} L. '
+      'Correct Sold / Return / Damage / Short-Excess before completing.',
+    );
+
+    return;
+  }
 
     showDialog<void>(
       context: context,

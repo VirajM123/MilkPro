@@ -75,9 +75,13 @@ class _CollectionScreenState extends State<CollectionScreen> {
     return total;
   }
 
-  int get _pendingCount => _customers
-      .where((customer) => customer.status != PaymentStatus.paid)
-      .length;
+int get _pendingCount => _customers
+    .where(
+      (customer) =>
+          customer.amount >
+          0.001,
+    )
+    .length;
 
   List<String> get _routeOptions {
     final routes = _customers
@@ -197,15 +201,75 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
           final item = Map<String, dynamic>.from(raw);
 
-          final statusText = (item['status'] ?? 'DUE').toString().toUpperCase();
+  final statusText =
+    (item['status'] ?? 'DUE')
+        .toString()
+        .toUpperCase();
 
-          PaymentStatus status = PaymentStatus.due;
 
-          if (statusText == 'PAID') {
-            status = PaymentStatus.paid;
-          } else if (statusText == 'PARTIAL') {
-            status = PaymentStatus.partial;
-          }
+// ==========================================
+// LIVE ACCOUNT POSITION
+//
+// netOutstanding:
+// +ve = customer has to pay
+// 0   = settled
+// -ve = customer has advance
+// ==========================================
+
+final netOutstanding =
+    _asDouble(
+  item['netOutstanding'] ??
+      item['outstanding'],
+);
+
+final currentOutstanding =
+    netOutstanding > 0
+        ? netOutstanding
+        : 0.0;
+
+final advanceBalance =
+    _asDouble(
+  item['advanceBalance'],
+);
+
+final grossBillOutstanding =
+    _asDouble(
+  item['grossBillOutstanding'],
+);
+
+final grossManualOutstanding =
+    _asDouble(
+  item['grossManualOutstanding'] ??
+      item['totalManualOutstanding'],
+);
+
+
+PaymentStatus status =
+    PaymentStatus.due;
+
+
+if (
+  statusText == 'ADVANCE' ||
+  netOutstanding < -0.001
+) {
+  status =
+      PaymentStatus.advance;
+} else if (
+  statusText == 'PAID' ||
+  currentOutstanding <=
+      0.001
+) {
+  status =
+      PaymentStatus.paid;
+} else if (
+  statusText == 'PARTIAL'
+) {
+  status =
+      PaymentStatus.partial;
+} else {
+  status =
+      PaymentStatus.due;
+}
 
           // ==========================================
           // BILL-WISE OUTSTANDING
@@ -284,6 +348,104 @@ class _CollectionScreenState extends State<CollectionScreen> {
               );
             }
           }
+            // ==========================================
+// MANUAL / OPENING OUTSTANDING
+//
+// Opening Outstanding entered while creating
+// customer also comes here because backend
+// stores it in TRN_CUSTOMER_OUTSTANDING.
+// ==========================================
+
+final List<_ManualOutstanding>
+    manualOutstandings = [];
+
+
+final rawManualOutstandings =
+    item['manualOutstandings'];
+
+
+if (
+  rawManualOutstandings is List
+) {
+  for (
+    final rawManual
+    in rawManualOutstandings
+  ) {
+    if (
+      rawManual is! Map
+    ) {
+      continue;
+    }
+
+
+    final manual =
+        Map<String, dynamic>.from(
+      rawManual,
+    );
+
+
+    final adjustmentDate =
+        DateTime.tryParse(
+      (
+        manual['adjustmentDate'] ??
+        manual['referenceDate'] ??
+        ''
+      ).toString(),
+    );
+
+
+    manualOutstandings.add(
+      _ManualOutstanding(
+        adjustmentId:
+            (
+              manual['adjustmentId'] ??
+              manual['referenceId'] ??
+              ''
+            ).toString(),
+
+        adjustmentNo:
+            (
+              manual['adjustmentNo'] ??
+              manual['referenceNo'] ??
+              ''
+            ).toString(),
+
+        adjustmentDate:
+            adjustmentDate,
+
+        amount:
+            _asDouble(
+          manual['amount'] ??
+              manual['initialOutstanding'],
+        ),
+
+        collectionApplied:
+            _asDouble(
+          manual['collectionApplied'],
+        ),
+
+        outstandingAmount:
+            _asDouble(
+          manual['outstandingAmount'],
+        ),
+
+        status:
+            (
+              manual['status'] ??
+              'DUE'
+            )
+                .toString()
+                .toUpperCase(),
+
+        remarks:
+            (
+              manual['remarks'] ??
+              ''
+            ).toString(),
+      ),
+    );
+  }
+}
           loadedCustomers.add(
             _CustomerCollection(
               customerId: (item['customerId'] ?? '').toString(),
@@ -299,25 +461,58 @@ class _CollectionScreenState extends State<CollectionScreen> {
               salesmanId: (item['salesmanId'] ?? '').toString(),
 
               salesmanName: (item['salesmanName'] ?? '').toString(),
+// Amount that can actually be collected now.
+// Never send negative outstanding to collection.
+amount:
+    currentOutstanding,
 
-              amount: _asDouble(item['outstanding']),
+// Signed customer position.
+// Negative means advance.
+netOutstanding:
+    netOutstanding,
 
-              totalCreditSales: _asDouble(item['totalCreditSales']),
+advanceBalance:
+    advanceBalance,
 
-              totalCollected: _asDouble(item['totalCollected']),
+grossBillOutstanding:
+    grossBillOutstanding,
+
+grossManualOutstanding:
+    grossManualOutstanding,
+
+totalCreditSales:
+    _asDouble(
+  item['totalCreditSales'],
+),
+
+totalCollected:
+    _asDouble(
+  item['totalCollected'],
+),
 
               paymentMode:
                   (item['lastPaymentMode'] ?? '').toString().trim().isNotEmpty
                   ? item['lastPaymentMode'].toString()
                   : 'Pending',
 
-              status: status,
+        status:
+    status,
 
-              bills: bills,
+bills:
+    bills,
 
-              avatarColor: const Color(0xFFE6F2FF),
+manualOutstandings:
+    manualOutstandings,
 
-              avatarIconColor: const Color(0xFF1767D9),
+avatarColor:
+    const Color(
+  0xFFE6F2FF,
+),
+
+avatarIconColor:
+    const Color(
+  0xFF1767D9,
+),
             ),
           );
         }
@@ -553,17 +748,53 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Widget _customerCard(
   _CustomerCollection customer,
 ) {
-  final customerStatusColor =
-      switch (customer.status) {
-    PaymentStatus.paid =>
-      AppColors.success,
+final customerStatusColor =
+    switch (customer.status) {
+  PaymentStatus.paid =>
+    AppColors.success,
 
-    PaymentStatus.partial =>
-      AppColors.warning,
+  PaymentStatus.partial =>
+    AppColors.warning,
 
-    PaymentStatus.due =>
-      AppColors.error,
-  };
+  PaymentStatus.due =>
+    AppColors.error,
+
+  PaymentStatus.advance =>
+    const Color(
+      0xFF2563EB,
+    ),
+};
+
+
+final isAdvance =
+    customer.status ==
+        PaymentStatus.advance ||
+    customer.netOutstanding <
+        -0.001;
+
+
+final displayAmount =
+    isAdvance
+        ? (
+            customer
+                    .netOutstanding <
+                -0.001
+              ? customer
+                  .netOutstanding
+                  .abs()
+              : customer
+                  .advanceBalance
+          )
+        : customer.amount;
+
+
+final positionText =
+    isAdvance
+        ? 'ADVANCE'
+        : customer.amount <=
+                0.001
+            ? 'CLEAR'
+            : 'OUTSTANDING';
 
   return Card(
     margin:
@@ -660,7 +891,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '₹${customer.amount.toStringAsFixed(2)}',
+               '₹${displayAmount.toStringAsFixed(2)}',
                     style:
                         TextStyle(
                       color:
@@ -675,20 +906,17 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     height: 2,
                   ),
 
-                  Text(
-                    customer.amount <=
-                            0.001
-                        ? 'CLEAR'
-                        : 'OUTSTANDING',
-                    style:
-                        TextStyle(
-                      color:
-                          customerStatusColor,
-                      fontSize: 9,
-                      fontWeight:
-                          FontWeight.w800,
-                    ),
-                  ),
+             Text(
+  positionText,
+  style: TextStyle(
+    color:
+        customerStatusColor,
+    fontSize:
+        9,
+    fontWeight:
+        FontWeight.w800,
+  ),
+),
                 ],
               ),
             ],
@@ -706,36 +934,477 @@ class _CollectionScreenState extends State<CollectionScreen> {
             height: 12,
           ),
 
+// ==========================================
+// CUSTOMER ACCOUNT BREAKDOWN
+// ==========================================
+
+_billAmountRow(
+  'Sales Outstanding',
+  customer.grossBillOutstanding,
+),
+
+_billAmountRow(
+  'Manual / Opening Outstanding',
+  customer.grossManualOutstanding,
+),
+
+if (
+  customer.advanceBalance >
+  0.001
+)
+  _billAmountRow(
+    'Available Advance',
+    customer.advanceBalance,
+    valueColor:
+        const Color(
+      0xFF2563EB,
+    ),
+  ),
+
+const Padding(
+  padding:
+      EdgeInsets.symmetric(
+    vertical: 7,
+  ),
+  child: Divider(
+    height: 1,
+  ),
+),
+
+_billAmountRow(
+  isAdvance
+      ? 'Net Advance Position'
+      : 'Net Outstanding',
+  isAdvance
+      ? displayAmount
+      : customer.amount,
+  bold: true,
+  valueColor:
+      isAdvance
+          ? const Color(
+              0xFF2563EB,
+            )
+          : customer.amount >
+                  0.001
+              ? AppColors.error
+              : AppColors.success,
+),
+
+const SizedBox(
+  height: 12,
+),
+
+
+// ==========================================
+// ONE CUSTOMER-LEVEL COLLECTION BUTTON
+//
+// Works for:
+// - Sale outstanding
+// - Manual outstanding
+// - Opening outstanding
+// ==========================================
+
+if (
+  customer.amount >
+      0.001 &&
+  UiSession.instance.can(
+    AppPermission
+        .collectionCreate,
+  )
+)
+  SizedBox(
+    width:
+        double.infinity,
+
+    child:
+        ElevatedButton.icon(
+      onPressed: () =>
+          _showCollectionEntry(
+        customer,
+      ),
+
+      icon:
+          const Icon(
+        Icons
+            .payments_outlined,
+
+        size:
+            18,
+      ),
+
+      label:
+          Text(
+        'COLLECT PAYMENT • ₹${customer.amount.toStringAsFixed(2)}',
+      ),
+    ),
+  ),
+
+if (
+  customer.amount >
+  0.001
+)
+  const SizedBox(
+    height: 14,
+  ),
           // ==========================================
           // BILL LIST
           // ==========================================
+// ==========================================
+// MANUAL / OPENING OUTSTANDING
+// ==========================================
 
-          if (customer.bills.isEmpty)
-            const Padding(
-              padding:
-                  EdgeInsets.symmetric(
-                vertical: 8,
-              ),
-              child: Text(
-                'No bill details available.',
-                style: TextStyle(
-                  color:
-                      AppColors
-                          .textSecondary,
-                  fontSize: 11,
-                ),
-              ),
-            )
-          else
-            ...customer.bills.map(
-              (bill) =>
-                  _collectionBillCard(
-                customer,
-                bill,
-              ),
-            ),
+if (
+  customer
+      .manualOutstandings
+      .isNotEmpty
+) ...[
+  const Text(
+    'MANUAL / OPENING OUTSTANDING',
+    style:
+        TextStyle(
+      color:
+          AppColors
+              .textSecondary,
+      fontSize:
+          10,
+      fontWeight:
+          FontWeight.w800,
+    ),
+  ),
+
+  const SizedBox(
+    height: 8,
+  ),
+
+  ...customer
+      .manualOutstandings
+      .map(
+        _manualOutstandingCard,
+      ),
+
+  const SizedBox(
+    height: 4,
+  ),
+],
+
+
+// ==========================================
+// SALES BILLS
+// ==========================================
+
+if (
+  customer.bills.isNotEmpty
+) ...[
+  const Text(
+    'SALES BILLS',
+    style:
+        TextStyle(
+      color:
+          AppColors
+              .textSecondary,
+      fontSize:
+          10,
+      fontWeight:
+          FontWeight.w800,
+    ),
+  ),
+
+  const SizedBox(
+    height: 8,
+  ),
+
+  ...customer.bills.map(
+    (bill) =>
+        _collectionBillCard(
+      customer,
+      bill,
+    ),
+  ),
+],
+
+
+// ==========================================
+// NO SOURCE DETAILS
+// ==========================================
+
+if (
+  customer.bills.isEmpty &&
+  customer
+      .manualOutstandings
+      .isEmpty
+)
+  const Padding(
+    padding:
+        EdgeInsets.symmetric(
+      vertical: 8,
+    ),
+
+    child:
+        Text(
+      'No outstanding source details available.',
+
+      style:
+          TextStyle(
+        color:
+            AppColors
+                .textSecondary,
+
+        fontSize:
+            11,
+      ),
+    ),
+  ),
         ],
       ),
+    ),
+  );
+}
+Widget _manualOutstandingCard(
+  _ManualOutstanding item,
+) {
+  final isPaid =
+      item.outstandingAmount <=
+      0.001;
+
+  final isPartial =
+      !isPaid &&
+      item.collectionApplied >
+          0.001;
+
+
+  final statusText =
+      isPaid
+          ? 'PAID'
+          : isPartial
+              ? 'PARTIAL'
+              : 'OUTSTANDING';
+
+
+  final statusColor =
+      isPaid
+          ? AppColors.success
+          : isPartial
+              ? AppColors.warning
+              : AppColors.error;
+
+
+  return Container(
+    width:
+        double.infinity,
+
+    margin:
+        const EdgeInsets.only(
+      bottom:
+          10,
+    ),
+
+    padding:
+        const EdgeInsets.all(
+      12,
+    ),
+
+    decoration:
+        BoxDecoration(
+      color:
+          const Color(
+        0xFFFFFBF5,
+      ),
+
+      border:
+          Border.all(
+        color:
+            AppColors.border,
+      ),
+
+      borderRadius:
+          BorderRadius.circular(
+        12,
+      ),
+    ),
+
+    child:
+        Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child:
+                  Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+
+                children: [
+                  Text(
+                    item.adjustmentNo
+                            .trim()
+                            .isNotEmpty
+                        ? item.adjustmentNo
+                        : 'Manual Outstanding',
+
+                    style:
+                        const TextStyle(
+                      color:
+                          AppColors
+                              .textPrimary,
+
+                      fontSize:
+                          13,
+
+                      fontWeight:
+                          FontWeight.w900,
+                    ),
+                  ),
+
+                  if (
+                    item.adjustmentDate !=
+                    null
+                  ) ...[
+                    const SizedBox(
+                      height:
+                          2,
+                    ),
+
+                    Text(
+                      _formatDate(
+                        item.adjustmentDate!
+                            .toLocal(),
+                      ),
+
+                      style:
+                          const TextStyle(
+                        color:
+                            AppColors
+                                .textSecondary,
+
+                        fontSize:
+                            10,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal:
+                    9,
+
+                vertical:
+                    5,
+              ),
+
+              decoration:
+                  BoxDecoration(
+                color:
+                    statusColor
+                        .withValues(
+                  alpha:
+                      .10,
+                ),
+
+                borderRadius:
+                    BorderRadius.circular(
+                  20,
+                ),
+              ),
+
+              child:
+                  Text(
+                statusText,
+
+                style:
+                    TextStyle(
+                  color:
+                      statusColor,
+
+                  fontSize:
+                      9,
+
+                  fontWeight:
+                      FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(
+          height:
+              10,
+        ),
+
+        _billAmountRow(
+          'Original Amount',
+          item.amount,
+          bold:
+              true,
+        ),
+
+        if (
+          item.collectionApplied >
+          0.001
+        )
+          _billAmountRow(
+            'Collection Applied',
+            item.collectionApplied,
+          ),
+
+        const Padding(
+          padding:
+              EdgeInsets.symmetric(
+            vertical:
+                6,
+          ),
+
+          child:
+              Divider(
+            height:
+                1,
+          ),
+        ),
+
+        _billAmountRow(
+          'Outstanding',
+          item.outstandingAmount,
+          bold:
+              true,
+
+          valueColor:
+              isPaid
+                  ? AppColors.success
+                  : AppColors.error,
+        ),
+
+        if (
+          item.remarks
+              .trim()
+              .isNotEmpty
+        ) ...[
+          const SizedBox(
+            height:
+                8,
+          ),
+
+          Text(
+            item.remarks,
+
+            style:
+                const TextStyle(
+              color:
+                  AppColors
+                      .textSecondary,
+
+              fontSize:
+                  10.5,
+            ),
+          ),
+        ],
+      ],
     ),
   );
 }
@@ -970,32 +1639,6 @@ Widget _collectionBillCard(
         // ACTIONS
         // ==========================================
 
-        if (!isPaid && UiSession.instance.can(AppPermission.collectionCreate))
-          SizedBox(
-            width:
-                double.infinity,
-            child:
-                ElevatedButton.icon(
-              onPressed: () =>
-                  _showCollectionEntry(
-                customer,
-              ),
-              icon:
-                  const Icon(
-                Icons
-                    .payments_outlined,
-                size: 18,
-              ),
-              label: Text(
-                'COLLECT ₹${bill.outstandingAmount.toStringAsFixed(2)}',
-              ),
-            ),
-          ),
-
-        if (!isPaid)
-          const SizedBox(
-            height: 7,
-          ),
 
         Row(
           children: [
@@ -1592,6 +2235,26 @@ void _showBillDetails(
       );
       return;
     }
+    if (
+  customer.amount <=
+  0.001
+) {
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(
+    SnackBar(
+      content:
+          Text(
+        customer.netOutstanding <
+                -0.001
+            ? 'Customer has advance. There is no collectible outstanding.'
+            : 'Customer has no outstanding to collect.',
+      ),
+    ),
+  );
+
+  return;
+}
     final amountController = TextEditingController();
     String paymentMode = 'Cash';
     showModalBottomSheet<void>(
@@ -1620,32 +2283,82 @@ void _showBillDetails(
               ),
 
               const SizedBox(height: 10),
+Container(
+  width:
+      double.infinity,
 
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7E8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Outstanding',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    Text(
-                      '₹${customer.amount.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+  padding:
+      const EdgeInsets.all(
+    12,
+  ),
+
+  decoration:
+      BoxDecoration(
+    color:
+        const Color(
+      0xFFFFF7E8,
+    ),
+
+    borderRadius:
+        BorderRadius.circular(
+      12,
+    ),
+  ),
+
+  child:
+      Column(
+    children: [
+      _billAmountRow(
+        'Sales Outstanding',
+        customer
+            .grossBillOutstanding,
+      ),
+
+      _billAmountRow(
+        'Manual / Opening',
+        customer
+            .grossManualOutstanding,
+      ),
+
+      if (
+        customer.advanceBalance >
+        0.001
+      )
+        _billAmountRow(
+          'Advance Balance',
+          customer.advanceBalance,
+
+          valueColor:
+              const Color(
+            0xFF2563EB,
+          ),
+        ),
+
+      const Padding(
+        padding:
+            EdgeInsets.symmetric(
+          vertical:
+              6,
+        ),
+
+        child:
+            Divider(
+          height:
+              1,
+        ),
+      ),
+
+      _billAmountRow(
+        'Net Collectible',
+        customer.amount,
+        bold:
+            true,
+        valueColor:
+            AppColors.error,
+      ),
+    ],
+  ),
+),
 
               const SizedBox(height: 16),
               TextField(
@@ -1825,6 +2538,7 @@ void _showBillDetails(
     ).whenComplete(amountController.dispose);
   }
 
+
   void _showFilters() {
     var route = _selectedRoute;
     var salesman = _selectedSalesman;
@@ -1949,7 +2663,12 @@ void _showBillDetails(
       '${date.month.toString().padLeft(2, '0')}/${date.year}';
 }
 
-enum PaymentStatus { paid, due, partial }
+enum PaymentStatus {
+  paid,
+  due,
+  partial,
+  advance,
+}
 
 class _CustomerCollection {
   const _CustomerCollection({
@@ -1961,14 +2680,20 @@ class _CustomerCollection {
     required this.salesmanId,
     required this.salesmanName,
     required this.amount,
+    required this.netOutstanding,
+    required this.advanceBalance,
+    required this.grossBillOutstanding,
+    required this.grossManualOutstanding,
     required this.totalCreditSales,
     required this.totalCollected,
     required this.paymentMode,
     required this.status,
     required this.bills,
+    required this.manualOutstandings,
     required this.avatarColor,
     required this.avatarIconColor,
   });
+
 
   final String customerId;
 
@@ -1984,8 +2709,37 @@ class _CustomerCollection {
 
   final String salesmanName;
 
-  // CURRENT CUSTOMER OUTSTANDING
+
+  // ==========================================
+  // COLLECTIBLE NET OUTSTANDING
+  // Always zero or positive.
+  // ==========================================
+
   final double amount;
+
+
+  // ==========================================
+  // SIGNED ACCOUNT POSITION
+  //
+  // +ve = Due
+  // 0   = Settled
+  // -ve = Advance
+  // ==========================================
+
+  final double netOutstanding;
+
+
+  // Available customer advance
+  final double advanceBalance;
+
+
+  // Remaining sales-bill outstanding
+  final double grossBillOutstanding;
+
+
+  // Remaining manual/opening outstanding
+  final double grossManualOutstanding;
+
 
   final double totalCreditSales;
 
@@ -1995,14 +2749,65 @@ class _CustomerCollection {
 
   final PaymentStatus status;
 
-  // BILL-WISE OUTSTANDING
-  final List<_CollectionBill> bills;
+
+  // SALE OUTSTANDING
+  final List<_CollectionBill>
+      bills;
+
+
+  // MANUAL / OPENING OUTSTANDING
+  final List<_ManualOutstanding>
+      manualOutstandings;
+
 
   final Color avatarColor;
 
   final Color avatarIconColor;
 }
+// ======================================================
+// MANUAL / OPENING CUSTOMER OUTSTANDING
+// ======================================================
 
+class _ManualOutstanding {
+  const _ManualOutstanding({
+    required this.adjustmentId,
+    required this.adjustmentNo,
+    required this.adjustmentDate,
+    required this.amount,
+    required this.collectionApplied,
+    required this.outstandingAmount,
+    required this.status,
+    required this.remarks,
+  });
+
+
+  final String adjustmentId;
+
+  final String adjustmentNo;
+
+  final DateTime? adjustmentDate;
+
+  final double amount;
+
+  final double collectionApplied;
+
+  final double outstandingAmount;
+
+  final String status;
+
+  final String remarks;
+
+
+  bool get isPaid =>
+      outstandingAmount <=
+      0.001;
+
+
+  bool get isPartial =>
+      !isPaid &&
+      collectionApplied >
+          0.001;
+}
 // ======================================================
 // COLLECTION BILL
 // ======================================================

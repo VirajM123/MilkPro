@@ -53,9 +53,10 @@ class SaleModel {
     required this.grandTotal,
     required this.status,
     this.payments = const <Map<String, dynamic>>[],
-    this.paidAmount = 0,
-    this.advanceUsed = 0,
-    this.outstandingAmount = 0,
+ this.paidAmount = 0,
+this.advanceUsed = 0,
+this.advanceCreated = 0,
+this.outstandingAmount = 0,
     this.paymentStatus = 'PAID',
     this.godown = '',
   });
@@ -97,11 +98,24 @@ class SaleModel {
   // Actual Cash / UPI / Bank payment received
   final double paidAmount;
 
-  // Customer advance adjusted against this bill
-  final double advanceUsed;
+// Customer's PREVIOUS advance adjusted
+// against this bill.
+final double advanceUsed;
 
-  // Remaining amount after payment + advance adjustment
-  final double outstandingAmount;
+// NEW advance created because payment
+// received was greater than the bill amount.
+//
+// Example:
+// Bill = 500
+// Paid = 700
+// advanceCreated = 200
+final double advanceCreated;
+
+// Remaining amount after direct payment
+// + previous advance adjustment.
+//
+// This must never be negative.
+final double outstandingAmount;
 
   final String paymentStatus;
 
@@ -172,13 +186,18 @@ class SaleModel {
   // Direct payment + advance adjustment
   double get settledAmount =>
       paidAmount + advanceUsed;
+bool get hasAdvanceAdjustment =>
+    advanceUsed > 0.001;
 
-  bool get hasAdvanceAdjustment =>
-      advanceUsed > 0.001;
+bool get hasAdvanceCreated =>
+    advanceCreated > 0.001;
 
-  bool get isPaid =>
+bool get isPaid =>
       paymentStatus.toUpperCase() == 'PAID';
 
+double get netAdvanceEffect =>
+    advanceCreated -
+    advanceUsed;
   bool get isPartial =>
       paymentStatus.toUpperCase() == 'PARTIAL';
 
