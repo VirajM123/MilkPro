@@ -31,6 +31,7 @@ class CollectionAllocationModel {
     this.sourceType = 'SALE',
     this.referenceId = '',
     this.referenceNo = '',
+    this.customerName = '',
     this.sourceAmount = 0.0,
     this.outstandingBefore,
     this.amountApplied = 0.0,
@@ -41,6 +42,7 @@ class CollectionAllocationModel {
   final String sourceType;
   final String referenceId;
   final String referenceNo;
+  final String customerName;
   final double sourceAmount;
 
   /// Nullable snapshots to preserve historical receipt fidelity.
@@ -64,6 +66,7 @@ class CollectionAllocationModel {
               json['saleId'] ??
               '')
           .toString(),
+      customerName: (json['customerName'] ?? '').toString(),
       sourceAmount: _asDouble(json['sourceAmount'] ?? json['billAmount']),
       outstandingBefore: _asNullableDouble(json['outstandingBefore']),
       amountApplied: _asDouble(json['amountApplied']),
@@ -76,6 +79,7 @@ class CollectionAllocationModel {
         'sourceType': sourceType,
         'referenceId': referenceId,
         'referenceNo': referenceNo,
+        'customerName': customerName,
         'sourceAmount': sourceAmount,
         'outstandingBefore': outstandingBefore,
         'amountApplied': amountApplied,
@@ -149,6 +153,7 @@ class CollectionReceiptModel {
     this.status = 'POSTED',
     this.cancelReason = '',
     this.clientRequestId = '',
+    this.allocationMode = 'FIFO',
     this.payments = const [],
     this.allocations = const [],
     this.canDownloadReceipt = true,
@@ -201,6 +206,7 @@ class CollectionReceiptModel {
   final String status;
   final String cancelReason;
   final String clientRequestId;
+  final String allocationMode;
   final bool canDownloadReceipt;
 
   final List<BillPaymentItemModel> payments;
@@ -210,6 +216,7 @@ class CollectionReceiptModel {
   bool get isBillPayment => sourceType.toUpperCase() == 'BILL_PAYMENT';
   bool get isCancelled => status.toUpperCase() == 'CANCELLED';
   bool get isPosted => status.toUpperCase() == 'POSTED';
+  bool get isManualAllocation => allocationMode.toUpperCase() == 'MANUAL';
 
   DateTime? get displayDate => collectionDate ?? date;
 
@@ -296,6 +303,8 @@ class CollectionReceiptModel {
           .toUpperCase(),
       cancelReason: (json['cancelReason'] ?? '').toString(),
       clientRequestId: (json['clientRequestId'] ?? '').toString(),
+      allocationMode:
+          (json['allocationMode'] ?? 'FIFO').toString().toUpperCase(),
       payments: paymentsList,
       allocations: allocationsList,
       canDownloadReceipt: json['canDownloadReceipt'] != false,
@@ -315,6 +324,9 @@ class ManualOutstandingModel {
     required this.amount,
     required this.collectionApplied,
     required this.outstandingAmount,
+    this.remainingOutstanding = 0.0,
+    this.customerId = '',
+    this.customerName = '',
     required this.status,
     required this.remarks,
   });
@@ -325,22 +337,38 @@ class ManualOutstandingModel {
   final double amount;
   final double collectionApplied;
   final double outstandingAmount;
+  final double remainingOutstanding;
+  final String customerId;
+  final String customerName;
   final String status;
   final String remarks;
 
-  bool get isPaid => outstandingAmount <= 0.001;
+  double get currentDue => remainingOutstanding > 0.001
+      ? remainingOutstanding
+      : (outstandingAmount > 0.001 ? outstandingAmount : 0.0);
+
+  bool get isPaid => currentDue <= 0.001;
   bool get isPartial => !isPaid && collectionApplied > 0.001;
 
   factory ManualOutstandingModel.fromJson(Map<String, dynamic> json) {
+    final double outAmt = _asDouble(json['outstandingAmount']);
+    final double remOut = _asDouble(
+      json['remainingOutstanding'] ?? json['outstandingAmount'],
+    );
     return ManualOutstandingModel(
-      adjustmentId: (json['adjustmentId'] ?? json['referenceId'] ?? '').toString(),
-      adjustmentNo: (json['adjustmentNo'] ?? json['referenceNo'] ?? '').toString(),
+      adjustmentId:
+          (json['adjustmentId'] ?? json['referenceId'] ?? '').toString(),
+      adjustmentNo:
+          (json['adjustmentNo'] ?? json['referenceNo'] ?? '').toString(),
       adjustmentDate: DateTime.tryParse(
         (json['adjustmentDate'] ?? json['referenceDate'] ?? '').toString(),
       ),
       amount: _asDouble(json['amount'] ?? json['initialOutstanding']),
       collectionApplied: _asDouble(json['collectionApplied']),
-      outstandingAmount: _asDouble(json['outstandingAmount']),
+      outstandingAmount: outAmt,
+      remainingOutstanding: remOut,
+      customerId: (json['customerId'] ?? '').toString(),
+      customerName: (json['customerName'] ?? '').toString(),
       status: (json['status'] ?? 'DUE').toString().toUpperCase(),
       remarks: (json['remarks'] ?? '').toString(),
     );
@@ -356,6 +384,8 @@ class CollectionBillModel {
     required this.saleId,
     required this.saleNo,
     required this.saleDate,
+    this.customerId = '',
+    this.customerName = '',
     required this.billAmount,
     required this.paidAtBilling,
     required this.paymentAppliedAtBilling,
@@ -371,6 +401,8 @@ class CollectionBillModel {
   final String saleId;
   final String saleNo;
   final DateTime? saleDate;
+  final String customerId;
+  final String customerName;
   final double billAmount;
   final double paidAtBilling;
   final double paymentAppliedAtBilling;
@@ -449,6 +481,8 @@ class CollectionBillModel {
       saleId: (json['saleId'] ?? '').toString(),
       saleNo: (json['saleNo'] ?? '').toString(),
       saleDate: DateTime.tryParse((json['saleDate'] ?? '').toString()),
+      customerId: (json['customerId'] ?? '').toString(),
+      customerName: (json['customerName'] ?? '').toString(),
       billAmount: bAmount,
       paidAtBilling: pBilling,
       paymentAppliedAtBilling: pAppliedBilling,

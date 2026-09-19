@@ -1,10 +1,12 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
+const path = require("path");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+dotenv.config({ path: path.join(__dirname, ".env") });
 dotenv.config();
 
 const app = express();
@@ -320,6 +322,11 @@ const customerSchema = new mongoose.Schema(
     },
 
     balance: {
+      type: Number,
+      default: 0,
+    },
+
+    collectionRevision: {
       type: Number,
       default: 0,
     },
@@ -1769,6 +1776,12 @@ const collectionAllocationSchema =
         default: 0,
         min: 0,
       },
+
+      customerName: {
+        type: String,
+        default: "",
+        trim: true,
+      },
     },
     {
       _id: false,
@@ -1915,6 +1928,15 @@ const collectionSchema = new mongoose.Schema(
     allocations: {
       type: [collectionAllocationSchema],
       default: [],
+    },
+
+    allocationMode: {
+      type: String,
+      enum: [
+        "FIFO",
+        "MANUAL",
+      ],
+      default: "FIFO",
     },
 
     paymentMode: {
@@ -3076,7 +3098,7 @@ async function generateAllocationNo(
 // GENERATE COLLECTION ID
 // ======================================================
 
-async function generateCollectionId() {
+async function generateCollectionId(session = null) {
   let collectionId;
   let exists = true;
 
@@ -3090,10 +3112,11 @@ async function generateCollectionId() {
     collectionId =
       `COL${number}`;
 
-    exists =
-      await Collection.exists({
-        collectionId,
-      });
+    const query = Collection.exists({
+      collectionId,
+    });
+    if (session) query.session(session);
+    exists = await query;
   }
 
   return collectionId;
@@ -3106,7 +3129,8 @@ async function generateCollectionId() {
 // ======================================================
 
 async function generateReceiptNo(
-  farmId
+  farmId,
+  session = null
 ) {
   const year =
     new Date().getFullYear();
@@ -3114,20 +3138,22 @@ async function generateReceiptNo(
   const prefix =
     `REC-${year}-`;
 
-  const lastCollection =
-    await Collection.findOne({
-      farmId,
+  const query = Collection.findOne({
+    farmId,
 
-      receiptNo: {
-        $regex: `^${prefix}`,
-      },
+    receiptNo: {
+      $regex: `^${prefix}`,
+    },
+  })
+    .sort({
+      createdAt: -1,
     })
-      .sort({
-        createdAt: -1,
-      })
-      .select(
-        "receiptNo"
-      );
+    .select(
+      "receiptNo"
+    );
+
+  if (session) query.session(session);
+  const lastCollection = await query;
 
   let nextNumber = 1;
 
@@ -14494,6 +14520,71 @@ function getAllocationBusinessDayRange(
   };
 }
 // ======================================================
+// ALLOCATION BUSINESS DATE PARSER
+//
+// allocationDate is a BUSINESS DATE, not a timestamp.
+//
+// Accepted:
+// 2026-09-19
+// 2026-09-19T20:55:55.819Z   // legacy client support
+//
+// In both cases the authoritative business date is:
+// 2026-09-19
+//
+// Stored canonically as:
+// 2026-09-19T00:00:00.000Z
+// ======================================================
+
+function parseAllocationBusinessDate(value) {
+  const raw = (value || "")
+    .toString()
+    .trim();
+
+  const match = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})/
+  );
+
+  if (!match) {
+    const error = new Error(
+      "Invalid allocation date. Use YYYY-MM-DD format."
+    );
+
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const parsedDate = new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day,
+      0,
+      0,
+      0,
+      0
+    )
+  );
+
+  if (
+    parsedDate.getUTCFullYear() !== year ||
+    parsedDate.getUTCMonth() !== month - 1 ||
+    parsedDate.getUTCDate() !== day
+  ) {
+    const error = new Error(
+      "Invalid allocation date."
+    );
+
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return parsedDate;
+}
+// ======================================================
 // ALLOCATION
 // TRN_ALLOCATION
 // ======================================================
@@ -16150,32 +16241,11 @@ app.post(
               farmId
             );
 
-
-          const finalAllocationDate =
-            allocationDate
-              ? new Date(
-                allocationDate
-              )
-              : new Date();
-
-
-          if (
-            Number.isNaN(
-              finalAllocationDate
-                .getTime()
-            )
-          ) {
-
-            const error =
-              new Error(
-                "Invalid allocation date."
-              );
-
-            error.statusCode =
-              400;
-
-            throw error;
-          }
+const finalAllocationDate =
+  parseAllocationBusinessDate(
+    allocationDate ||
+      getAllocationBusinessDayRange().date
+  );
 
 
           // ============================================
@@ -17317,34 +17387,12 @@ app.put(
           // UPDATE ALLOCATION
           // ==============================================
 
-          if (
-            allocationDate
-          ) {
-            const parsedDate =
-              new Date(
-                allocationDate
-              );
-
-            if (
-              Number.isNaN(
-                parsedDate.getTime()
-              )
-            ) {
-              const error =
-                new Error(
-                  "Invalid allocation date."
-                );
-
-              error.statusCode =
-                400;
-
-              throw error;
-            }
-
-            allocation
-              .allocationDate =
-              parsedDate;
-          }
+        if (allocationDate) {
+  allocation.allocationDate =
+    parseAllocationBusinessDate(
+      allocationDate
+    );
+}
 
           allocation.salesmanId =
             salesman.salesmanId;
@@ -20177,11 +20225,136 @@ app.get(
 
 
       // ==================================================
+      // LOAD CUSTOMER MASTER
+      //
+      // customer.balance = CURRENT AVAILABLE ADVANCE
+      //
+      // ADMIN:
+      //   all active customers
+      //
+      // SALESMAN:
+      //   customers on assigned routes
+      //
+      // This is needed because customer may have manual
+      // outstanding even if he has no sale yet.
+      // ==================================================
+
+      let salesmanRouteValues = [];
+
+      if (
+        role === "salesman"
+      ) {
+        const salesmanRoutes =
+          await RouteMaster.find({
+            farmId,
+
+            salesmanId:
+              currentSalesman.salesmanId,
+
+            isActive:
+              true,
+          })
+            .select(
+              "routeId routeName"
+            )
+            .lean();
+
+        salesmanRouteValues =
+          [
+            ...new Set(
+              salesmanRoutes
+                .flatMap(
+                  (route) => [
+                    route.routeId,
+                    route.routeName,
+                  ]
+                )
+                .filter(Boolean)
+            ),
+          ];
+      }
+
+      const masterCustomers =
+        role === "admin"
+          ? await Customer.find({
+              farmId,
+
+              isActive:
+                true,
+            })
+              .select(
+                [
+                  "customerId",
+                  "name",
+                  "mobile",
+                  "route",
+                  "balance",
+                  "isActive",
+                  "createdAt",
+                ].join(" ")
+              )
+              .lean()
+
+          : await Customer.find({
+              farmId,
+
+              isActive:
+                true,
+
+              route: {
+                $in:
+                  salesmanRouteValues,
+              },
+            })
+              .select(
+                [
+                  "customerId",
+                  "name",
+                  "mobile",
+                  "route",
+                  "balance",
+                  "isActive",
+                  "createdAt",
+                ].join(" ")
+              )
+              .lean();
+
+      const masterCustomerMap =
+        new Map(
+          masterCustomers.map(
+            (customer) => [
+              (
+                customer.customerId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase(),
+
+              customer,
+            ]
+          )
+        );
+
+      const visibleCustomerIds =
+        masterCustomers
+          .map(
+            (customer) =>
+              (
+                customer.customerId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase()
+          )
+          .filter(Boolean);
+
+      // ==================================================
       // CREDIT SALES FILTER
       // ==================================================
 
       const saleFilter = {
-
         farmId:
           farmId,
 
@@ -20189,18 +20362,15 @@ app.get(
           "POSTED",
       };
 
-
       if (
         role === "salesman"
       ) {
-
         saleFilter.salesmanId =
           currentSalesman.salesmanId;
 
         saleFilter.createdRole =
           "salesman";
       }
-
 
       // ==================================================
       // LOAD CREDIT SALES
@@ -20243,13 +20413,60 @@ app.get(
           })
           .lean();
 
+      // ==================================================
+      // LOAD POSTED MANUAL OUTSTANDING
+      // ==================================================
+
+      const manualOutstandingFilter = {
+        farmId,
+
+        status:
+          "POSTED",
+      };
+
+      if (
+        role === "salesman"
+      ) {
+        manualOutstandingFilter.customerId = {
+          $in:
+            visibleCustomerIds,
+        };
+      }
+
+      const manualOutstandingRecords =
+        await CustomerOutstanding.find(
+          manualOutstandingFilter
+        )
+          .select(
+            [
+              "adjustmentId",
+              "adjustmentNo",
+              "adjustmentDate",
+              "customerId",
+              "customerName",
+              "customerMobile",
+              "route",
+              "amount",
+              "remarks",
+            ].join(" ")
+          )
+          .sort({
+            adjustmentDate: 1,
+            createdAt: 1,
+          })
+          .lean();
 
       // ==================================================
       // COLLECTION FILTER
+      //
+      // CRITICAL ACCOUNTING FIX:
+      // For salesman, filter by customerId: { $in: visibleCustomerIds }
+      // instead of salesmanId. This ensures Admin collections
+      // against salesman bills are properly replayed and reduce
+      // the salesman's open bill balances.
       // ==================================================
 
       const collectionFilter = {
-
         farmId:
           farmId,
 
@@ -20257,15 +20474,14 @@ app.get(
           "POSTED",
       };
 
-
       if (
         role === "salesman"
       ) {
-
-        collectionFilter.salesmanId =
-          currentSalesman.salesmanId;
+        collectionFilter.customerId = {
+          $in:
+            visibleCustomerIds,
+        };
       }
-
 
       // ==================================================
       // LOAD POSTED COLLECTIONS
@@ -20307,6 +20523,7 @@ app.get(
               "salesmanName",
 
               "allocations",
+              "allocationMode",
             ].join(" ")
           )
           .sort({
@@ -20315,182 +20532,6 @@ app.get(
           })
           .lean();
 
-// ==================================================
-// LOAD CUSTOMER MASTER
-//
-// customer.balance = CURRENT AVAILABLE ADVANCE
-//
-// ADMIN:
-//   all active customers
-//
-// SALESMAN:
-//   customers on assigned routes
-//
-// This is needed because customer may have manual
-// outstanding even if he has no sale yet.
-// ==================================================
-
-let salesmanRouteValues = [];
-
-
-if (
-  role === "salesman"
-) {
-  const salesmanRoutes =
-    await RouteMaster.find({
-      farmId,
-
-      salesmanId:
-        currentSalesman.salesmanId,
-
-      isActive:
-        true,
-    })
-      .select(
-        "routeId routeName"
-      )
-      .lean();
-
-
-  salesmanRouteValues =
-    [
-      ...new Set(
-        salesmanRoutes
-          .flatMap(
-            (route) => [
-              route.routeId,
-              route.routeName,
-            ]
-          )
-          .filter(Boolean)
-      ),
-    ];
-}
-
-
-const masterCustomers =
-  role === "admin"
-    ? await Customer.find({
-        farmId,
-
-        isActive:
-          true,
-      })
-        .select(
-          [
-            "customerId",
-            "name",
-            "mobile",
-            "route",
-            "balance",
-            "isActive",
-            "createdAt",
-          ].join(" ")
-        )
-        .lean()
-
-    : await Customer.find({
-        farmId,
-
-        isActive:
-          true,
-
-        route: {
-          $in:
-            salesmanRouteValues,
-        },
-      })
-        .select(
-          [
-            "customerId",
-            "name",
-            "mobile",
-            "route",
-            "balance",
-            "isActive",
-            "createdAt",
-          ].join(" ")
-        )
-        .lean();
-
-
-const masterCustomerMap =
-  new Map(
-    masterCustomers.map(
-      (customer) => [
-        (
-          customer.customerId ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase(),
-
-        customer,
-      ]
-    )
-  );
-
-
-// ==================================================
-// LOAD POSTED MANUAL OUTSTANDING
-// ==================================================
-
-const visibleCustomerIds =
-  masterCustomers
-    .map(
-      (customer) =>
-        (
-          customer.customerId ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase()
-    )
-    .filter(Boolean);
-
-
-const manualOutstandingFilter = {
-  farmId,
-
-  status:
-    "POSTED",
-};
-
-
-if (
-  role === "salesman"
-) {
-  manualOutstandingFilter.customerId = {
-    $in:
-      visibleCustomerIds,
-  };
-}
-
-
-const manualOutstandingRecords =
-  await CustomerOutstanding.find(
-    manualOutstandingFilter
-  )
-    .select(
-      [
-        "adjustmentId",
-        "adjustmentNo",
-        "adjustmentDate",
-        "customerId",
-        "customerName",
-        "customerMobile",
-        "route",
-        "amount",
-        "remarks",
-      ].join(" ")
-    )
-    .sort({
-      adjustmentDate: 1,
-      createdAt: 1,
-    })
-    .lean();
       // ==================================================
       // CUSTOMER MAP
       // ==================================================
@@ -21189,7 +21230,18 @@ if (
 
           saleDate:
             sale.saleDate,
-            sourceType:
+
+          customerId:
+            sale.customerId ||
+            row.customerId ||
+            customerId,
+
+          customerName:
+            sale.customerName ||
+            row.customerName ||
+            "",
+
+          sourceType:
   "BILL_PAYMENT",
 
 canDownloadReceipt:
@@ -21457,6 +21509,16 @@ for (
     adjustmentDate:
       manualOutstanding.adjustmentDate,
 
+    customerId:
+      manualOutstanding.customerId ||
+      row.customerId ||
+      customerId,
+
+    customerName:
+      manualOutstanding.customerName ||
+      row.customerName ||
+      "",
+
     referenceId:
       manualOutstanding.adjustmentId ||
       "",
@@ -21485,6 +21547,15 @@ for (
       Number(
         amount.toFixed(2)
       ),
+
+    remainingOutstanding:
+      Number(
+        amount.toFixed(2)
+      ),
+
+    outstandingId:
+      manualOutstanding.adjustmentId ||
+      "",
 
     status:
       "DUE",
@@ -21694,6 +21765,10 @@ row.receiptHistory.push({
     Array.isArray(collection.allocations)
       ? collection.allocations
       : [],
+
+  allocationMode:
+    collection.allocationMode ||
+    "FIFO",
 
   status:
     collection.status ||
@@ -22221,6 +22296,12 @@ for (
       ).toFixed(2)
     );
 
+  manualOutstanding.remainingOutstanding =
+    manualOutstanding.outstandingAmount;
+
+  manualOutstanding.outstandingId =
+    manualOutstanding.adjustmentId;
+
 
   if (
     manualOutstanding.outstandingAmount <=
@@ -22250,6 +22331,9 @@ row.totalManualOutstanding =
     row.totalManualOutstanding
       .toFixed(2)
   );
+
+row.manualOutstanding =
+  row.manualOutstandings;
         row.totalCreditSales =
           Number(
             row.totalCreditSales
@@ -22400,6 +22484,8 @@ row.grossOutstanding =
         // Existing frontend already reads `outstanding`.
         // Therefore keep this alias.
         row.outstanding =
+          row.netOutstanding;
+        row.currentOutstanding =
           row.netOutstanding;
 
         // ================================================
@@ -22654,6 +22740,8 @@ app.post(
         referenceNo,
         remarks,
         collectionDate,
+        allocationMode,
+        selectedAllocations,
       } = req.body;
 
       if (normalizedClientRequestId) {
@@ -22682,7 +22770,6 @@ app.post(
       const collectionAmount =
         Number(amount) || 0;
 
-
       // ==================================================
       // BASIC VALIDATION
       // ==================================================
@@ -22695,7 +22782,6 @@ app.post(
         });
       }
 
-
       if (collectionAmount <= 0) {
         return res.status(400).json({
           success: false,
@@ -22703,7 +22789,6 @@ app.post(
             "Collection amount must be greater than zero.",
         });
       }
-
 
       const allowedPaymentModes = [
         "Cash",
@@ -22713,7 +22798,6 @@ app.post(
         "Paytm",
         "Bank Transfer",
       ];
-
 
       if (
         !allowedPaymentModes.includes(
@@ -22727,116 +22811,178 @@ app.post(
         });
       }
 
-
       // ==================================================
-      // CUSTOMER
+      // ALLOCATION MODE VALIDATION
       // ==================================================
 
-      const customer =
-        await Customer.findOne({
-          farmId,
-          customerId:
-            normalizedCustomerId,
-          isActive:
-            true,
-        });
+      const rawMode = (allocationMode || "FIFO").toString().trim().toUpperCase();
+      const isManual = rawMode === "MANUAL";
+      const finalAllocationMode = isManual ? "MANUAL" : "FIFO";
 
-
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Customer not found.",
-        });
-      }
-
-      if (req.access && req.access.isSalesman) {
-        const salesmanRoute = await RouteMaster.findOne({
-          farmId: farmId,
-          routeName: customer.route,
-          salesmanId: req.access.salesmanId,
-          isActive: true,
-        });
-        if (!salesmanRoute) {
-          return res.status(403).json({
+      if (isManual) {
+        if (!Array.isArray(selectedAllocations) || selectedAllocations.length === 0) {
+          return res.status(400).json({
             success: false,
-            message: "You can only record collections for customers on your assigned routes.",
+            message: "selectedAllocations is required and must be a non-empty array for MANUAL allocation mode.",
+          });
+        }
+
+        const seenKeys = new Set();
+        let manualAllocationTotal = 0;
+
+        for (const item of selectedAllocations) {
+          const sType = (item?.sourceType || "").toString().trim().toUpperCase();
+          const rId = (item?.referenceId || "").toString().trim().toUpperCase();
+          const amt = Number(item?.amountApplied);
+
+          if (!["SALE", "MANUAL_OUTSTANDING"].includes(sType)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid sourceType "${item?.sourceType}". Allowed types are SALE, MANUAL_OUTSTANDING.`,
+            });
+          }
+
+          if (!rId) {
+            return res.status(400).json({
+              success: false,
+              message: "referenceId is required for each selected allocation.",
+            });
+          }
+
+          const key = getOutstandingSourceKey(sType, rId);
+          if (seenKeys.has(key)) {
+            return res.status(400).json({
+              success: false,
+              message: `Duplicate source selection for ${rId}.`,
+            });
+          }
+          seenKeys.add(key);
+
+          if (!Number.isFinite(amt) || amt <= 0) {
+            return res.status(400).json({
+              success: false,
+              message: `Amount applied must be greater than zero for ${rId}.`,
+            });
+          }
+
+          manualAllocationTotal += amt;
+        }
+
+        if (Math.abs(manualAllocationTotal - collectionAmount) > 0.001) {
+          return res.status(400).json({
+            success: false,
+            message: `Allocated amount ₹${manualAllocationTotal.toFixed(2)} must equal receipt amount ₹${collectionAmount.toFixed(2)}.`,
           });
         }
       }
 
+      const session = await mongoose.startSession();
+      let responsePayload = null;
 
-      // ==================================================
-      // SALESMAN
-      // ==================================================
+      try {
+        await session.withTransaction(async () => {
+          // Idempotency check inside transaction
+          if (normalizedClientRequestId) {
+            const existingInTx = await Collection.findOne({
+              farmId,
+              clientRequestId: normalizedClientRequestId,
+            }).session(session).lean();
 
-      let salesmanId = "";
-      let salesmanName = "";
+            if (existingInTx) {
+              responsePayload = {
+                status: 200,
+                body: {
+                  success: true,
+                  message: "Collection already recorded (idempotent request).",
+                  data: existingInTx,
+                },
+              };
+              return;
+            }
+          }
 
+          // CUSTOMER
+          const customer = await Customer.findOne({
+            farmId,
+            customerId: normalizedCustomerId,
+            isActive: true,
+          }).session(session);
 
-      if (role === "salesman") {
-        const salesman =
-          await getCurrentSalesmanForCollection(
-            req
+          if (!customer) {
+            const error = new Error("Customer not found.");
+            error.statusCode = 404;
+            throw error;
+          }
+
+          if (req.access && req.access.isSalesman) {
+            const salesmanRoute = await RouteMaster.findOne({
+              farmId: farmId,
+              routeName: customer.route,
+              salesmanId: req.access.salesmanId,
+              isActive: true,
+            }).session(session);
+            if (!salesmanRoute) {
+              const error = new Error("You can only record collections for customers on your assigned routes.");
+              error.statusCode = 403;
+              throw error;
+            }
+          }
+
+          // SALESMAN
+          let salesmanId = "";
+          let salesmanName = "";
+
+          if (role === "salesman") {
+            const salesman = await getCurrentSalesmanForCollection(req);
+            if (!salesman) {
+              const error = new Error("Salesman account not found.");
+              error.statusCode = 404;
+              throw error;
+            }
+            salesmanId = salesman.salesmanId;
+            salesmanName = salesman.name;
+          } else if (role !== "admin") {
+            const error = new Error("You are not allowed to save collections.");
+            error.statusCode = 403;
+            throw error;
+          }
+
+          // CONCURRENCY TOKEN / LOCK
+          const currentRevision = Number(customer.collectionRevision || 0);
+          const lockedCustomer = await Customer.findOneAndUpdate(
+            {
+              _id: customer._id,
+              collectionRevision: currentRevision,
+            },
+            {
+              $set: {
+                collectionRevision: currentRevision + 1,
+                updatedAt: new Date(),
+              },
+            },
+            { session, new: true }
           );
 
+          if (!lockedCustomer) {
+            const error = new Error("Outstanding position has changed. Refresh the customer bills and try again.");
+            error.statusCode = 409;
+            throw error;
+          }
 
-        if (!salesman) {
-          return res.status(404).json({
-            success: false,
-            message:
-              "Salesman account not found.",
-          });
-        }
+          // LOAD POSTED SALES
+          const saleFilter = {
+            farmId,
+            customerId: normalizedCustomerId,
+            status: "POSTED",
+          };
 
+          if (role === "salesman") {
+            saleFilter.salesmanId = salesmanId;
+            saleFilter.createdRole = "salesman";
+          }
 
-        salesmanId =
-          salesman.salesmanId;
-
-        salesmanName =
-          salesman.name;
-      }
-
-      else if (role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          message:
-            "You are not allowed to save collections.",
-        });
-      }
-
-
-      // ==================================================
-      // LOAD POSTED SALES
-      //
-      // DO NOT FILTER paymentMode = Credit.
-      // Split/PARTIAL sales must also be included.
-      // ==================================================
-
-      const saleFilter = {
-        farmId,
-        customerId:
-          normalizedCustomerId,
-        status:
-          "POSTED",
-      };
-
-
-      if (role === "salesman") {
-        saleFilter.salesmanId =
-          salesmanId;
-
-        saleFilter.createdRole =
-          "salesman";
-      }
-
-
-      const sales =
-        await Sale.find(
-          saleFilter
-        )
-          .select(
-            [
+          const sales = await Sale.find(saleFilter)
+            .select([
               "saleId",
               "saleNo",
               "saleDate",
@@ -22845,929 +22991,411 @@ app.post(
               "paidAmount",
               "outstandingAmount",
               "paymentStatus",
-            ].join(" ")
-          )
-          .sort({
-            saleDate: 1,
-            createdAt: 1,
+              "salesmanId",
+            ].join(" "))
+            .sort({
+              saleDate: 1,
+              createdAt: 1,
+            })
+            .session(session)
+            .lean();
+
+          const pendingBills = [];
+
+          for (const sale of sales) {
+            const billAmount = Number(sale.grandTotal) || 0;
+            let initialOutstanding = Number(sale.outstandingAmount);
+
+            if (!Number.isFinite(initialOutstanding)) {
+              const oldMode = (sale.paymentMode || "").toString().trim().toLowerCase();
+              initialOutstanding = oldMode === "credit" ? billAmount : 0;
+            }
+
+            initialOutstanding = Math.max(0, initialOutstanding);
+
+            pendingBills.push({
+              sourceType: "SALE",
+              referenceId: sale.saleId || "",
+              referenceNo: sale.saleNo || "",
+              referenceDate: sale.saleDate,
+              sourceAmount: billAmount,
+              saleId: sale.saleId || "",
+              saleNo: sale.saleNo || "",
+              saleDate: sale.saleDate,
+              billAmount,
+              initialOutstanding,
+              collectionApplied: 0,
+              remainingOutstanding: initialOutstanding,
+              salesmanId: sale.salesmanId || "",
+            });
+          }
+
+          // MANUAL OUTSTANDING SOURCES
+          const manualOutstandingRecords = await CustomerOutstanding.find({
+            farmId,
+            customerId: normalizedCustomerId,
+            status: "POSTED",
           })
-          .lean();
-
-
-      // ==================================================
-      // CREATE BILL OUTSTANDING MAP
-      // ==================================================
-
-      const pendingBills = [];
-
-      for (const sale of sales) {
-        const billAmount =
-          Number(
-            sale.grandTotal
-          ) || 0;
-
-
-        let initialOutstanding =
-          Number(
-            sale.outstandingAmount
-          );
-
-
-        // ================================================
-        // OLD RECORD COMPATIBILITY
-        // ================================================
-
-        if (
-          !Number.isFinite(
-            initialOutstanding
-          )
-        ) {
-          const oldMode =
-            (
-              sale.paymentMode ||
-              ""
-            )
-              .toString()
-              .trim()
-              .toLowerCase();
-
-
-          initialOutstanding =
-            oldMode === "credit"
-              ? billAmount
-              : 0;
-        }
-
-
-        initialOutstanding =
-          Math.max(
-            0,
-            initialOutstanding
-          );
-
-
-      pendingBills.push({
-  sourceType:
-    "SALE",
-
-  referenceId:
-    sale.saleId || "",
-
-  referenceNo:
-    sale.saleNo || "",
-
-  referenceDate:
-    sale.saleDate,
-
-  sourceAmount:
-    billAmount,
-
-  // OLD SALE ALIASES
-  saleId:
-    sale.saleId || "",
-
-          saleNo:
-            sale.saleNo || "",
-
-          saleDate:
-            sale.saleDate,
-
-          billAmount,
-
-          initialOutstanding,
-
-          collectionApplied:
-            0,
-
-          remainingOutstanding:
-            initialOutstanding,
-        });
-      }
-// ==================================================
-// MANUAL OUTSTANDING SOURCES
-// ==================================================
-
-const manualOutstandingRecords =
-  await CustomerOutstanding.find({
-    farmId,
-
-    customerId:
-      normalizedCustomerId,
-
-    status:
-      "POSTED",
-  })
-    .select(
-      [
-        "adjustmentId",
-        "adjustmentNo",
-        "adjustmentDate",
-        "amount",
-        "remarks",
-      ].join(" ")
-    )
-    .sort({
-      adjustmentDate: 1,
-      createdAt: 1,
-    })
-    .lean();
-
-
-for (
-  const manualOutstanding of
-  manualOutstandingRecords
-) {
-  const manualAmount =
-    Math.max(
-      0,
-      Number(
-        manualOutstanding.amount ||
-        0
-      )
-    );
-
-
-  pendingBills.push({
-    sourceType:
-      "MANUAL_OUTSTANDING",
-
-    referenceId:
-      manualOutstanding.adjustmentId ||
-      "",
-
-    referenceNo:
-      manualOutstanding.adjustmentNo ||
-      "",
-
-    referenceDate:
-      manualOutstanding.adjustmentDate,
-
-    sourceAmount:
-      manualAmount,
-
-    saleId:
-      "",
-
-    saleNo:
-      "",
-
-    saleDate:
-      null,
-
-    billAmount:
-      manualAmount,
-
-    initialOutstanding:
-      manualAmount,
-
-    collectionApplied:
-      0,
-
-    remainingOutstanding:
-      manualAmount,
-
-    remarks:
-      manualOutstanding.remarks ||
-      "",
-  });
-}
-
-
-// ==================================================
-// FIFO ORDER - SALES + MANUAL OUTSTANDING
-// ==================================================
-
-pendingBills.sort(
-  (a, b) =>
-    new Date(
-      a.referenceDate ||
-      0
-    ) -
-    new Date(
-      b.referenceDate ||
-      0
-    )
-);
-
-      // ==================================================
-      // LOAD ALL PREVIOUS POSTED COLLECTIONS
-      // ==================================================
-
-      const previousCollectionFilter = {
-        farmId,
-        customerId:
-          normalizedCustomerId,
-        status:
-          "POSTED",
-      };
-
-
-      const previousCollections =
-        await Collection.find(
-          previousCollectionFilter
-        )
-          .select(
-            [
-              "collectionId",
-              "collectionDate",
+            .select([
+              "adjustmentId",
+              "adjustmentNo",
+              "adjustmentDate",
               "amount",
-              "allocations",
-            ].join(" ")
-          )
-          .sort({
-            collectionDate: 1,
-            createdAt: 1,
+              "remarks",
+            ].join(" "))
+            .sort({
+              adjustmentDate: 1,
+              createdAt: 1,
+            })
+            .session(session)
+            .lean();
+
+          for (const manualOutstanding of manualOutstandingRecords) {
+            const manualAmount = Math.max(0, Number(manualOutstanding.amount || 0));
+
+            pendingBills.push({
+              sourceType: "MANUAL_OUTSTANDING",
+              referenceId: manualOutstanding.adjustmentId || "",
+              referenceNo: manualOutstanding.adjustmentNo || "",
+              referenceDate: manualOutstanding.adjustmentDate,
+              sourceAmount: manualAmount,
+              saleId: "",
+              saleNo: "",
+              saleDate: null,
+              billAmount: manualAmount,
+              initialOutstanding: manualAmount,
+              collectionApplied: 0,
+              remainingOutstanding: manualAmount,
+              remarks: manualOutstanding.remarks || "",
+            });
+          }
+
+          // Sort for FIFO baseline
+          pendingBills.sort(
+            (a, b) =>
+              new Date(a.referenceDate || 0) - new Date(b.referenceDate || 0)
+          );
+
+          // LOAD ALL PREVIOUS POSTED COLLECTIONS
+          const previousCollections = await Collection.find({
+            farmId,
+            customerId: normalizedCustomerId,
+            status: "POSTED",
           })
-          .lean();
+            .select("collectionId collectionDate amount allocations")
+            .sort({
+              collectionDate: 1,
+              createdAt: 1,
+            })
+            .session(session)
+            .lean();
 
+          const billMap = new Map();
+          for (const bill of pendingBills) {
+            const key = getOutstandingSourceKey(bill.sourceType, bill.referenceId);
+            billMap.set(key, bill);
+          }
 
-      // ==================================================
-      // MAP SALES
-      // ==================================================
+          // APPLY PREVIOUS COLLECTIONS
+          for (const previousCollection of previousCollections) {
+            const allocations = Array.isArray(previousCollection.allocations)
+              ? previousCollection.allocations
+              : [];
 
-      const billMap =
-        new Map();
-for (
-  const bill of pendingBills
-) {
-  const key =
-    getOutstandingSourceKey(
-      bill.sourceType,
-      bill.referenceId
-    );
+            if (allocations.length > 0) {
+              for (const allocation of allocations) {
+                const sourceType = (allocation.sourceType || "SALE").toString().trim().toUpperCase();
+                const referenceId = (allocation.referenceId || allocation.saleId || "").toString().trim().toUpperCase();
+                const key = getOutstandingSourceKey(sourceType, referenceId);
+                if (!billMap.has(key)) continue;
 
+                const bill = billMap.get(key);
+                const applied = Math.max(0, Number(allocation.amountApplied) || 0);
+                const actualApplied = Math.min(bill.remainingOutstanding, applied);
 
-  billMap.set(
-    key,
-    bill
-  );
-}
-
-      // ==================================================
-      // APPLY PREVIOUS COLLECTIONS
-      //
-      // New receipts:
-      //   use saved allocations.
-      //
-      // Old receipts:
-      //   FIFO for compatibility.
-      // ==================================================
-
-      for (
-        const previousCollection of
-        previousCollections
-      ) {
-        const allocations =
-          Array.isArray(
-            previousCollection.allocations
-          )
-            ? previousCollection.allocations
-            : [];
-
-
-        // ================================================
-        // NEW RECEIPT WITH STORED ALLOCATIONS
-        // ================================================
-
-        if (allocations.length > 0) {
-          for (
-            const allocation of
-            allocations
-          ) {
- const sourceType =
-  (
-    allocation.sourceType ||
-    "SALE"
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
-
-
-const referenceId =
-  (
-    allocation.referenceId ||
-    allocation.saleId ||
-    ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
-
-
-const key =
-  getOutstandingSourceKey(
-    sourceType,
-    referenceId
-  );
-
-
-if (
-  !billMap.has(
-    key
-  )
-) {
+                bill.collectionApplied += actualApplied;
+                bill.remainingOutstanding -= actualApplied;
+              }
               continue;
             }
 
+            // Legacy receipt FIFO
+            let remainingReceipt = Math.max(0, Number(previousCollection.amount) || 0);
+            const receiptDate = previousCollection.collectionDate ? new Date(previousCollection.collectionDate) : null;
 
-        const bill =
-  billMap.get(
-    key
-  );
+            for (const bill of pendingBills) {
+              if (remainingReceipt <= 0) break;
+              if (bill.sourceType !== "SALE") continue;
+              if (receiptDate && bill.referenceDate && new Date(bill.referenceDate) > receiptDate) continue;
+              if (bill.remainingOutstanding <= 0) continue;
 
-            const applied =
-              Math.max(
-                0,
-                Number(
-                  allocation.amountApplied
-                ) || 0
-              );
-
-
-            const actualApplied =
-              Math.min(
-                bill.remainingOutstanding,
-                applied
-              );
-
-
-            bill.collectionApplied +=
-              actualApplied;
-
-            bill.remainingOutstanding -=
-              actualApplied;
+              const applied = Math.min(remainingReceipt, bill.remainingOutstanding);
+              bill.collectionApplied += applied;
+              bill.remainingOutstanding -= applied;
+              remainingReceipt -= applied;
+            }
           }
 
-
-          continue;
-        }
-
-
-        // ================================================
-        // LEGACY RECEIPT
-        // FIFO
-        // ================================================
-
-        let remainingReceipt =
-          Math.max(
-            0,
-            Number(
-              previousCollection.amount
-            ) || 0
-          );
-
-const receiptDate =
-  previousCollection.collectionDate
-    ? new Date(
-        previousCollection.collectionDate
-      )
-    : null;
-        for (
-          const bill of pendingBills
-        ) {
-          if (
-            remainingReceipt <= 0
-          ) {
-            break;
+          // CALCULATE CURRENT OUTSTANDING
+          let outstanding = 0;
+          for (const bill of pendingBills) {
+            outstanding += Math.max(0, bill.remainingOutstanding);
           }
-          if (
-  bill.sourceType !==
-  "SALE"
-) {
-  continue;
-}
+          outstanding = Number(outstanding.toFixed(2));
 
+          const currentCustomerAdvance = Math.max(0, Number(customer.balance || 0));
+          const collectibleOutstanding = Number(Math.max(0, outstanding - currentCustomerAdvance).toFixed(2));
 
-if (
-  receiptDate &&
-  bill.referenceDate &&
-  new Date(
-    bill.referenceDate
-  ) >
-  receiptDate
-) {
-  continue;
-}
-
-
-          if (
-            bill.remainingOutstanding <= 0
-          ) {
-            continue;
+          if (collectibleOutstanding <= 0.001) {
+            const error = new Error("This customer has no pending net outstanding.");
+            error.statusCode = 409;
+            throw error;
           }
 
-
-          const applied =
-            Math.min(
-              remainingReceipt,
-              bill.remainingOutstanding
+          if (collectionAmount > collectibleOutstanding + 0.001) {
+            const error = new Error(
+              `Collection amount cannot exceed net outstanding ₹${collectibleOutstanding.toFixed(2)}. Extra payment can be recorded only during sale billing.`
             );
-
-
-          bill.collectionApplied +=
-            applied;
-
-          bill.remainingOutstanding -=
-            applied;
-
-          remainingReceipt -=
-            applied;
-        }
-      }
-
-
-      // ==================================================
-      // CALCULATE CURRENT OUTSTANDING
-      // ==================================================
-
-      let outstanding = 0;
-
-      for (
-        const bill of pendingBills
-      ) {
-        outstanding +=
-          Math.max(
-            0,
-            bill.remainingOutstanding
-          );
-      }
-
-
-outstanding =
-  Number(
-    outstanding.toFixed(2)
-  );
-
-
-// ==================================================
-// NET COLLECTIBLE OUTSTANDING
-//
-// Gross Bill Outstanding
-// - Available Customer Advance
-//
-// Example:
-//
-// Gross Bills = 1000
-// Advance     = 200
-//
-// Customer should be allowed to pay only 800.
-// ==================================================
-
-const currentCustomerAdvance =
-  Math.max(
-    0,
-    Number(
-      customer.balance || 0
-    )
-  );
-
-const collectibleOutstanding =
-  Number(
-    Math.max(
-      0,
-      outstanding -
-      currentCustomerAdvance
-    ).toFixed(2)
-  );
-
-
-// ==================================================
-// COLLECTION RULE
-//
-// Collection can settle OUTSTANDING ONLY.
-// It can never create customer advance.
-//
-// Advance is created only when:
-// SALE BILL PAYMENT > BILL TOTAL
-// ==================================================
-
-if (
-  collectibleOutstanding <=
-  0.001
-) {
-  return res.status(409).json({
-    success: false,
-    message:
-      "This customer has no pending net outstanding.",
-  });
-}
-
-
-if (
-  collectionAmount >
-  collectibleOutstanding +
-  0.001
-) {
-  return res.status(400).json({
-    success: false,
-
-    message:
-      `Collection amount cannot exceed net outstanding ₹${collectibleOutstanding.toFixed(
-        2
-      )}. Extra payment can be recorded only during sale billing.`,
-  });
-}
-
-
-// Full receipt is applied against outstanding.
-const appliedAmount =
-  Number(
-    collectionAmount.toFixed(2)
-  );
-
-
-// Keep for historical compatibility.
-// All NEW receipts save zero advance.
-const advanceAmount =
-  0;
-      // ==================================================
-      // APPLY NEW COLLECTION FIFO
-      // ==================================================
-
-      let remainingCollection =
-        appliedAmount;
-      const allocations = [];
-
-
-      for (
-        const bill of pendingBills
-      ) {
-        if (
-          remainingCollection <=
-          0.001
-        ) {
-          break;
-        }
-
-
-        if (
-          bill.remainingOutstanding <=
-          0.001
-        ) {
-          continue;
-        }
-
-
-        const outstandingBefore =
-          Number(
-            bill.remainingOutstanding.toFixed(2)
-          );
-
-        const amountApplied =
-          Math.min(
-            remainingCollection,
-            bill.remainingOutstanding
-          );
-
-        const outstandingAfter =
-          Number(
-            Math.max(
-              0,
-              outstandingBefore - amountApplied
-            ).toFixed(2)
-          );
-
-allocations.push({
-  sourceType:
-    bill.sourceType ||
-    "SALE",
-
-  referenceId:
-    bill.referenceId ||
-    bill.saleId ||
-    "",
-
-  referenceNo:
-    bill.referenceNo ||
-    bill.saleNo ||
-    "",
-
-  referenceDate:
-    bill.referenceDate ||
-    bill.saleDate ||
-    null,
-
-  sourceAmount:
-    Number(
-      (
-        bill.sourceAmount ||
-        bill.billAmount ||
-        0
-      ).toFixed(2)
-    ),
-
-  allocationSequence:
-    allocations.length + 1,
-
-  outstandingBefore,
-
-  outstandingAfter,
-
-  // KEEP OLD SALE FIELDS
-  saleId:
-    bill.sourceType ===
-    "SALE"
-      ? bill.saleId
-      : "",
-
-  saleNo:
-    bill.sourceType ===
-    "SALE"
-      ? bill.saleNo
-      : "",
-
-  saleDate:
-    bill.sourceType ===
-    "SALE"
-      ? bill.saleDate
-      : null,
-
-  billAmount:
-    Number(
-      bill.billAmount.toFixed(2)
-    ),
-
-  amountApplied:
-    Number(
-      amountApplied.toFixed(2)
-    ),
-});
-
-        bill.collectionApplied +=
-          amountApplied;
-
-        bill.remainingOutstanding -=
-          amountApplied;
-
-        remainingCollection -=
-          amountApplied;
-      }
-
-      if (
-        remainingCollection >
-        0.001
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Unable to allocate the applicable collection amount against outstanding bills.",
-        });
-      }
-
-
-      // ==================================================
-      // GENERATE IDS
-      // ==================================================
-
-      const collectionId =
-        await generateCollectionId();
-
-
-      const receiptNo =
-        await generateReceiptNo(
-          farmId
-        );
-
-
-      // ==================================================
-      // VALID COLLECTION DATE
-      // ==================================================
-
-      let finalCollectionDate =
-        new Date();
-
-
-      if (collectionDate) {
-        const parsedDate =
-          new Date(
-            collectionDate
-          );
-
-
-        if (
-          !Number.isNaN(
-            parsedDate.getTime()
-          )
-        ) {
-          finalCollectionDate =
-            parsedDate;
-        }
-      }
-
-      // ==================================================
-      // BALANCE SNAPSHOTS
-      // ==================================================
-
-      const previousAdvanceBalance =
-        Math.max(
-          0,
-          Number(
-            customer.balance || 0
-          )
-        );
-
-      const newOutstanding =
-        Number(
-          Math.max(
-            0,
-            collectibleOutstanding -
-            appliedAmount
-          ).toFixed(2)
-        );
-
-      // ==================================================
-      // SAVE RECEIPT
-      // ==================================================
-
-      const collectionToCreate = {
-        farmId,
-
-        collectionId,
-
-        receiptNo,
-
-        collectionDate:
-          finalCollectionDate,
-
-        customerId:
-          customer.customerId,
-
-        customerName:
-          customer.name,
-
-        customerMobile:
-          customer.mobile || "",
-
-        route:
-          customer.route || "",
-
-        salesmanId,
-
-        salesmanName,
-
-        amount:
-          Number(
-            collectionAmount.toFixed(2)
-          ),
-
-        appliedAmount:
-          Number(
-            appliedAmount.toFixed(2)
-          ),
-
-        advanceAmount:
-          Number(
-            advanceAmount.toFixed(2)
-          ),
-
-        previousOutstanding:
-          Number(
-            collectibleOutstanding.toFixed(2)
-          ),
-
-        remainingOutstanding:
-          Number(
-            newOutstanding.toFixed(2)
-          ),
-
-        previousAdvanceBalance:
-          Number(
-            previousAdvanceBalance.toFixed(2)
-          ),
-
-        currentAdvanceBalance:
-          Number(
-            previousAdvanceBalance.toFixed(2)
-          ),
-
-        allocations,
-
-        paymentMode,
-
-        referenceNo:
-          referenceNo
-            ?.toString()
-            .trim() ||
-          "",
-
-        remarks:
-          remarks
-            ?.toString()
-            .trim() ||
-          "",
-
-        status:
-          "POSTED",
-
-        createdBy:
-          req.user.userId || "",
-
-        createdRole:
-          role,
-
-        createdAt:
-          new Date(),
-
-        updatedAt:
-          new Date(),
-      };
-
-      if (normalizedClientRequestId) {
-        collectionToCreate.clientRequestId =
-          normalizedClientRequestId;
-      }
-
-      const savedCollection =
-        await Collection.create(collectionToCreate);
-
-
-      return res.status(201).json({
-        success: true,
-
-        message:
-          "Collection saved successfully.",
-
-        data: {
-          ...savedCollection.toObject(),
-
-       previousOutstanding:
-  Number(
-    collectibleOutstanding.toFixed(2)
-  ),
-
-grossOutstanding:
-  Number(
-    outstanding.toFixed(2)
-  ),
-
-          remainingOutstanding:
-            Number(
-              newOutstanding.toFixed(2)
-            ),
-          appliedAmount:
-            Number(
-              appliedAmount.toFixed(2)
-            ),
-
-          advanceAmount:
-            Number(
-              advanceAmount.toFixed(2)
-            ),
-
-          previousAdvanceBalance:
-            Number(
-              previousAdvanceBalance.toFixed(2)
-            ),
-
-          currentAdvanceBalance:
-            Number(
-              previousAdvanceBalance.toFixed(2)
-            ),
-        },
-      });
-
-    } catch (error) {
-      console.error(
-        "ADD COLLECTION ERROR:",
-        error
-      );
-
-
-      if (
-        error.code === 11000
-      ) {
-        if (normalizedClientRequestId) {
-          const existingCollection = await Collection.findOne({
-            farmId,
-            clientRequestId: normalizedClientRequestId,
-          }).lean();
-
-          if (existingCollection) {
-            return res.status(200).json({
-              success: true,
-              message: "Collection already recorded (idempotent request).",
-              data: existingCollection,
-            });
+            error.statusCode = 400;
+            throw error;
           }
+
+          const appliedAmount = Number(collectionAmount.toFixed(2));
+          const advanceAmount = 0;
+          const allocations = [];
+
+          if (isManual) {
+            // MANUAL ALLOCATION IN USER ARRAY SEQUENCE
+            for (let i = 0; i < selectedAllocations.length; i++) {
+              const item = selectedAllocations[i];
+              const sType = (item.sourceType || "").toString().trim().toUpperCase();
+              const rId = (item.referenceId || "").toString().trim().toUpperCase();
+              const key = getOutstandingSourceKey(sType, rId);
+
+              const bill = billMap.get(key);
+              if (!bill) {
+                const error = new Error(`Selected source ${rId} was not found or does not belong to this customer.`);
+                error.statusCode = 400;
+                throw error;
+              }
+
+              if (role === "salesman" && bill.sourceType === "SALE" && bill.salesmanId && bill.salesmanId !== salesmanId) {
+                const error = new Error(`You are not authorized to collect payment for bill ${bill.referenceNo || rId}.`);
+                error.statusCode = 403;
+                throw error;
+              }
+
+              const currentRemaining = Math.max(0, Number(bill.remainingOutstanding || 0));
+              if (currentRemaining <= 0.001) {
+                const error = new Error("Outstanding position has changed. Refresh the customer bills and try again.");
+                error.statusCode = 409;
+                throw error;
+              }
+
+              const reqApplied = Number(item.amountApplied);
+              if (reqApplied > currentRemaining + 0.001) {
+                const error = new Error(
+                  `Amount applied (₹${reqApplied.toFixed(2)}) exceeds remaining due (₹${currentRemaining.toFixed(2)}) for ${bill.referenceNo || bill.referenceId}.`
+                );
+                error.statusCode = 400;
+                throw error;
+              }
+
+              const outstandingBefore = Number(currentRemaining.toFixed(2));
+              const amountApplied = Number(reqApplied.toFixed(2));
+              const outstandingAfter = Number(Math.max(0, outstandingBefore - amountApplied).toFixed(2));
+
+              allocations.push({
+                sourceType: bill.sourceType || "SALE",
+                referenceId: bill.referenceId || bill.saleId || "",
+                referenceNo: bill.referenceNo || bill.saleNo || "",
+                referenceDate: bill.referenceDate || bill.saleDate || null,
+                sourceAmount: Number((bill.sourceAmount || bill.billAmount || 0).toFixed(2)),
+                allocationSequence: i + 1, // Follows exact user selection array order!
+                outstandingBefore,
+                amountApplied,
+                outstandingAfter,
+                customerName: customer.name || "", // Authoritative party name
+                saleId: bill.sourceType === "SALE" ? bill.saleId : "",
+                saleNo: bill.sourceType === "SALE" ? bill.saleNo : "",
+                saleDate: bill.sourceType === "SALE" ? bill.saleDate : null,
+                billAmount: Number((bill.billAmount || 0).toFixed(2)),
+              });
+
+              bill.collectionApplied += amountApplied;
+              bill.remainingOutstanding -= amountApplied;
+            }
+          } else {
+            // FIFO ALLOCATION
+            let remainingCollection = appliedAmount;
+
+            for (const bill of pendingBills) {
+              if (remainingCollection <= 0.001) break;
+              if (bill.remainingOutstanding <= 0.001) continue;
+
+              const outstandingBefore = Number(bill.remainingOutstanding.toFixed(2));
+              const amountApplied = Math.min(remainingCollection, bill.remainingOutstanding);
+              const outstandingAfter = Number(Math.max(0, outstandingBefore - amountApplied).toFixed(2));
+
+              allocations.push({
+                sourceType: bill.sourceType || "SALE",
+                referenceId: bill.referenceId || bill.saleId || "",
+                referenceNo: bill.referenceNo || bill.saleNo || "",
+                referenceDate: bill.referenceDate || bill.saleDate || null,
+                sourceAmount: Number((bill.sourceAmount || bill.billAmount || 0).toFixed(2)),
+                allocationSequence: allocations.length + 1,
+                outstandingBefore,
+                amountApplied: Number(amountApplied.toFixed(2)),
+                outstandingAfter,
+                customerName: customer.name || "",
+                saleId: bill.sourceType === "SALE" ? bill.saleId : "",
+                saleNo: bill.sourceType === "SALE" ? bill.saleNo : "",
+                saleDate: bill.sourceType === "SALE" ? bill.saleDate : null,
+                billAmount: Number((bill.billAmount || 0).toFixed(2)),
+              });
+
+              bill.collectionApplied += amountApplied;
+              bill.remainingOutstanding -= amountApplied;
+              remainingCollection -= amountApplied;
+            }
+
+            if (remainingCollection > 0.001) {
+              const error = new Error("Unable to allocate the applicable collection amount against outstanding bills.");
+              error.statusCode = 400;
+              throw error;
+            }
+          }
+
+          // GENERATE IDS
+          const collectionId = await generateCollectionId(session);
+          const receiptNo = await generateReceiptNo(farmId, session);
+
+          let finalCollectionDate = new Date();
+          if (collectionDate) {
+            const parsedDate = new Date(collectionDate);
+            if (!Number.isNaN(parsedDate.getTime())) {
+              finalCollectionDate = parsedDate;
+            }
+          }
+
+          const previousAdvanceBalance = Math.max(0, Number(customer.balance || 0));
+          const newOutstanding = Number(Math.max(0, collectibleOutstanding - appliedAmount).toFixed(2));
+
+          const collectionToCreate = {
+            farmId,
+            collectionId,
+            receiptNo,
+            collectionDate: finalCollectionDate,
+            customerId: customer.customerId,
+            customerName: customer.name,
+            customerMobile: customer.mobile || "",
+            route: customer.route || "",
+            salesmanId,
+            salesmanName,
+            amount: Number(collectionAmount.toFixed(2)),
+            appliedAmount: Number(appliedAmount.toFixed(2)),
+            advanceAmount: Number(advanceAmount.toFixed(2)),
+            previousOutstanding: Number(collectibleOutstanding.toFixed(2)),
+            remainingOutstanding: Number(newOutstanding.toFixed(2)),
+            previousAdvanceBalance: Number(previousAdvanceBalance.toFixed(2)),
+            currentAdvanceBalance: Number(previousAdvanceBalance.toFixed(2)),
+            allocations,
+            allocationMode: finalAllocationMode,
+            paymentMode,
+            referenceNo: referenceNo?.toString().trim() || "",
+            remarks: remarks?.toString().trim() || "",
+            status: "POSTED",
+            createdBy: req.user.userId || "",
+            createdRole: role,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+
+          if (normalizedClientRequestId) {
+            collectionToCreate.clientRequestId = normalizedClientRequestId;
+          }
+
+          const created = await Collection.create([collectionToCreate], { session });
+          const savedCollection = created[0];
+
+          responsePayload = {
+            status: 201,
+            body: {
+              success: true,
+              message: "Collection saved successfully.",
+              data: {
+                ...savedCollection.toObject(),
+                previousOutstanding: Number(collectibleOutstanding.toFixed(2)),
+                grossOutstanding: Number(outstanding.toFixed(2)),
+                remainingOutstanding: Number(newOutstanding.toFixed(2)),
+                appliedAmount: Number(appliedAmount.toFixed(2)),
+                advanceAmount: Number(advanceAmount.toFixed(2)),
+                previousAdvanceBalance: Number(previousAdvanceBalance.toFixed(2)),
+                currentAdvanceBalance: Number(previousAdvanceBalance.toFixed(2)),
+              },
+            },
+          };
+        });
+
+        if (responsePayload) {
+          return res.status(responsePayload.status).json(responsePayload.body);
         }
 
-        return res.status(409).json({
+      } catch (error) {
+        console.error("ADD COLLECTION ERROR:", error);
+
+        if (error.statusCode) {
+          return res.status(error.statusCode).json({
+            success: false,
+            message: error.message,
+          });
+        }
+
+        if (
+          error.code === 112 ||
+          error.name === "WriteConflict" ||
+          (typeof error.hasErrorLabel === "function" && error.hasErrorLabel("TransientTransactionError"))
+        ) {
+          return res.status(409).json({
+            success: false,
+            message: "Outstanding position has changed. Refresh the customer bills and try again.",
+          });
+        }
+
+        if (error.code === 11000) {
+          if (normalizedClientRequestId) {
+            const existingCollection = await Collection.findOne({
+              farmId,
+              clientRequestId: normalizedClientRequestId,
+            }).lean();
+
+            if (existingCollection) {
+              return res.status(200).json({
+                success: true,
+                message: "Collection already recorded (idempotent request).",
+                data: existingCollection,
+              });
+            }
+          }
+
+          return res.status(409).json({
+            success: false,
+            message: "Duplicate collection or receipt number detected.",
+          });
+        }
+
+        return res.status(500).json({
           success: false,
-          message:
-            "Duplicate collection or receipt number detected.",
+          message: error.message || "Unable to save collection.",
         });
+      } finally {
+        await session.endSession();
       }
-
-
+    } catch (outerError) {
+      console.error("POST /api/collections error:", outerError);
       return res.status(500).json({
         success: false,
-
-        message:
-          "Unable to save collection.",
-
-        error:
-          error.message,
+        message: outerError.message || "Unable to save collection.",
       });
     }
   }
@@ -25456,6 +25084,7 @@ app.get(
 "amount",
 "appliedAmount",
 "advanceAmount",
+"allocationMode",
 "paymentMode",
                 "referenceNo",
                 "salesmanId",
@@ -42045,7 +41674,7 @@ app.get(
           .sort({ saleDate: -1, createdAt: -1 })
           .lean(),
         Collection.find(collectionFilter)
-          .select("collectionId receiptNo collectionDate customerId customerName customerMobile route amount appliedAmount advanceAmount previousOutstanding remainingOutstanding paymentMode referenceNo remarks status cancelReason salesmanId salesmanName allocations")
+          .select("collectionId receiptNo collectionDate customerId customerName customerMobile route amount appliedAmount advanceAmount allocationMode previousOutstanding remainingOutstanding paymentMode referenceNo remarks status cancelReason salesmanId salesmanName allocations")
           .sort({ collectionDate: -1, createdAt: -1 })
           .lean(),
         calculateHistoryAccountPosition(farmId, {
@@ -42468,6 +42097,10 @@ const laterCollectionRows =
   allCollections.map(
     (collection) => ({
       ...collection,
+
+      allocationMode:
+        collection.allocationMode ||
+        "FIFO",
 
       sourceType:
         "COLLECTION",
