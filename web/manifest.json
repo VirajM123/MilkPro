@@ -1,6 +1,6 @@
 {
-    "name": "milk_distribution_app",
-    "short_name": "milk_distribution_app",
+    "name": "MilkPro",
+   "short_name": "MilkPro",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
