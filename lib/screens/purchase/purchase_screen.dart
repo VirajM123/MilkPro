@@ -1783,20 +1783,38 @@ Future<void> _savePurchase() async {
 
 
  Widget _buildPurchaseHistory() {
-  final List<_PurchaseRecord>
-      filteredPurchases =
-      _filteredPurchaseHistory;
+final List<_PurchaseRecord>
+    filteredPurchases =
+    _filteredPurchaseHistory;
 
-  final double total =
-      filteredPurchases.fold<double>(
-    0,
-    (
-      sum,
-      purchase,
-    ) =>
-        sum +
-        purchase.amount,
-  );
+// ============================================================
+// PURCHASE VALUE
+//
+// Cancelled purchases must remain visible in history,
+// but they must NOT contribute to Purchase Value.
+// ============================================================
+
+final List<_PurchaseRecord>
+    activePurchases =
+    filteredPurchases
+        .where(
+          (purchase) =>
+              !purchase.isCancelled,
+        )
+        .toList(
+          growable: false,
+        );
+
+final double total =
+    activePurchases.fold<double>(
+  0.0,
+  (
+    sum,
+    purchase,
+  ) =>
+      sum +
+      purchase.amount,
+);
 
   return Scaffold(
     backgroundColor:
@@ -2000,7 +2018,8 @@ Future<void> _savePurchase() async {
                     ),
 
                     Text(
-                      '${filteredPurchases.length} purchase${filteredPurchases.length == 1 ? '' : 's'}',
+                     '${activePurchases.length} purchase'
+'${activePurchases.length == 1 ? '' : 's'}',
                       style:
                           const TextStyle(
                         color:
