@@ -23,6 +23,21 @@ class UiSession extends ChangeNotifier {
   bool get isAuthenticated => _currentUser != null;
 
   UserRole get role => currentUser.role;
+  // ============================================================
+// SALESMAN ROUTE HELPERS
+// ============================================================
+
+List<SalesmanRoute> get assignedRoutes =>
+    currentUser.routes;
+
+List<String> get assignedRouteNames =>
+    currentUser.routeNames;
+
+int get assignedRouteCount =>
+    currentUser.routeCount;
+
+bool get hasMultipleRoutes =>
+    currentUser.hasMultipleRoutes;
 
   bool can(AppPermission permission) =>
       currentUser.can(permission);

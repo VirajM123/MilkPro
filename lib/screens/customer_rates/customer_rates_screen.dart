@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import '../../services/data_sync_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -47,10 +47,247 @@ bool _savingRates = false;
 void initState() {
   super.initState();
 
+  // Rebuild immediately when the logged-in user's
+  // permissions/profile are refreshed.
+  UiSession.instance.addListener(
+    _onSessionChanged,
+  );
+
+  // Listen for application-wide data synchronization.
+  DataSyncService.instance.addListener(
+    _onDataSyncChanged,
+  );
+
   _loadCustomers();
+}
+void _onSessionChanged() {
+  if (!mounted) {
+    return;
+  }
+
+  setState(() {});
+}
+
+Future<void> _onDataSyncChanged() async {
+  if (!mounted ||
+      _loading ||
+      _loadingRates ||
+      _savingRates) {
+    return;
+  }
+
+  final SyncEventType event =
+      DataSyncService.instance.lastEventType;
+
+  // ============================================================
+  // FULL MASTER REFRESH
+  //
+  // Customer list may have changed, customer may have been
+  // edited, route may have changed, or Sync All was pressed.
+  // ============================================================
+
+  if (event == SyncEventType.all ||
+      event == SyncEventType.customers ||
+      event == SyncEventType.routes) {
+    await _reloadCustomersPreservingSelection();
+    return;
+  }
+
+  // ============================================================
+  // RATE / PRODUCT REFRESH
+  //
+  // The customer-rate API also provides the product/rate data,
+  // therefore reloading the selected customer's rates is enough.
+  // ============================================================
+
+  if (event == SyncEventType.customerRates ||
+      event == SyncEventType.products) {
+    if (_selectedCustomer != null) {
+      await _loadCustomerRates();
+    }
+  }
 }
 
 
+Future<void>
+    _reloadCustomersPreservingSelection() async {
+  final String currentCustomerId =
+      _selectedCustomer == null
+          ? ''
+          : (_customerIds[
+                      _selectedCustomer!] ??
+                  '')
+              .trim();
+
+  if (mounted) {
+    setState(() {
+      _loading = true;
+    });
+  }
+
+  try {
+    final response =
+        await http.get(
+      Uri.parse(
+        ApiConfig.customers,
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    final dynamic decoded =
+        jsonDecode(
+      response.body,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (response.statusCode != 200 ||
+        decoded is! Map ||
+        decoded['success'] != true) {
+      throw Exception(
+        decoded is Map
+            ? (decoded['message'] ??
+                    'Unable to load customers.')
+                .toString()
+            : 'Unable to load customers.',
+      );
+    }
+
+    final List<dynamic> records =
+        decoded['data'] is List
+            ? decoded['data']
+                as List<dynamic>
+            : const <dynamic>[];
+
+    final List<CustomerModel>
+        loadedCustomers =
+        <CustomerModel>[];
+
+    final Map<CustomerModel, String>
+        loadedCustomerIds =
+        <CustomerModel, String>{};
+
+    CustomerModel? preservedCustomer;
+
+    for (final dynamic item
+        in records) {
+      if (item is! Map) {
+        continue;
+      }
+
+      final Map<String, dynamic>
+          map =
+          Map<String, dynamic>.from(
+        item,
+      );
+
+      final String customerId =
+          (map['customerId'] ?? '')
+              .toString()
+              .trim();
+
+      final CustomerModel customer =
+          CustomerModel(
+        name:
+            (map['name'] ?? '')
+                .toString(),
+
+        mobile:
+            (map['mobile'] ?? '')
+                .toString(),
+
+        route:
+            (map['route'] ?? '')
+                .toString(),
+
+        balance:
+            double.tryParse(
+                  map['balance']
+                          ?.toString() ??
+                      '0',
+                ) ??
+                0.0,
+
+        isActive:
+            map['isActive'] !=
+            false,
+      );
+
+      loadedCustomers.add(
+        customer,
+      );
+
+      loadedCustomerIds[
+              customer] =
+          customerId;
+
+      if (currentCustomerId.isNotEmpty &&
+          customerId ==
+              currentCustomerId) {
+        preservedCustomer =
+            customer;
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _customers
+        ..clear()
+        ..addAll(
+          loadedCustomers,
+        );
+
+      _customerIds
+        ..clear()
+        ..addAll(
+          loadedCustomerIds,
+        );
+
+      _selectedCustomer =
+          preservedCustomer ??
+          (loadedCustomers.isNotEmpty
+              ? loadedCustomers.first
+              : null);
+
+      _products.clear();
+
+      _dirtyProductKeys.clear();
+
+      _loading = false;
+    });
+
+    if (_selectedCustomer != null) {
+      await _loadCustomerRates();
+    }
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _loading = false;
+    });
+
+    _showMessage(
+      error
+          .toString()
+          .replaceFirst(
+            'Exception: ',
+            '',
+          ),
+    );
+  }
+}
 
 Future<void> _loadCustomers() async {
   if (mounted) {
@@ -197,11 +434,20 @@ Future<void> _loadCustomers() async {
   }
 }
 
-  @override
-  void dispose() {
-    _disposeRateControllers();
-    super.dispose();
-  }
+@override
+void dispose() {
+  UiSession.instance.removeListener(
+    _onSessionChanged,
+  );
+
+  DataSyncService.instance.removeListener(
+    _onDataSyncChanged,
+  );
+
+  _disposeRateControllers();
+
+  super.dispose();
+}
 
   void _disposeRateControllers() {
     for (final controller in _rateControllers.values) {
@@ -591,13 +837,25 @@ Future<void> _saveRates() async {
             .clear();
       });
 
-      _showMessage(
-        '$savedCount custom rate${savedCount == 1 ? '' : 's'} saved for ${customer.name}.',
-        success: true,
-      );
+_showMessage(
+  '$savedCount custom rate'
+  '${savedCount == 1 ? '' : 's'} '
+  'saved for ${customer.name}.',
+  success: true,
+);
 
-      // Reload from MongoDB to verify saved values
-      await _loadCustomerRates();
+// Reload this screen from MongoDB first.
+await _loadCustomerRates();
+
+// ============================================================
+// NOTIFY THE ENTIRE APP
+//
+// SalesScreen and other interested screens can now reload
+// the customer's latest special rates immediately.
+// ============================================================
+
+DataSyncService.instance
+    .notifyCustomerRateChanged();
 
     } else {
 

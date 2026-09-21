@@ -54,180 +54,112 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
 
   String get _editingAllocationId =>
       (widget.existingAllocation?['allocationId'] ?? '').toString().trim();
-      double _asDouble(dynamic value) {
-  if (value is num) {
-    return value.toDouble();
+  double _asDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(value?.toString().trim() ?? '') ?? 0.0;
   }
 
-  return double.tryParse(
-        value?.toString().trim() ?? '',
-      ) ??
-      0.0;
-}
+  String _formatQty(num value) {
+    final double number = value.toDouble();
 
-String _formatQty(num value) {
-  final double number =
-      value.toDouble();
+    if (number == number.roundToDouble()) {
+      return number.toStringAsFixed(0);
+    }
 
-  if (number ==
-      number.roundToDouble()) {
-    return number.toStringAsFixed(0);
+    return number
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
   }
 
-  return number
-      .toStringAsFixed(2)
-      .replaceFirst(
-        RegExp(r'0+$'),
-        '',
-      )
-      .replaceFirst(
-        RegExp(r'\.$'),
-        '',
-      );
-}
+  bool get _hasExistingActivity {
+    final dynamic rawProducts = widget.existingAllocation?['products'];
 
-bool get _hasExistingActivity {
-  final dynamic rawProducts =
-      widget.existingAllocation?[
-          'products'];
+    if (rawProducts is! List) {
+      return false;
+    }
 
-  if (rawProducts is! List) {
+    for (final dynamic raw in rawProducts) {
+      if (raw is! Map) {
+        continue;
+      }
+
+      final double sold = _asDouble(raw['soldQuantity']);
+
+      final double returned = _asDouble(raw['returnedQuantity']);
+
+      if (sold > 0 || returned > 0) {
+        return true;
+      }
+    }
+
     return false;
   }
 
-  for (
-    final dynamic raw
-    in rawProducts
-  ) {
-    if (raw is! Map) {
-      continue;
+  double _oldAllocatedQuantity(String productId) {
+    final dynamic rawProducts = widget.existingAllocation?['products'];
+
+    if (rawProducts is! List) {
+      return 0;
     }
 
-    final double sold =
-        _asDouble(
-          raw['soldQuantity'],
-        );
+    for (final dynamic raw in rawProducts) {
+      if (raw is! Map) {
+        continue;
+      }
 
-    final double returned =
-        _asDouble(
-          raw['returnedQuantity'],
-        );
+      final String id = (raw['productId'] ?? '').toString().trim();
 
-    if (
-      sold > 0 ||
-      returned > 0
-    ) {
-      return true;
+      if (id == productId) {
+        return _asDouble(raw['quantity']);
+      }
     }
-  }
 
-  return false;
-}
-
-double _oldAllocatedQuantity(
-  String productId,
-) {
-  final dynamic rawProducts =
-      widget.existingAllocation?[
-          'products'];
-
-  if (rawProducts is! List) {
     return 0;
   }
 
-  for (
-    final dynamic raw
-    in rawProducts
-  ) {
-    if (raw is! Map) {
-      continue;
+  double _minimumAllowedQuantity(String productId) {
+    final dynamic rawProducts = widget.existingAllocation?['products'];
+
+    if (rawProducts is! List) {
+      return 0;
     }
 
-    final String id =
-        (
-          raw['productId'] ??
-          ''
-        )
-            .toString()
-            .trim();
+    for (final dynamic raw in rawProducts) {
+      if (raw is! Map) {
+        continue;
+      }
 
-    if (id == productId) {
-      return _asDouble(
-        raw['quantity'],
-      );
+      final String id = (raw['productId'] ?? '').toString().trim();
+
+      if (id != productId) {
+        continue;
+      }
+
+      final double sold = _asDouble(raw['soldQuantity']);
+
+      final double returned = _asDouble(raw['returnedQuantity']);
+
+      return sold + returned;
     }
-  }
 
-  return 0;
-}
-
-double _minimumAllowedQuantity(
-  String productId,
-) {
-  final dynamic rawProducts =
-      widget.existingAllocation?[
-          'products'];
-
-  if (rawProducts is! List) {
     return 0;
   }
 
-  for (
-    final dynamic raw
-    in rawProducts
-  ) {
-    if (raw is! Map) {
-      continue;
+  double _maximumAllowedQuantity(Map<String, dynamic> product) {
+    final String productId = _productId(product);
+
+    final double warehouseStock = _productStock(product).toDouble();
+
+    if (!_isEditing) {
+      return warehouseStock;
     }
 
-    final String id =
-        (
-          raw['productId'] ??
-          ''
-        )
-            .toString()
-            .trim();
-
-    if (id != productId) {
-      continue;
-    }
-
-    final double sold =
-        _asDouble(
-          raw['soldQuantity'],
-        );
-
-    final double returned =
-        _asDouble(
-          raw['returnedQuantity'],
-        );
-
-    return sold +
-        returned;
+    return warehouseStock + _oldAllocatedQuantity(productId);
   }
-
-  return 0;
-}
-
-double _maximumAllowedQuantity(
-  Map<String, dynamic> product,
-) {
-  final String productId =
-      _productId(product);
-
-  final double warehouseStock =
-      _productStock(product)
-          .toDouble();
-
-  if (!_isEditing) {
-    return warehouseStock;
-  }
-
-  return warehouseStock +
-      _oldAllocatedQuantity(
-        productId,
-      );
-}
   // ============================================================
   // PRODUCT HELPERS
   // ============================================================
@@ -307,14 +239,8 @@ double _maximumAllowedQuantity(
       if (!_selectedProductIds.contains(productId)) {
         continue;
       }
-final double quantity =
-    double.tryParse(
-      _quantities[productId]
-              ?.text
-              .trim() ??
-          '',
-    ) ??
-    0;
+      final double quantity =
+          double.tryParse(_quantities[productId]?.text.trim() ?? '') ?? 0;
 
       if (quantity <= 0) {
         continue;
@@ -334,10 +260,7 @@ final double quantity =
 
   String get _summaryText {
     final String totals = _unitTotals.entries
-        .map(
-  (entry) =>
-      '${_formatQty(entry.value)} ${entry.key}',
-)
+        .map((entry) => '${_formatQty(entry.value)} ${entry.key}')
         .join(' • ');
 
     return totals.isEmpty ? 'No quantity entered' : totals;
@@ -421,10 +344,7 @@ final double quantity =
 
         final String productId = (raw['productId'] ?? '').toString().trim();
 
-      final double quantity =
-    _asDouble(
-      raw['quantity'],
-    );
+        final double quantity = _asDouble(raw['quantity']);
 
         if (productId.isEmpty || quantity <= 0) {
           continue;
@@ -436,10 +356,7 @@ final double quantity =
 
         _selectedProductIds.add(productId);
 
-       _quantities[productId]!.text =
-    _formatQty(
-      quantity,
-    );
+        _quantities[productId]!.text = _formatQty(quantity);
       }
     }
   }
@@ -498,66 +415,43 @@ final double quantity =
     });
   }
 
-  void _changeQuantity(
-  Map<String, dynamic> product,
-  double change,
-) {
-  final String productId =
-      _productId(product);
+  void _changeQuantity(Map<String, dynamic> product, double change) {
+    final String productId = _productId(product);
 
-  final TextEditingController
-      controller =
-      _quantities[productId]!;
+    final TextEditingController controller = _quantities[productId]!;
 
-  final double current =
-      double.tryParse(
-        controller.text.trim(),
-      ) ??
-      0;
+    final double current = double.tryParse(controller.text.trim()) ?? 0;
 
-  final double maximumQuantity =
-      _maximumAllowedQuantity(
-        product,
-      );
+    final double maximumQuantity = _maximumAllowedQuantity(product);
 
-  final double minimumQuantity =
-      _isEditing
-          ? _minimumAllowedQuantity(
-              productId,
-            )
-          : 0;
+    final double minimumQuantity = _isEditing
+        ? _minimumAllowedQuantity(productId)
+        : 0;
 
-  final double next =
-      (current + change)
-          .clamp(
-            minimumQuantity,
-            maximumQuantity,
-          )
-          .toDouble();
+    final double next = (current + change)
+        .clamp(minimumQuantity, maximumQuantity)
+        .toDouble();
 
-  setState(() {
-    controller.text =
-        next <= 0
-            ? ''
-            : _formatQty(
-                next,
-              );
+    setState(() {
+      controller.text = next <= 0 ? '' : _formatQty(next);
 
-    if (next > 0) {
-      _selectedProductIds.add(
-        productId,
-      );
-    }
-  });
-}
+      if (next > 0) {
+        _selectedProductIds.add(productId);
+      }
+    });
+  }
 
   // ============================================================
   // ROUTE CHANGE
   // ============================================================
-
   void _onRouteChanged(String? value) {
     setState(() {
       _routeId = value;
+
+      // Clear previous salesman first.
+      // This prevents a stale salesman remaining selected
+      // if the new route has no valid salesman assignment.
+      _salesmanId = null;
 
       final route = _findRoute(value);
 
@@ -575,7 +469,8 @@ final double quantity =
 
       final bool exists = widget.salesmen.any(
         (salesman) =>
-            (salesman['salesmanId'] ?? '').toString() == assignedSalesmanId,
+            (salesman['salesmanId'] ?? '').toString().trim() ==
+            assignedSalesmanId,
       );
 
       if (exists) {
@@ -597,6 +492,48 @@ final double quantity =
       _message('Route is required.');
       return;
     }
+    // ============================================================
+// VERIFY ROUTE -> SALESMAN RELATIONSHIP
+//
+// Route Master is the source of truth.
+// One salesman may have many routes,
+// but every route belongs to one salesman.
+// ============================================================
+
+final selectedRoute =
+    _findRoute(
+  _routeId,
+);
+
+if (selectedRoute == null) {
+  _message(
+    'Selected route not found.',
+  );
+  return;
+}
+
+final String
+    assignedSalesmanId =
+    (selectedRoute[
+                'salesmanId'] ??
+            '')
+        .toString()
+        .trim();
+
+if (assignedSalesmanId.isEmpty) {
+  _message(
+    'Selected route does not have a salesman assigned.',
+  );
+  return;
+}
+
+if (assignedSalesmanId !=
+    _salesmanId!.trim()) {
+  _message(
+    'Selected salesman does not match the salesman assigned to this route.',
+  );
+  return;
+}
 
     if (_salesmanId == null || _salesmanId!.trim().isEmpty) {
       _message('Salesman is required.');
@@ -619,30 +556,18 @@ final double quantity =
 
       final String productName = _productName(product);
 
-  final double quantity =
-    double.tryParse(
-      _quantities[productId]
-              ?.text
-              .trim() ??
-          '',
-    ) ??
-    0;
+      final double quantity =
+          double.tryParse(_quantities[productId]?.text.trim() ?? '') ?? 0;
 
       if (quantity <= 0) {
         _message('Enter a quantity for $productName.');
         return;
       }
-final double maximumQuantity =
-    _maximumAllowedQuantity(
-      product,
-    );
+      final double maximumQuantity = _maximumAllowedQuantity(product);
 
-final double minimumQuantity =
-    _isEditing
-        ? _minimumAllowedQuantity(
-            productId,
-          )
-        : 0;
+      final double minimumQuantity = _isEditing
+          ? _minimumAllowedQuantity(productId)
+          : 0;
 
       if (quantity > maximumQuantity) {
         _message(
@@ -666,59 +591,47 @@ final double minimumQuantity =
     });
 
     try {
-  final Uri uri = _isEditing
-    ? Uri.parse(
-        '${ApiConfig.baseUrl}/api/allocations/$_editingAllocationId',
-      )
-    : Uri.parse(
-        '${ApiConfig.baseUrl}/api/allocations',
-      );
+      final Uri uri = _isEditing
+          ? Uri.parse(
+              '${ApiConfig.baseUrl}/api/allocations/$_editingAllocationId',
+            )
+          : Uri.parse('${ApiConfig.baseUrl}/api/allocations');
 
-final Map<String, dynamic> body =
-    <String, dynamic>{
-  'allocationDate':
-      _date.toIso8601String(),
+      final Map<String, dynamic> body = <String, dynamic>{
+        'allocationDate': _date.toIso8601String(),
 
-  'routeId':
-      _routeId,
+        'routeId': _routeId,
 
-  'salesmanId':
-      _salesmanId,
+        'salesmanId': _salesmanId,
 
-  'notes':
-      _notes.text.trim(),
+        'notes': _notes.text.trim(),
 
-  'products':
-      requestProducts,
-};
+        'products': requestProducts,
+      };
 
-final http.Response response;
+      final http.Response response;
 
-if (_isEditing) {
-  response = await http.put(
-    uri,
-    headers: <String, String>{
-      'Content-Type':
-          'application/json',
+      if (_isEditing) {
+        response = await http.put(
+          uri,
+          headers: <String, String>{
+            'Content-Type': 'application/json',
 
-      'Authorization':
-          'Bearer ${ApiConfig.token}',
-    },
-    body: jsonEncode(body),
-  );
-} else {
-  response = await http.post(
-    uri,
-    headers: <String, String>{
-      'Content-Type':
-          'application/json',
+            'Authorization': 'Bearer ${ApiConfig.token}',
+          },
+          body: jsonEncode(body),
+        );
+      } else {
+        response = await http.post(
+          uri,
+          headers: <String, String>{
+            'Content-Type': 'application/json',
 
-      'Authorization':
-          'Bearer ${ApiConfig.token}',
-    },
-    body: jsonEncode(body),
-  );
-}
+            'Authorization': 'Bearer ${ApiConfig.token}',
+          },
+          body: jsonEncode(body),
+        );
+      }
 
       dynamic decoded;
 
@@ -728,11 +641,9 @@ if (_isEditing) {
         decoded = null;
       }
 
-    final int expectedStatus =
-    _isEditing ? 200 : 201;
+      final int expectedStatus = _isEditing ? 200 : 201;
 
-if (response.statusCode !=
-    expectedStatus) {
+      if (response.statusCode != expectedStatus) {
         final String message = decoded is Map
             ? decoded['message']?.toString() ?? 'Unable to save allocation.'
             : 'Unable to save allocation.';
@@ -777,17 +688,13 @@ if (response.statusCode !=
     }
 
     return Scaffold(
-     appBar: PremiumAppBar(
-  title:
-      _isEditing
-          ? 'Edit Allocation'
-          : 'Assign Allocation',
+      appBar: PremiumAppBar(
+        title: _isEditing ? 'Edit Allocation' : 'Assign Allocation',
 
-  subtitle:
-      _isEditing
-          ? 'Update allocated products and quantity'
-          : 'Allocate multiple products in one entry',
-),
+        subtitle: _isEditing
+            ? 'Update allocated products and quantity'
+            : 'Allocate multiple products in one entry',
+      ),
       bottomNavigationBar: _bottomSummary(),
       body: ListView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -1036,12 +943,9 @@ if (response.statusCode !=
                 );
               },
             ).toList(),
-           onChanged:
-    _saving ||
-            (_isEditing &&
-                _hasExistingActivity)
-        ? null
-        : _onRouteChanged,
+            onChanged: _saving || (_isEditing && _hasExistingActivity)
+                ? null
+                : _onRouteChanged,
           ),
 
           const SizedBox(height: 11),
@@ -1049,37 +953,79 @@ if (response.statusCode !=
           // ==========================================
           // SALESMAN
           // ==========================================
-          DropdownButtonFormField<String>(
-            key: ValueKey(_salesmanId),
-            initialValue: _salesmanId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Salesman',
-              prefixIcon: Icon(Icons.badge_outlined),
-            ),
-            items: widget.salesmen
-                .where((item) => item['isActive'] != false)
-                .map((item) {
-                  final String salesmanId = (item['salesmanId'] ?? '')
-                      .toString();
+         DropdownButtonFormField<String>(
+  key: ValueKey(
+    'salesman_$_salesmanId',
+  ),
 
-                  return DropdownMenuItem<String>(
-                    value: salesmanId,
-                    child: Text(_salesmanName(item)),
-                  );
-                })
-                .toList(),
-           onChanged:
-    _saving ||
-            (_isEditing &&
-                _hasExistingActivity)
-        ? null
-        : (value) {
-                    setState(() {
-                      _salesmanId = value;
-                    });
-                  },
-          ),
+  initialValue:
+      _salesmanId,
+
+  isExpanded:
+      true,
+
+  decoration:
+      const InputDecoration(
+    labelText:
+        'Assigned Salesman',
+
+    prefixIcon:
+        Icon(
+      Icons.badge_outlined,
+    ),
+
+    helperText:
+        'Automatically selected from Route Master.',
+  ),
+
+  items:
+      widget.salesmen
+          .where(
+            (item) =>
+                item['isActive'] !=
+                false,
+          )
+          .map(
+            (item) {
+              final String
+                  salesmanId =
+                  (item[
+                              'salesmanId'] ??
+                          '')
+                      .toString()
+                      .trim();
+
+              return DropdownMenuItem<
+                  String>(
+                value:
+                    salesmanId,
+
+                child:
+                    Text(
+                  _salesmanName(
+                    item,
+                  ),
+                ),
+              );
+            },
+          )
+          .toList(),
+
+  // ==========================================================
+  // IMPORTANT
+  //
+  // Route Master is the source of truth.
+  //
+  // One Route -> One Salesman
+  // One Salesman -> Multiple Routes
+  //
+  // Therefore salesman must not be manually changed here.
+  // Changing Route automatically updates salesman.
+  // ==========================================================
+
+  onChanged:
+      null,
+),
         ],
       ),
     ),
@@ -1499,31 +1445,16 @@ if (response.statusCode !=
 
     final String unit = _productUnit(product);
 
-final double stock =
-    _productStock(product)
-        .toDouble();
+    final double stock = _productStock(product).toDouble();
 
-final bool selected =
-    _selectedProductIds
-        .contains(productId);
+    final bool selected = _selectedProductIds.contains(productId);
 
-final double quantity =
-    double.tryParse(
-      _quantities[productId]
-              ?.text
-              .trim() ??
-          '',
-    ) ??
-    0;
+    final double quantity =
+        double.tryParse(_quantities[productId]?.text.trim() ?? '') ?? 0;
 
-final double maxAllowed =
-    _maximumAllowedQuantity(
-      product,
-    );
+    final double maxAllowed = _maximumAllowedQuantity(product);
 
-final bool exceedsStock =
-    quantity >
-    maxAllowed;
+    final bool exceedsStock = quantity > maxAllowed;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1594,33 +1525,24 @@ final bool exceedsStock =
                               controller: _quantities[productId],
                               enabled: !_saving,
                               textAlign: TextAlign.center,
-                            keyboardType:
-    const TextInputType
-        .numberWithOptions(
-      decimal: true,
-      signed: false,
-    ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                    signed: false,
+                                  ),
 
-inputFormatters: [
-  TextInputFormatter
-      .withFunction(
-    (
-      oldValue,
-      newValue,
-    ) {
-      final bool valid =
-          RegExp(
-            r'^\d*\.?\d{0,2}$',
-          ).hasMatch(
-            newValue.text,
-          );
+                              inputFormatters: [
+                                TextInputFormatter.withFunction((
+                                  oldValue,
+                                  newValue,
+                                ) {
+                                  final bool valid = RegExp(
+                                    r'^\d*\.?\d{0,2}$',
+                                  ).hasMatch(newValue.text);
 
-      return valid
-          ? newValue
-          : oldValue;
-    },
-  ),
-],
+                                  return valid ? newValue : oldValue;
+                                }),
+                              ],
                               onChanged: (_) {
                                 setState(() {});
                               },
@@ -1704,11 +1626,7 @@ inputFormatters: [
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-               : Text(
-    _isEditing
-        ? 'UPDATE ALLOCATION'
-        : 'ASSIGN ALLOCATION',
-  ),
+                : Text(_isEditing ? 'UPDATE ALLOCATION' : 'ASSIGN ALLOCATION'),
           ),
         ],
       ),

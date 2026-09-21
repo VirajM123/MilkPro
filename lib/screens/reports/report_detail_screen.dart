@@ -20,6 +20,7 @@ class ReportDetailScreen extends StatefulWidget {
     required this.color,
     this.filterLabel,
     this.filterValue,
+    this.isLive = true,
   });
 
   final ReportData report;
@@ -29,6 +30,7 @@ class ReportDetailScreen extends StatefulWidget {
   final Color color;
   final String? filterLabel;
   final String? filterValue;
+  final bool isLive;
 
   @override
   State<ReportDetailScreen> createState() => _ReportDetailScreenState();
@@ -76,7 +78,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       backgroundColor: AppColors.background,
       appBar: PremiumAppBar(
         title: widget.report.title,
-        subtitle: '${_date(widget.from)} to ${_date(widget.to)} • Demo data',
+        subtitle: widget.isLive
+            ? '${_date(widget.from)} to ${_date(widget.to)}'
+            : '${_date(widget.from)} to ${_date(widget.to)} • Demo data',
       ),
       body: SafeArea(
         top: false,
@@ -98,8 +102,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                       _metricCards(desktop),
                       const SizedBox(height: 16),
                       _reportTable(),
-                      const SizedBox(height: 14),
-                      _demoNote(),
+                      if (!widget.isLive) ...[
+                        const SizedBox(height: 14),
+                        _demoNote(),
+                      ],
                     ],
                   ),
                 ),

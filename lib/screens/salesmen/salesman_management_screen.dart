@@ -99,16 +99,106 @@ class _SalesmanManagementScreenState
 
         if (salesmanId.isEmpty) continue;
 
-        loaded.add(
-          SalesmanProfile(
-            id: salesmanId,
-            name: (data['name'] ?? '').toString(),
-            mobile: (data['mobile'] ?? '').toString(),
-            route: (data['routeName'] ?? '').toString(),
-            isActive: data['isActive'] != false,
-            permissions: permissions,
-          ),
-        );
+       // ============================================================
+// LOAD ALL ROUTES ASSIGNED TO SALESMAN
+// ============================================================
+
+final List<SalesmanRoute>
+    assignedRoutes =
+    <SalesmanRoute>[];
+
+final rawRoutes =
+    data['routes'];
+
+if (rawRoutes is List) {
+  for (final rawRoute in rawRoutes) {
+    if (rawRoute is! Map) {
+      continue;
+    }
+
+    final route =
+        SalesmanRoute.fromMap(
+      Map<String, dynamic>.from(
+        rawRoute,
+      ),
+    );
+
+    if (route.isValid) {
+      assignedRoutes.add(
+        route,
+      );
+    }
+  }
+}
+
+// ============================================================
+// LEGACY FALLBACK
+//
+// Keeps old backend response compatible.
+// ============================================================
+
+if (assignedRoutes.isEmpty) {
+  final legacyRouteId =
+      (data['routeId'] ?? '')
+          .toString()
+          .trim();
+
+  final legacyRouteName =
+      (data['routeName'] ?? '')
+          .toString()
+          .trim();
+
+  if (legacyRouteId.isNotEmpty ||
+      legacyRouteName.isNotEmpty) {
+    assignedRoutes.add(
+      SalesmanRoute(
+        routeId:
+            legacyRouteId,
+
+        routeName:
+            legacyRouteName,
+      ),
+    );
+  }
+}
+
+final primaryRoute =
+    assignedRoutes.isNotEmpty
+        ? assignedRoutes
+            .first
+            .routeName
+        : '';
+
+loaded.add(
+  SalesmanProfile(
+    id:
+        salesmanId,
+
+    name:
+        (data['name'] ?? '')
+            .toString(),
+
+    mobile:
+        (data['mobile'] ?? '')
+            .toString(),
+
+    // Legacy first route
+    route:
+        primaryRoute,
+
+    // New all routes
+    routes:
+        List<SalesmanRoute>.unmodifiable(
+      assignedRoutes,
+    ),
+
+    isActive:
+        data['isActive'] != false,
+
+    permissions:
+        permissions,
+  ),
+);
       }
 
       if (!mounted) return;
@@ -138,11 +228,17 @@ class _SalesmanManagementScreenState
     final query = _query.trim().toLowerCase();
 
     return _salesmen.where((item) {
-      final matchesQuery =
-          query.isEmpty ||
-          item.name.toLowerCase().contains(query) ||
-          item.id.toLowerCase().contains(query) ||
-          item.route.toLowerCase().contains(query);
+     final matchesQuery =
+    query.isEmpty ||
+    item.name
+        .toLowerCase()
+        .contains(query) ||
+    item.id
+        .toLowerCase()
+        .contains(query) ||
+    item.routeDisplay
+        .toLowerCase()
+        .contains(query);
 
       final matchesFilter =
           _filter == _SalesmanFilter.all ||
@@ -459,12 +555,15 @@ class _SalesmanManagementScreenState
                     children: [
                       Expanded(
                         child: _meta(
-                          Icons.route_outlined,
-                          'Route',
-                          salesman.route.isEmpty
-                              ? 'Not Assigned'
-                              : salesman.route,
-                        ),
+  Icons.route_outlined,
+  salesman.routeCount == 1
+      ? 'Route'
+      : 'Routes',
+  salesman.routeCount == 0
+      ? 'Not Assigned'
+      : '${salesman.routeCount} · '
+          '${salesman.routeDisplay}',
+),
                       ),
                       Expanded(
                         child: _meta(

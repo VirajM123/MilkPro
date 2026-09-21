@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-
+import '../common/access_denied_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -81,12 +81,11 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   Timer? _pollTimer;
   int _salesRequestToken = 0;
   // ============================================================
-// CURRENT USER
-// ============================================================
+  // CURRENT USER
+  // ============================================================
 
-bool get _isSalesman =>
-    UiSession.instance.currentUser.role ==
-    UserRole.salesman;
+  bool get _isSalesman =>
+      UiSession.instance.currentUser.role == UserRole.salesman;
 
   final List<String> _paymentModes = const <String>[
     'Cash',
@@ -101,6 +100,7 @@ bool get _isSalesman =>
 
     WidgetsBinding.instance.addObserver(this);
     DataSyncService.instance.addListener(_onDataSyncChanged);
+    UiSession.instance.addListener(_onSessionChanged);
 
     _selectedDate = DateTime.now();
 
@@ -127,6 +127,7 @@ bool get _isSalesman =>
     _pollTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     DataSyncService.instance.removeListener(_onDataSyncChanged);
+    UiSession.instance.removeListener(_onSessionChanged);
 
     _quantityController.removeListener(_refreshTotal);
     _rateController.removeListener(_refreshTotal);
@@ -159,18 +160,106 @@ bool get _isSalesman =>
     }
   }
 
+  void _onSessionChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
   void _onDataSyncChanged() {
-    final event = DataSyncService.instance.lastEventType;
-    if (event == SyncEventType.allocation ||
-        event == SyncEventType.returnSettlement ||
-        event == SyncEventType.sale ||
-        event == SyncEventType.all) {
-      if (mounted && !_loadingSales && !_syncing) {
-        _loadSalesSilent();
+    if (!mounted || _syncing) {
+      return;
+    }
+
+    final SyncEventType event = DataSyncService.instance.lastEventType;
+
+    _handleDataSyncEvent(event);
+  }
+
+  Future<void> _handleDataSyncEvent(SyncEventType event) async {
+    if (!mounted) {
+      return;
+    }
+
+    try {
+      // ============================================================
+      // SALE / STOCK CHANGES
+      // ============================================================
+
+      if (event == SyncEventType.sale ||
+          event == SyncEventType.allocation ||
+          event == SyncEventType.returnSettlement) {
+        await _loadSalesSilent();
+
         if (_selectedCustomer != null) {
-          _loadCustomerProductsSilent();
+          await _loadCustomerProductsSilent(preserveDraft: true);
+        }
+
+        return;
+      }
+
+      // ============================================================
+      // CUSTOMER RATE / PRODUCT MASTER CHANGES
+      // ============================================================
+
+      if (event == SyncEventType.customerRates ||
+          event == SyncEventType.products) {
+        if (_selectedCustomer != null) {
+          await _loadCustomerProductsSilent(preserveDraft: true);
+        }
+
+        return;
+      }
+
+      // ============================================================
+      // CUSTOMER / ROUTE / PROFILE CHANGES
+      // ============================================================
+
+      if (event == SyncEventType.customers ||
+          event == SyncEventType.routes ||
+          event == SyncEventType.profile) {
+        if (!_loadingCustomers) {
+          await _loadCustomers();
+        }
+
+        if (_selectedCustomer != null) {
+          await _loadCustomerProductsSilent(preserveDraft: true);
+        }
+
+        return;
+      }
+
+      // ============================================================
+      // UNIVERSAL SYNC
+      // ============================================================
+
+      if (event == SyncEventType.all) {
+        await _loadSalesSilent();
+
+        if (!_loadingCustomers) {
+          await _loadCustomers();
+        }
+
+        if (_selectedCustomer != null) {
+          await _loadCustomerProductsSilent(preserveDraft: true);
         }
       }
+    } catch (error) {
+      debugPrint('Sales data sync error: $error');
+    }
+  }
+
+  Future<void> _loadCustomerProductsSilent({bool preserveDraft = true}) async {
+    if (_loadingProducts || !mounted || _selectedCustomer == null) {
+      return;
+    }
+
+    try {
+      await _loadCustomerProducts(preserveDraft: preserveDraft);
+    } catch (error) {
+      debugPrint('Customer products silent sync error: $error');
     }
   }
 
@@ -183,68 +272,97 @@ bool get _isSalesman =>
     }
   }
 
-  Future<void> _loadCustomerProductsSilent() async {
-    if (_loadingProducts || !mounted || _selectedCustomer == null) return;
-    try {
-      await _loadCustomerProducts();
-    } catch (e) {
-      debugPrint('Customer products silent sync error: $e');
-    }
+Future<void> _handleManualSync() async {
+  if (_syncing) {
+    return;
   }
 
-  Future<void> _handleManualSync() async {
-    if (_syncing || _loadingSales) return;
-    setState(() => _syncing = true);
+  setState(() {
+    _syncing = true;
+  });
+
   try {
-  await _loadSales();
+    // Refresh profile, permissions, routes
+    // and broadcast application-wide sync.
+    await DataSyncService.instance
+        .syncEverything();
 
-  // Refresh customer outstanding / advance position.
-  await _loadCustomers();
+    // Refresh this screen immediately.
+    await _loadSales();
 
-  if (_selectedCustomer != null) {
-    await _loadCustomerProducts();
-  }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Synced successfully'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
+    await _loadCustomers();
+
+    if (_selectedCustomer != null) {
+      await _loadCustomerProducts(
+        preserveDraft: true,
+      );
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            'All data synchronized successfully.',
           ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to sync. Please try again.'),
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
+          duration:
+              Duration(seconds: 2),
+          behavior:
+              SnackBarBehavior.floating,
+        ),
+      );
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to sync: '
+            '${error.toString().replaceFirst('Exception: ', '')}',
           ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _syncing = false);
-      }
+          duration:
+              const Duration(seconds: 3),
+          behavior:
+              SnackBarBehavior.floating,
+        ),
+      );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _syncing = false;
+      });
     }
   }
-void _clearSalePayments() {
-  _cashPaymentController.clear();
-  _upiPaymentController.clear();
-  _bankPaymentController.clear();
-
-  _paymentMode = 'Credit';
 }
 
-  void _refreshTotal() {
-    if (mounted) setState(() {});
+  void _clearSalePayments() {
+    _cashPaymentController.clear();
+    _upiPaymentController.clear();
+    _bankPaymentController.clear();
+
+    _paymentMode = 'Credit';
   }
 
-  int _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+  void _refreshTotal() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(value?.toString().trim() ?? '') ?? 0.0;
   }
 
   bool _sameDay(DateTime a, DateTime b) {
@@ -255,34 +373,46 @@ void _clearSalePayments() {
     return _saleProducts;
   }
 
-  int _soldFor(Map<String, dynamic> allocation) =>
-      _asInt(allocation['soldQty']);
-
-  int _availableFor(Map<String, dynamic> allocation) {
-    final value =
-        _asInt(allocation['qty']) -
-        _asInt(allocation['returnedQty']) -
-        _soldFor(allocation);
-    return value < 0 ? 0 : value;
+  double _soldFor(Map<String, dynamic> allocation) {
+    return _asDouble(allocation['soldQty']);
   }
 
-  int _cartQuantityFor(Map<String, dynamic> allocation) {
+  double _availableFor(Map<String, dynamic> allocation) {
+    final double value =
+        _asDouble(allocation['qty']) -
+        _asDouble(allocation['returnedQty']) -
+        _soldFor(allocation);
+
+    return value < 0 ? 0.0 : value;
+  }
+
+  double _cartQuantityFor(Map<String, dynamic> allocation) {
     return _cart
         .where((line) => identical(line.allocation, allocation))
-        .fold(0, (sum, line) => sum + line.quantity);
+        .fold<double>(0.0, (sum, line) => sum + line.quantity);
   }
 
-  int _remainingFor(Map<String, dynamic> allocation) {
-    final remaining = _availableFor(allocation) - _cartQuantityFor(allocation);
-    return remaining < 0 ? 0 : remaining;
+  double _remainingFor(Map<String, dynamic> allocation) {
+    final double remaining =
+        _availableFor(allocation) - _cartQuantityFor(allocation);
+
+    return remaining < 0 ? 0.0 : remaining;
   }
 
-  int get _availableToAdd =>
-      _selectedAllocation == null ? 0 : _remainingFor(_selectedAllocation!);
+  double get _availableToAdd {
+    if (_selectedAllocation == null) {
+      return 0.0;
+    }
+
+    return _remainingFor(_selectedAllocation!);
+  }
 
   double get _draftTotal {
-    final quantity = int.tryParse(_quantityController.text) ?? 0;
-    final rate = double.tryParse(_rateController.text) ?? 0;
+    final double quantity =
+        double.tryParse(_quantityController.text.trim()) ?? 0.0;
+
+    final double rate = double.tryParse(_rateController.text.trim()) ?? 0.0;
+
     return quantity * rate;
   }
 
@@ -297,256 +427,195 @@ void _clearSalePayments() {
 
   double get _bankPayment => _paymentValue(_bankPaymentController);
 
- double get _paidAmount =>
-    _cashPayment +
-    _upiPayment +
-    _bankPayment;
+  double get _paidAmount => _cashPayment + _upiPayment + _bankPayment;
 
+  // ============================================================
+  // CUSTOMER CURRENT ADVANCE BALANCE
+  //
+  // Backend:
+  // MAS_CUSTOMER.balance = available customer advance
+  // ============================================================
 
-// ============================================================
-// CUSTOMER CURRENT ADVANCE BALANCE
-//
-// Backend:
-// MAS_CUSTOMER.balance = available customer advance
-// ============================================================
+  // ============================================================
+  // CUSTOMER USABLE ADVANCE
+  //
+  // IMPORTANT:
+  //
+  // DO NOT use:
+  // customer['balance']
+  //
+  // because that is raw MAS_CUSTOMER credit.
+  //
+  // Use net free advance calculated from
+  // /api/collections/outstanding.
+  // ============================================================
 
-// ============================================================
-// CUSTOMER USABLE ADVANCE
-//
-// IMPORTANT:
-//
-// DO NOT use:
-// customer['balance']
-//
-// because that is raw MAS_CUSTOMER credit.
-//
-// Use net free advance calculated from
-// /api/collections/outstanding.
-// ============================================================
+  double get _customerAdvanceBalance {
+    final Map<String, dynamic>? customer = _selectedCustomer;
 
-double get _customerAdvanceBalance {
-  final Map<String, dynamic>? customer =
-      _selectedCustomer;
+    if (customer == null) {
+      return 0;
+    }
 
-  if (customer == null) {
-    return 0;
+    final double usableAdvance =
+        double.tryParse(customer['usableAdvanceBalance']?.toString() ?? '0') ??
+        0;
+
+    return usableAdvance > 0 ? usableAdvance : 0;
   }
 
-  final double usableAdvance =
-      double.tryParse(
-            customer['usableAdvanceBalance']
-                    ?.toString() ??
-                '0',
-          ) ??
-          0;
+  // ============================================================
+  // ADVANCE AVAILABLE FOR CURRENT SALE
+  //
+  // CREATE:
+  // Use current customer.balance.
+  //
+  // EDIT:
+  // Backend first restores the advanceUsed from the original
+  // bill before recalculating it.
+  //
+  // We will add that edit-specific value after adding
+  // advanceUsed to SaleModel.
+  // ============================================================
 
-  return usableAdvance > 0
-      ? usableAdvance
-      : 0;
-}
+  double get _availableAdvanceForSale {
+    double available = _customerAdvanceBalance;
 
+    // During edit, backend restores the advance
+    // originally consumed by this sale before
+    // recalculating the edited bill.
+    if (_isEditingSale && _editingSaleId != null) {
+      SaleModel? editingSale;
 
-// ============================================================
-// ADVANCE AVAILABLE FOR CURRENT SALE
-//
-// CREATE:
-// Use current customer.balance.
-//
-// EDIT:
-// Backend first restores the advanceUsed from the original
-// bill before recalculating it.
-//
-// We will add that edit-specific value after adding
-// advanceUsed to SaleModel.
-// ============================================================
+      for (final sale in _serverSales) {
+        if (sale.id == _editingSaleId || sale.saleId == _editingSaleId) {
+          editingSale = sale;
+          break;
+        }
+      }
 
-double get _availableAdvanceForSale {
-  double available =
-      _customerAdvanceBalance;
+      if (editingSale != null &&
+          editingSale.customerId ==
+              (_selectedCustomer?['customerId']?.toString() ?? '')) {
+        // ==========================================
+        // REVERSE ORIGINAL SALE ADVANCE EFFECT
+        //
+        // Old advance USED must be restored.
+        //
+        // Old advance CREATED must be removed.
+        //
+        // Backend performs the same reversal before
+        // recalculating the edited sale.
+        // ==========================================
 
-  // During edit, backend restores the advance
-  // originally consumed by this sale before
-  // recalculating the edited bill.
-  if (_isEditingSale &&
-      _editingSaleId != null) {
-    SaleModel? editingSale;
+        available += editingSale.advanceUsed;
 
-    for (final sale in _serverSales) {
-      if (sale.id == _editingSaleId ||
-          sale.saleId == _editingSaleId) {
-        editingSale = sale;
-        break;
+        available -= editingSale.advanceCreated;
       }
     }
 
-  if (
-  editingSale != null &&
-  editingSale.customerId ==
-      (
-        _selectedCustomer?[
-                    'customerId']
-                ?.toString() ??
-            ''
-      )
-) {
-  // ==========================================
-  // REVERSE ORIGINAL SALE ADVANCE EFFECT
+    return available > 0 ? available : 0;
+  }
+
+  // ============================================================
+  // BILL AMOUNT REMAINING AFTER CURRENT PAYMENT
+  // ============================================================
+
+  double get _amountAfterImmediatePayment {
+    final value = _cartTotal - _paidAmount;
+
+    return value < 0 ? 0 : value;
+  }
+
+  // ============================================================
+  // CUSTOMER ADVANCE THAT WILL BE USED
+  // ============================================================
+
+  double get _advanceUsedPreview {
+    final due = _amountAfterImmediatePayment;
+
+    final available = _availableAdvanceForSale;
+
+    if (due <= 0 || available <= 0) {
+      return 0;
+    }
+
+    return available < due ? available : due;
+  }
+
+  // ============================================================
+  // FINAL OUTSTANDING PREVIEW
+  // ============================================================
+
+  double get _outstandingAmount {
+    final amount = _amountAfterImmediatePayment - _advanceUsedPreview;
+
+    return amount < 0 ? 0 : amount;
+  }
+
+  // ============================================================
+  // PAYMENT APPLIED TO CURRENT BILL
+  // ============================================================
+
+  double get _paymentAppliedPreview {
+    if (_paidAmount <= 0 || _cartTotal <= 0) {
+      return 0;
+    }
+
+    return _paidAmount > _cartTotal ? _cartTotal : _paidAmount;
+  }
+
+  // ============================================================
+  // EXTRA PAYMENT CREATED AS ADVANCE
   //
-  // Old advance USED must be restored.
+  // Example:
+  // Bill = 500
+  // Paid = 700
   //
-  // Old advance CREATED must be removed.
+  // Applied to bill = 500
+  // Advance created = 200
+  // ============================================================
+
+  double get _advanceCreatedPreview {
+    final extra = _paidAmount - _cartTotal;
+
+    return extra > 0 ? extra : 0;
+  }
+
+  // ============================================================
+  // CUSTOMER ADVANCE AFTER SALE
   //
-  // Backend performs the same reversal before
-  // recalculating the edited sale.
-  // ==========================================
+  // Old Advance
+  // - Advance Used
+  // + New Advance Created
+  // ============================================================
 
-  available +=
-      editingSale.advanceUsed;
+  double get _customerAdvanceAfterSalePreview {
+    final value =
+        _availableAdvanceForSale - _advanceUsedPreview + _advanceCreatedPreview;
 
-  available -=
-      editingSale.advanceCreated;
-}
+    return value > 0 ? value : 0;
   }
 
-return available > 0
-    ? available
-    : 0;
-}
+  // ============================================================
+  // PAYMENT STATUS PREVIEW
+  // ============================================================
 
+  String get _calculatedPaymentStatus {
+    if (_cartTotal <= 0) {
+      return 'PAID';
+    }
 
-// ============================================================
-// BILL AMOUNT REMAINING AFTER CURRENT PAYMENT
-// ============================================================
+    if (_outstandingAmount <= 0.001) {
+      return 'PAID';
+    }
 
-double get _amountAfterImmediatePayment {
-  final value =
-      _cartTotal -
-      _paidAmount;
+    if (_paidAmount <= 0.001 && _advanceUsedPreview <= 0.001) {
+      return 'CREDIT';
+    }
 
-  return value < 0
-      ? 0
-      : value;
-}
-
-
-// ============================================================
-// CUSTOMER ADVANCE THAT WILL BE USED
-// ============================================================
-
-double get _advanceUsedPreview {
-  final due =
-      _amountAfterImmediatePayment;
-
-  final available =
-      _availableAdvanceForSale;
-
-  if (due <= 0 ||
-      available <= 0) {
-    return 0;
+    return 'PARTIAL';
   }
-
-  return available < due
-      ? available
-      : due;
-}
-
-
-// ============================================================
-// FINAL OUTSTANDING PREVIEW
-// ============================================================
-
-double get _outstandingAmount {
-  final amount =
-      _amountAfterImmediatePayment -
-      _advanceUsedPreview;
-
-  return amount < 0
-      ? 0
-      : amount;
-}
-
-// ============================================================
-// PAYMENT APPLIED TO CURRENT BILL
-// ============================================================
-
-double get _paymentAppliedPreview {
-  if (
-    _paidAmount <= 0 ||
-    _cartTotal <= 0
-  ) {
-    return 0;
-  }
-
-  return _paidAmount >
-          _cartTotal
-      ? _cartTotal
-      : _paidAmount;
-}
-
-
-// ============================================================
-// EXTRA PAYMENT CREATED AS ADVANCE
-//
-// Example:
-// Bill = 500
-// Paid = 700
-//
-// Applied to bill = 500
-// Advance created = 200
-// ============================================================
-
-double get _advanceCreatedPreview {
-  final extra =
-      _paidAmount -
-      _cartTotal;
-
-  return extra > 0
-      ? extra
-      : 0;
-}
-
-
-// ============================================================
-// CUSTOMER ADVANCE AFTER SALE
-//
-// Old Advance
-// - Advance Used
-// + New Advance Created
-// ============================================================
-
-double get _customerAdvanceAfterSalePreview {
-  final value =
-      _availableAdvanceForSale -
-      _advanceUsedPreview +
-      _advanceCreatedPreview;
-
-  return value > 0
-      ? value
-      : 0;
-}
-
-
-// ============================================================
-// PAYMENT STATUS PREVIEW
-// ============================================================
-
-String get _calculatedPaymentStatus {
-  if (_cartTotal <= 0) {
-    return 'PAID';
-  }
-
-  if (_outstandingAmount <= 0.001) {
-    return 'PAID';
-  }
-
-  if (_paidAmount <= 0.001 &&
-      _advanceUsedPreview <=
-          0.001) {
-    return 'CREDIT';
-  }
-
-  return 'PARTIAL';
-}
 
   String get _calculatedPaymentMode {
     if (_paidAmount <= 0) {
@@ -606,7 +675,8 @@ String get _calculatedPaymentStatus {
     return payments;
   }
 
-  int get _cartQuantity => _cart.fold(0, (sum, line) => sum + line.quantity);
+  double get _cartQuantity =>
+      _cart.fold<double>(0, (sum, line) => sum + line.quantity);
 
   void _selectFirstAvailableAllocation() {
     final allocations = _dayAllocations;
@@ -716,8 +786,8 @@ String get _calculatedPaymentStatus {
 
             final product = Map<String, dynamic>.from(item);
 
-            final quantity =
-                int.tryParse(product['quantity']?.toString() ?? '0') ?? 0;
+            final double quantity =
+                double.tryParse(product['quantity']?.toString() ?? '0') ?? 0;
 
             final rate =
                 double.tryParse(product['rate']?.toString() ?? '0') ?? 0;
@@ -787,59 +857,40 @@ String get _calculatedPaymentStatus {
 
               products: billProducts,
 
-              paymentMode:
-    sale['paymentMode']?.toString() ?? 'Credit',
+              paymentMode: sale['paymentMode']?.toString() ?? 'Credit',
 
-payments:
-    (sale['payments'] as List<dynamic>? ?? <dynamic>[])
-        .whereType<Map>()
-        .map(
-          (item) => Map<String, dynamic>.from(item),
-        )
-        .toList(),
-paidAmount:
-    double.tryParse(
-      sale['paidAmount']?.toString() ?? '0',
-    ) ??
-    0,
+              payments: (sale['payments'] as List<dynamic>? ?? <dynamic>[])
+                  .whereType<Map>()
+                  .map((item) => Map<String, dynamic>.from(item))
+                  .toList(),
+              paidAmount:
+                  double.tryParse(sale['paidAmount']?.toString() ?? '0') ?? 0,
 
-advanceUsed:
-    double.tryParse(
-      sale['advanceUsed']
-              ?.toString() ??
-          '0',
-    ) ??
-    0,
+              advanceUsed:
+                  double.tryParse(sale['advanceUsed']?.toString() ?? '0') ?? 0,
 
-advanceCreated:
-    double.tryParse(
-      sale['advanceCreated']
-              ?.toString() ??
-          '0',
-    ) ??
-    0,
+              advanceCreated:
+                  double.tryParse(sale['advanceCreated']?.toString() ?? '0') ??
+                  0,
 
-outstandingAmount:
-    double.tryParse(
-      sale['outstandingAmount']?.toString() ?? '0',
-    ) ??
-    0,
+              outstandingAmount:
+                  double.tryParse(
+                    sale['outstandingAmount']?.toString() ?? '0',
+                  ) ??
+                  0,
 
-paymentStatus:
-    sale['paymentStatus']?.toString() ?? 'PAID',
+              paymentStatus: sale['paymentStatus']?.toString() ?? 'PAID',
 
-grandTotal:
-    double.tryParse(
-          sale['grandTotal']?.toString() ?? '',
-        ) ??
-billProducts.fold<double>(
-  0.0,
-  (double sum, SaleProductModel product) {
-    return sum + product.amount;
-  },
-),
+              grandTotal:
+                  double.tryParse(sale['grandTotal']?.toString() ?? '') ??
+                  billProducts.fold<double>(0.0, (
+                    double sum,
+                    SaleProductModel product,
+                  ) {
+                    return sum + product.amount;
+                  }),
 
-status: status,
+              status: status,
               godown: sale['godown']?.toString() ?? '',
             ),
           );
@@ -953,32 +1004,31 @@ status: status,
               'Sale cancelled successfully. Stock has been adjusted automatically.',
           color: _green,
         );
-// ==========================================================
-// REFRESH SALES
-// ==========================================================
+        // ==========================================================
+        // REFRESH SALES
+        // ==========================================================
 
-await _loadSales();
+        await _loadSales();
 
-// ==========================================================
-// REFRESH CUSTOMER ACCOUNT POSITION
-//
-// Cancellation can:
-// - return advanceUsed
-// - remove advanceCreated
-// ==========================================================
+        // ==========================================================
+        // REFRESH CUSTOMER ACCOUNT POSITION
+        //
+        // Cancellation can:
+        // - return advanceUsed
+        // - remove advanceCreated
+        // ==========================================================
 
-await _loadCustomers();
+        await _loadCustomers();
 
-// ==========================================================
-// REFRESH PRODUCTS FOR SELECTED CUSTOMER
-// ==========================================================
+        // ==========================================================
+        // REFRESH PRODUCTS FOR SELECTED CUSTOMER
+        // ==========================================================
 
-if (_selectedCustomer != null) {
-  await _loadCustomerProducts();
-}
+        if (_selectedCustomer != null) {
+          await _loadCustomerProducts();
+        }
 
-DataSyncService.instance
-    .notifySaleChanged();
+        DataSyncService.instance.notifySaleChanged();
       } else {
         _showMessage(
           data is Map
@@ -1001,948 +1051,863 @@ DataSyncService.instance
     }
   }
 
- Future<void> _loadCustomers() async {
-  if (!mounted) {
-    return;
-  }
-
-  final String selectedCustomerId =
-      (_selectedCustomer?['customerId'] ?? '')
-          .toString()
-          .trim()
-          .toUpperCase();
-
-  setState(() {
-    _loadingCustomers = true;
-  });
-
-  try {
-    final Map<String, String> headers =
-        <String, String>{
-      'Content-Type': 'application/json',
-      'Authorization':
-          'Bearer ${ApiConfig.token}',
-    };
-
-    // ==========================================================
-    // 1. LOAD CUSTOMER MASTER
-    // ==========================================================
-
-    final http.Response customerResponse =
-        await http.get(
-      Uri.parse(
-        ApiConfig.customers,
-      ),
-      headers: headers,
-    );
-
-    final dynamic customerDecoded =
-        jsonDecode(
-      customerResponse.body,
-    );
-
-    if (customerResponse.statusCode != 200 ||
-        customerDecoded is! Map ||
-        customerDecoded['success'] != true) {
-      throw Exception(
-        customerDecoded is Map
-            ? (customerDecoded['message'] ??
-                    'Unable to load customers.')
-                .toString()
-            : 'Unable to load customers.',
-      );
-    }
-
-    // ==========================================================
-    // 2. LOAD LIVE ACCOUNT POSITION
-    //
-    // IMPORTANT:
-    //
-    // MAS_CUSTOMER.balance may be ₹950,
-    // but ₹800 may already be offsetting old outstanding.
-    //
-    // netOutstanding = -150
-    // therefore usable advance = ₹150.
-    // ==========================================================
-
-    final http.Response outstandingResponse =
-        await http.get(
-      Uri.parse(
-        '${ApiConfig.baseUrl}'
-        '/api/collections/outstanding',
-      ),
-      headers: headers,
-    );
-
-    final dynamic outstandingDecoded =
-        jsonDecode(
-      outstandingResponse.body,
-    );
-
-    if (outstandingResponse.statusCode != 200 ||
-        outstandingDecoded is! Map ||
-        outstandingDecoded['success'] != true) {
-      throw Exception(
-        outstandingDecoded is Map
-            ? (outstandingDecoded['message'] ??
-                    'Unable to load customer account position.')
-                .toString()
-            : 'Unable to load customer account position.',
-      );
-    }
-
-    // ==========================================================
-    // BUILD OUTSTANDING MAP
-    // customerId -> live position
-    // ==========================================================
-
-    final Map<String, Map<String, dynamic>>
-        outstandingMap =
-        <String, Map<String, dynamic>>{};
-
-    final List<dynamic> outstandingRecords =
-        outstandingDecoded['data'] is List
-            ? outstandingDecoded['data']
-                as List<dynamic>
-            : <dynamic>[];
-
-    for (final dynamic raw
-        in outstandingRecords) {
-      if (raw is! Map) {
-        continue;
-      }
-
-      final Map<String, dynamic> item =
-          Map<String, dynamic>.from(
-        raw,
-      );
-
-      final String customerId =
-          (item['customerId'] ?? '')
-              .toString()
-              .trim()
-              .toUpperCase();
-
-      if (customerId.isEmpty) {
-        continue;
-      }
-
-      outstandingMap[customerId] =
-          item;
-    }
-
-    // ==========================================================
-    // MERGE CUSTOMER MASTER + LIVE ACCOUNT POSITION
-    // ==========================================================
-
-    final List<dynamic> customerRecords =
-        customerDecoded['data'] is List
-            ? customerDecoded['data']
-                as List<dynamic>
-            : <dynamic>[];
-
-    final List<Map<String, dynamic>>
-        mergedCustomers =
-        <Map<String, dynamic>>[];
-
-    for (final dynamic raw
-        in customerRecords) {
-      if (raw is! Map) {
-        continue;
-      }
-
-      final Map<String, dynamic> customer =
-          Map<String, dynamic>.from(
-        raw,
-      );
-
-      final String customerId =
-          (customer['customerId'] ?? '')
-              .toString()
-              .trim()
-              .toUpperCase();
-
-      final Map<String, dynamic>? live =
-          outstandingMap[customerId];
-
-      // ==========================================
-      // RAW CREDIT STORED IN MAS_CUSTOMER
-      // ==========================================
-
-      final double rawAdvanceBalance =
-          double.tryParse(
-                (customer['balance'] ?? 0)
-                    .toString(),
-              ) ??
-              0;
-
-      // ==========================================
-      // SIGNED NET POSITION
-      //
-      // +ve = customer owes us
-      // 0   = settled
-      // -ve = customer has usable advance
-      // ==========================================
-
-      final double netOutstanding =
-          double.tryParse(
-                (live?['netOutstanding'] ??
-                        live?['outstanding'] ??
-                        0)
-                    .toString(),
-              ) ??
-              0;
-
-      // ==========================================
-      // ACTUALLY USABLE ADVANCE
-      // ==========================================
-
-      final double usableAdvanceBalance =
-          netOutstanding < -0.001
-              ? netOutstanding.abs()
-              : 0;
-
-      customer['rawAdvanceBalance'] =
-          rawAdvanceBalance;
-
-      customer['netOutstanding'] =
-          netOutstanding;
-
-      customer['usableAdvanceBalance'] =
-          usableAdvanceBalance;
-
-      customer['grossOutstanding'] =
-          double.tryParse(
-                (live?['grossOutstanding'] ?? 0)
-                    .toString(),
-              ) ??
-              0;
-
-      mergedCustomers.add(
-        customer,
-      );
-    }
-
-    // ==========================================================
-    // REBIND CURRENT SELECTED CUSTOMER
-    //
-    // This is important after:
-    // - sale save
-    // - sale cancel
-    // - customer balance change
-    // ==========================================================
-
-    Map<String, dynamic>? refreshedSelectedCustomer;
-
-    if (selectedCustomerId.isNotEmpty) {
-      for (final Map<String, dynamic> customer
-          in mergedCustomers) {
-        final String id =
-            (customer['customerId'] ?? '')
-                .toString()
-                .trim()
-                .toUpperCase();
-
-        if (id == selectedCustomerId) {
-          refreshedSelectedCustomer =
-              customer;
-          break;
-        }
-      }
-    }
-
+  Future<void> _loadCustomers() async {
     if (!mounted) {
       return;
     }
+
+    final String selectedCustomerId = (_selectedCustomer?['customerId'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
 
     setState(() {
-      _customers
-        ..clear()
-        ..addAll(
-          mergedCustomers,
-        );
-
-      if (refreshedSelectedCustomer != null) {
-        _selectedCustomer =
-            refreshedSelectedCustomer;
-      }
+      _loadingCustomers = true;
     });
-  } catch (error) {
-    if (!mounted) {
-      return;
-    }
 
-    _showMessage(
-      'Unable to load customers: $error',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _loadingCustomers = false;
-      });
-    }
-  }
-}
-Future<void> _loadCustomerProducts() async {
-  final Map<String, dynamic>? customer =
-      _selectedCustomer;
+    try {
+      final Map<String, String> headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${ApiConfig.token}',
+      };
 
-  if (customer == null) {
-    return;
-  }
+      // ==========================================================
+      // 1. LOAD CUSTOMER MASTER
+      // ==========================================================
 
-  final String customerId =
-      (customer['customerId'] ?? '')
-          .toString()
-          .trim();
-
-  if (customerId.isEmpty) {
-    _showMessage(
-      'Customer ID not found.',
-    );
-    return;
-  }
-
-  setState(() {
-    _loadingProducts = true;
-
-    _saleProducts.clear();
-
-    _cart.clear();
-
-    _selectedAllocation = null;
-  });
-
-  try {
-    // ==========================================================
-    // CUSTOMER RATE
-    //
-    // We still need customer rate even for salesman because
-    // stock and selling rate are two different things.
-    // ==========================================================
-
-    final http.Response rateResponse =
-        await http.get(
-      Uri.parse(
-        '${ApiConfig.customerRates}/$customerId',
-      ),
-      headers: <String, String>{
-        'Content-Type':
-            'application/json',
-
-        'Authorization':
-            'Bearer ${ApiConfig.token}',
-      },
-    );
-
-    final dynamic rateDecoded =
-        jsonDecode(
-      rateResponse.body,
-    );
-
-    if (rateResponse.statusCode != 200 ||
-        rateDecoded is! Map ||
-        rateDecoded['success'] != true) {
-      final String message =
-          rateDecoded is Map
-              ? rateDecoded['message']
-                      ?.toString() ??
-                  'Unable to load customer rates.'
-              : 'Unable to load customer rates.';
-
-      throw Exception(message);
-    }
-
-    final List<dynamic> rateRecords =
-        rateDecoded['data'] is List
-            ? rateDecoded['data']
-                as List<dynamic>
-            : <dynamic>[];
-
-    // ==========================================================
-    // PRODUCT ID -> CUSTOMER RATE
-    // ==========================================================
-
-    final Map<String, Map<String, dynamic>>
-        rateMap =
-        <String, Map<String, dynamic>>{};
-
-    for (final dynamic raw
-        in rateRecords) {
-      if (raw is! Map) {
-        continue;
-      }
-
-      final Map<String, dynamic> item =
-          Map<String, dynamic>.from(
-        raw,
+      final http.Response customerResponse = await http.get(
+        Uri.parse(ApiConfig.customers),
+        headers: headers,
       );
 
-      final String productId =
-          (item['productId'] ?? '')
-              .toString()
-              .trim()
-              .toUpperCase();
+      final dynamic customerDecoded = jsonDecode(customerResponse.body);
 
-      if (productId.isEmpty) {
-        continue;
+      if (customerResponse.statusCode != 200 ||
+          customerDecoded is! Map ||
+          customerDecoded['success'] != true) {
+        throw Exception(
+          customerDecoded is Map
+              ? (customerDecoded['message'] ?? 'Unable to load customers.')
+                    .toString()
+              : 'Unable to load customers.',
+        );
       }
 
-      rateMap[productId] = item;
-    }
+      // ==========================================================
+      // 2. LOAD LIVE ACCOUNT POSITION
+      //
+      // IMPORTANT:
+      //
+      // MAS_CUSTOMER.balance may be ₹950,
+      // but ₹800 may already be offsetting old outstanding.
+      //
+      // netOutstanding = -150
+      // therefore usable advance = ₹150.
+      // ==========================================================
 
-    // ==========================================================
-    // ADMIN
-    //
-    // Keep current warehouse/product-stock behaviour.
-    // Do not affect admin sale logic.
-    // ==========================================================
+      final http.Response outstandingResponse = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}'
+          '/api/collections/outstanding',
+        ),
+        headers: headers,
+      );
 
-    if (!_isSalesman) {
-      final List<Map<String, dynamic>>
-          loadedProducts =
-          <Map<String, dynamic>>[];
+      final dynamic outstandingDecoded = jsonDecode(outstandingResponse.body);
 
-      for (final dynamic raw
-          in rateRecords) {
+      if (outstandingResponse.statusCode != 200 ||
+          outstandingDecoded is! Map ||
+          outstandingDecoded['success'] != true) {
+        throw Exception(
+          outstandingDecoded is Map
+              ? (outstandingDecoded['message'] ??
+                        'Unable to load customer account position.')
+                    .toString()
+              : 'Unable to load customer account position.',
+        );
+      }
+
+      // ==========================================================
+      // BUILD OUTSTANDING MAP
+      // customerId -> live position
+      // ==========================================================
+
+      final Map<String, Map<String, dynamic>> outstandingMap =
+          <String, Map<String, dynamic>>{};
+
+      final List<dynamic> outstandingRecords =
+          outstandingDecoded['data'] is List
+          ? outstandingDecoded['data'] as List<dynamic>
+          : <dynamic>[];
+
+      for (final dynamic raw in outstandingRecords) {
         if (raw is! Map) {
           continue;
         }
 
-        final Map<String, dynamic> map =
-            Map<String, dynamic>.from(
-          raw,
-        );
+        final Map<String, dynamic> item = Map<String, dynamic>.from(raw);
 
-        loadedProducts.add(
-          <String, dynamic>{
-            'productId':
-                (map['productId'] ?? '')
-                    .toString(),
+        final String customerId = (item['customerId'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
 
-            'product':
-                (map['productName'] ?? '')
-                    .toString(),
+        if (customerId.isEmpty) {
+          continue;
+        }
 
-            'variant':
-                (map['variant'] ?? '')
-                    .toString(),
+        outstandingMap[customerId] = item;
+      }
 
-            'unit':
-                (map['unit'] ?? 'Pcs')
-                    .toString(),
+      // ==========================================================
+      // MERGE CUSTOMER MASTER + LIVE ACCOUNT POSITION
+      // ==========================================================
 
-            // ADMIN = CENTRAL STOCK
-            'qty':
-                _asInt(
-              map['stock'],
-            ),
+      final List<dynamic> customerRecords = customerDecoded['data'] is List
+          ? customerDecoded['data'] as List<dynamic>
+          : <dynamic>[];
 
-            'returnedQty': 0,
+      final List<Map<String, dynamic>> mergedCustomers =
+          <Map<String, dynamic>>[];
 
-            'soldQty': 0,
+      for (final dynamic raw in customerRecords) {
+        if (raw is! Map) {
+          continue;
+        }
 
-            'rate':
-                double.tryParse(
-                  map['specialRate']
-                          ?.toString() ??
-                      '0',
-                ) ??
-                0,
+        final Map<String, dynamic> customer = Map<String, dynamic>.from(raw);
 
-            'defaultRate':
-                double.tryParse(
-                  map['defaultRate']
-                          ?.toString() ??
-                      '0',
-                ) ??
-                0,
+        final String customerId = (customer['customerId'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
 
-            'hasCustomRate':
-                map['hasCustomRate'] ==
-                    true,
+        final Map<String, dynamic>? live = outstandingMap[customerId];
 
-            'route':
-                (customer['route'] ?? '')
-                    .toString(),
+        // ==========================================
+        // RAW CREDIT STORED IN MAS_CUSTOMER
+        // ==========================================
 
-            'salesman':
-                'Admin',
-          },
-        );
+        final double rawAdvanceBalance =
+            double.tryParse((customer['balance'] ?? 0).toString()) ?? 0;
+
+        // ==========================================
+        // SIGNED NET POSITION
+        //
+        // +ve = customer owes us
+        // 0   = settled
+        // -ve = customer has usable advance
+        // ==========================================
+
+        final double netOutstanding =
+            double.tryParse(
+              (live?['netOutstanding'] ?? live?['outstanding'] ?? 0).toString(),
+            ) ??
+            0;
+
+        // ==========================================
+        // ACTUALLY USABLE ADVANCE
+        // ==========================================
+
+        final double usableAdvanceBalance = netOutstanding < -0.001
+            ? netOutstanding.abs()
+            : 0;
+
+        customer['rawAdvanceBalance'] = rawAdvanceBalance;
+
+        customer['netOutstanding'] = netOutstanding;
+
+        customer['usableAdvanceBalance'] = usableAdvanceBalance;
+
+        customer['grossOutstanding'] =
+            double.tryParse((live?['grossOutstanding'] ?? 0).toString()) ?? 0;
+
+        mergedCustomers.add(customer);
+      }
+
+      // ==========================================================
+      // REBIND CURRENT SELECTED CUSTOMER
+      //
+      // This is important after:
+      // - sale save
+      // - sale cancel
+      // - customer balance change
+      // ==========================================================
+
+      Map<String, dynamic>? refreshedSelectedCustomer;
+
+      if (selectedCustomerId.isNotEmpty) {
+        for (final Map<String, dynamic> customer in mergedCustomers) {
+          final String id = (customer['customerId'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase();
+
+          if (id == selectedCustomerId) {
+            refreshedSelectedCustomer = customer;
+            break;
+          }
+        }
       }
 
       if (!mounted) {
         return;
       }
 
-     setState(() {
-  _saleProducts
-    ..clear()
-    ..addAll(
-      loadedProducts,
-    );
+      setState(() {
+        _customers
+          ..clear()
+          ..addAll(mergedCustomers);
+if (selectedCustomerId.isNotEmpty) {
+  _selectedCustomer =
+      refreshedSelectedCustomer;
 
-  // New bill should start with
-  // no product automatically selected.
-  _selectedAllocation = null;
+  // Customer is no longer available to this user.
+  // This can happen after route assignment/profile sync.
+  if (refreshedSelectedCustomer == null) {
+    _selectedAllocation = null;
 
-  _quantityController.clear();
-  _rateController.clear();
-});
+    _saleProducts.clear();
+    _cart.clear();
+
+    _customerController.clear();
+    _quantityController.clear();
+    _rateController.clear();
+
+    _cashPaymentController.clear();
+    _upiPaymentController.clear();
+    _bankPaymentController.clear();
+  }
+}
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage('Unable to load customers: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingCustomers = false;
+        });
+      }
+    }
+  }
+
+  String _productSyncKey(Map<String, dynamic> product) {
+    return (product['productId'] ?? '').toString().trim().toUpperCase();
+  }
+
+  void _applyLoadedProducts(
+    List<Map<String, dynamic>> loadedProducts, {
+    required bool preserveDraft,
+  }) {
+    if (!mounted) {
+      return;
+    }
+
+    // ============================================================
+    // NORMAL LOAD
+    // ============================================================
+
+    if (!preserveDraft) {
+      setState(() {
+        _saleProducts
+          ..clear()
+          ..addAll(loadedProducts);
+
+        _selectedAllocation = null;
+
+        _quantityController.clear();
+        _rateController.clear();
+      });
 
       return;
     }
 
-    // ==========================================================
-    // SALESMAN
+    // ============================================================
+    // SYNC LOAD
     //
-    // IMPORTANT:
-    // Salesman must NEVER use warehouse stock here.
+    // Update existing product map objects IN PLACE.
     //
-    // Stock source:
-    // GET /api/salesman-stock/my
-    // ==========================================================
+    // This is important because cart lines hold references to
+    // those same allocation/product maps.
+    //
+    // If we simply replace all maps, _remainingFor() would no
+    // longer correctly subtract quantities already in the cart.
+    // ============================================================
 
-    final http.Response stockResponse =
-        await http.get(
-      Uri.parse(
-        '${ApiConfig.baseUrl}/api/salesman-stock/my',
-      ),
-      headers: <String, String>{
-        'Content-Type':
-            'application/json',
+    final Map<String, Map<String, dynamic>> existingById =
+        <String, Map<String, dynamic>>{};
 
-        'Authorization':
-            'Bearer ${ApiConfig.token}',
-      },
-    );
+    for (final item in _saleProducts) {
+      final String key = _productSyncKey(item);
 
-    final dynamic stockDecoded =
-        jsonDecode(
-      stockResponse.body,
-    );
-
-    if (stockResponse.statusCode != 200 ||
-        stockDecoded is! Map ||
-        stockDecoded['success'] != true) {
-      final String message =
-          stockDecoded is Map
-              ? stockDecoded['message']
-                      ?.toString() ??
-                  'Unable to load salesman stock.'
-              : 'Unable to load salesman stock.';
-
-      throw Exception(message);
+      if (key.isNotEmpty) {
+        existingById[key] = item;
+      }
     }
 
-    final dynamic rawStockData =
-        stockDecoded['data'];
+    final List<Map<String, dynamic>> merged = <Map<String, dynamic>>[];
 
-    if (rawStockData is! Map) {
-      throw Exception(
-        'Invalid salesman stock response.',
-      );
+    for (final incoming in loadedProducts) {
+      final String key = _productSyncKey(incoming);
+
+      final Map<String, dynamic>? existing = existingById[key];
+
+      if (existing != null) {
+        existing
+          ..clear()
+          ..addAll(incoming);
+
+        merged.add(existing);
+      } else {
+        merged.add(incoming);
+      }
     }
 
-    final Map<String, dynamic> stockData =
-        Map<String, dynamic>.from(
-      rawStockData,
-    );
+    final String selectedProductId = _selectedAllocation == null
+        ? ''
+        : _productSyncKey(_selectedAllocation!);
 
-    final List<dynamic> stockRecords =
-        stockData['products'] is List
-            ? stockData['products']
-                as List<dynamic>
-            : <dynamic>[];
+    Map<String, dynamic>? refreshedSelection;
 
-    // ==========================================================
-    // WHEN EDITING A SALE
-    //
-    // /salesman-stock/my has already deducted the existing
-    // sale quantity.
-    //
-    // We must temporarily add the quantity of the bill being
-    // edited back to the allowed quantity.
-    //
-    // Example:
-    //
-    // Allocation remaining after sale = 5
-    // Existing bill qty              = 10
-    //
-    // During edit maximum allowed    = 15
-    // ==========================================================
-
-    final Map<String, int>
-        editingOriginalQty =
-        <String, int>{};
-
-    if (_isEditingSale &&
-        _editingSaleId != null) {
-      SaleModel? editingSale;
-
-      for (final SaleModel sale
-          in _serverSales) {
-        if (sale.id ==
-                _editingSaleId ||
-            sale.saleId ==
-                _editingSaleId) {
-          editingSale = sale;
+    if (selectedProductId.isNotEmpty) {
+      for (final item in merged) {
+        if (_productSyncKey(item) == selectedProductId) {
+          refreshedSelection = item;
           break;
         }
       }
-
-      if (editingSale != null) {
-        for (final SaleProductModel product
-            in editingSale.products) {
-          final String id =
-              product.productId
-                  .trim()
-                  .toUpperCase();
-
-          editingOriginalQty[id] =
-              (editingOriginalQty[id] ??
-                      0) +
-                  product.quantity;
-        }
-      }
     }
 
-    // ==========================================================
-    // BUILD SALESMAN PRODUCT LIST
-    // ==========================================================
+    setState(() {
+      _saleProducts
+        ..clear()
+        ..addAll(merged);
 
-    final List<Map<String, dynamic>>
-        loadedProducts =
-        <Map<String, dynamic>>[];
+      _selectedAllocation = refreshedSelection;
 
-    final Set<String> loadedIds =
-        <String>{};
+      // IMPORTANT:
+      // Do NOT clear _cart here.
+      // Do NOT clear payment fields.
+      // Do NOT clear entered quantity.
+    });
 
-    for (final dynamic raw
-        in stockRecords) {
-      if (raw is! Map) {
-        continue;
+    // If user has not started typing a quantity,
+    // update the rate field to the freshly synced customer rate.
+    if (_selectedAllocation != null &&
+        _quantityController.text.trim().isEmpty) {
+      final double latestRate =
+          double.tryParse(_selectedAllocation!['rate']?.toString() ?? '0') ?? 0;
+
+      if (latestRate > 0) {
+        _rateController.text = latestRate.toStringAsFixed(2);
       }
+    }
+  }
 
-      final Map<String, dynamic> stock =
-          Map<String, dynamic>.from(
-        raw,
+  Future<void> _loadCustomerProducts({bool preserveDraft = false}) async {
+    final Map<String, dynamic>? customer = _selectedCustomer;
+
+    if (customer == null) {
+      return;
+    }
+
+    final String customerId = (customer['customerId'] ?? '').toString().trim();
+
+    if (customerId.isEmpty) {
+      _showMessage('Customer ID not found.');
+      return;
+    }
+
+    setState(() {
+      _loadingProducts = true;
+
+      // Normal customer change/new bill:
+      // start with a clean product/cart state.
+      //
+      // Sync refresh:
+      // NEVER destroy the in-progress bill.
+      if (!preserveDraft) {
+        _saleProducts.clear();
+        _cart.clear();
+        _selectedAllocation = null;
+
+        _quantityController.clear();
+        _rateController.clear();
+      }
+    });
+
+    try {
+      // ==========================================================
+      // CUSTOMER RATE
+      //
+      // We still need customer rate even for salesman because
+      // stock and selling rate are two different things.
+      // ==========================================================
+
+      final http.Response rateResponse = await http.get(
+        Uri.parse('${ApiConfig.customerRates}/$customerId'),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
       );
 
-      final String productId =
-          (stock['productId'] ?? '')
-              .toString()
-              .trim()
-              .toUpperCase();
+      final dynamic rateDecoded = jsonDecode(rateResponse.body);
 
-      if (productId.isEmpty) {
-        continue;
+      if (rateResponse.statusCode != 200 ||
+          rateDecoded is! Map ||
+          rateDecoded['success'] != true) {
+        final String message = rateDecoded is Map
+            ? rateDecoded['message']?.toString() ??
+                  'Unable to load customer rates.'
+            : 'Unable to load customer rates.';
+
+        throw Exception(message);
       }
 
-      final int available =
-          _asInt(
-        stock['available'],
+      final List<dynamic> rateRecords = rateDecoded['data'] is List
+          ? rateDecoded['data'] as List<dynamic>
+          : <dynamic>[];
+
+      // ==========================================================
+      // PRODUCT ID -> CUSTOMER RATE
+      // ==========================================================
+
+      final Map<String, Map<String, dynamic>> rateMap =
+          <String, Map<String, dynamic>>{};
+
+      for (final dynamic raw in rateRecords) {
+        if (raw is! Map) {
+          continue;
+        }
+
+        final Map<String, dynamic> item = Map<String, dynamic>.from(raw);
+
+        final String productId = (item['productId'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
+
+        if (productId.isEmpty) {
+          continue;
+        }
+
+        rateMap[productId] = item;
+      }
+
+      // ==========================================================
+      // ADMIN
+      //
+      // Keep current warehouse/product-stock behaviour.
+      // Do not affect admin sale logic.
+      // ==========================================================
+
+      if (!_isSalesman) {
+        final List<Map<String, dynamic>> loadedProducts =
+            <Map<String, dynamic>>[];
+
+        for (final dynamic raw in rateRecords) {
+          if (raw is! Map) {
+            continue;
+          }
+
+          final Map<String, dynamic> map = Map<String, dynamic>.from(raw);
+
+          loadedProducts.add(<String, dynamic>{
+            'productId': (map['productId'] ?? '').toString(),
+
+            'product': (map['productName'] ?? '').toString(),
+
+            'variant': (map['variant'] ?? '').toString(),
+
+            'unit': (map['unit'] ?? 'Pcs').toString(),
+
+            // ADMIN = CENTRAL STOCK
+            'qty': _asDouble(map['stock']),
+
+            'returnedQty': 0,
+
+            'soldQty': 0,
+
+            'rate': double.tryParse(map['specialRate']?.toString() ?? '0') ?? 0,
+
+            'defaultRate':
+                double.tryParse(map['defaultRate']?.toString() ?? '0') ?? 0,
+
+            'hasCustomRate': map['hasCustomRate'] == true,
+
+            'route': (customer['route'] ?? '').toString(),
+
+            'salesman': 'Admin',
+          });
+        }
+
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _saleProducts
+            ..clear()
+            ..addAll(loadedProducts);
+
+          // New bill should start with
+          // no product automatically selected.
+          _selectedAllocation = null;
+
+          _quantityController.clear();
+          _rateController.clear();
+        });
+
+        return;
+      }
+
+      // ==========================================================
+      // SALESMAN
+      //
+      // IMPORTANT:
+      // Salesman must NEVER use warehouse stock here.
+      //
+      // Stock source:
+      // GET /api/salesman-stock/my
+      // ==========================================================
+
+      final http.Response stockResponse = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/api/salesman-stock/my'),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+
+          'Authorization': 'Bearer ${ApiConfig.token}',
+        },
       );
 
-      final int oldEditQuantity =
-          editingOriginalQty[productId] ??
-              0;
+      final dynamic stockDecoded = jsonDecode(stockResponse.body);
 
-      // Available stock salesman is allowed to use.
-      final int allowedQuantity =
-          available +
-          oldEditQuantity;
+      if (stockResponse.statusCode != 200 ||
+          stockDecoded is! Map ||
+          stockDecoded['success'] != true) {
+        final String message = stockDecoded is Map
+            ? stockDecoded['message']?.toString() ??
+                  'Unable to load salesman stock.'
+            : 'Unable to load salesman stock.';
 
-      if (allowedQuantity <= 0) {
-        continue;
+        throw Exception(message);
       }
 
-      final Map<String, dynamic>? rate =
-          rateMap[productId];
+      final dynamic rawStockData = stockDecoded['data'];
 
-      final double defaultRate =
-          double.tryParse(
-            rate?['defaultRate']
-                    ?.toString() ??
-                '0',
-          ) ??
-          0;
-
-      double sellingRate =
-          double.tryParse(
-            rate?['specialRate']
-                    ?.toString() ??
-                '0',
-          ) ??
-          0;
-
-      if (sellingRate <= 0) {
-        sellingRate =
-            defaultRate;
+      if (rawStockData is! Map) {
+        throw Exception('Invalid salesman stock response.');
       }
 
-      loadedProducts.add(
-        <String, dynamic>{
-          'productId':
-              productId,
+      final Map<String, dynamic> stockData = Map<String, dynamic>.from(
+        rawStockData,
+      );
 
-          'product':
-              (stock['productName'] ?? '')
-                  .toString(),
+      final List<dynamic> stockRecords = stockData['products'] is List
+          ? stockData['products'] as List<dynamic>
+          : <dynamic>[];
 
-          'variant':
-              (stock['variant'] ?? '')
-                  .toString(),
+      // ==========================================================
+      // WHEN EDITING A SALE
+      //
+      // /salesman-stock/my has already deducted the existing
+      // sale quantity.
+      //
+      // We must temporarily add the quantity of the bill being
+      // edited back to the allowed quantity.
+      //
+      // Example:
+      //
+      // Allocation remaining after sale = 5
+      // Existing bill qty              = 10
+      //
+      // During edit maximum allowed    = 15
+      // ==========================================================
 
-          'unit':
-              (stock['unit'] ?? 'Pcs')
-                  .toString(),
+      final Map<String, double> editingOriginalQty = <String, double>{};
+
+      if (_isEditingSale && _editingSaleId != null) {
+        SaleModel? editingSale;
+
+        for (final SaleModel sale in _serverSales) {
+          if (sale.id == _editingSaleId || sale.saleId == _editingSaleId) {
+            editingSale = sale;
+            break;
+          }
+        }
+
+        if (editingSale != null) {
+          for (final SaleProductModel product in editingSale.products) {
+            final String id = product.productId.trim().toUpperCase();
+
+            editingOriginalQty[id] =
+                (editingOriginalQty[id] ?? 0) + product.quantity;
+          }
+        }
+      }
+
+      // ==========================================================
+      // BUILD SALESMAN PRODUCT LIST
+      // ==========================================================
+
+      final List<Map<String, dynamic>> loadedProducts =
+          <Map<String, dynamic>>[];
+
+      final Set<String> loadedIds = <String>{};
+
+      for (final dynamic raw in stockRecords) {
+        if (raw is! Map) {
+          continue;
+        }
+
+        final Map<String, dynamic> stock = Map<String, dynamic>.from(raw);
+
+        final String productId = (stock['productId'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
+
+        if (productId.isEmpty) {
+          continue;
+        }
+
+        final double available = _asDouble(stock['available']);
+
+        final double oldEditQuantity = editingOriginalQty[productId] ?? 0;
+
+        final double allowedQuantity = available + oldEditQuantity;
+
+        if (allowedQuantity <= 0) {
+          continue;
+        }
+
+        final Map<String, dynamic>? rate = rateMap[productId];
+
+        final double defaultRate =
+            double.tryParse(rate?['defaultRate']?.toString() ?? '0') ?? 0;
+
+        double sellingRate =
+            double.tryParse(rate?['specialRate']?.toString() ?? '0') ?? 0;
+
+        if (sellingRate <= 0) {
+          sellingRate = defaultRate;
+        }
+
+        loadedProducts.add(<String, dynamic>{
+          'productId': productId,
+
+          'product': (stock['productName'] ?? '').toString(),
+
+          'variant': (stock['variant'] ?? '').toString(),
+
+          'unit': (stock['unit'] ?? 'Pcs').toString(),
 
           // IMPORTANT:
           // This is NOT warehouse stock.
           //
           // qty = salesman remaining allocation.
-          'qty':
-              allowedQuantity,
+          'qty': allowedQuantity,
 
           // Already accounted by backend stock API.
-          'returnedQty':
-              0,
+          'returnedQty': 0,
 
-          'soldQty':
-              0,
+          'soldQty': 0,
 
-          'rate':
-              sellingRate,
+          'rate': sellingRate,
 
-          'defaultRate':
-              defaultRate,
+          'defaultRate': defaultRate,
 
-          'hasCustomRate':
-              rate?['hasCustomRate'] ==
-                  true,
+          'hasCustomRate': rate?['hasCustomRate'] == true,
 
-          'route':
-              (stockData['routeName'] ??
-                      customer['route'] ??
-                      '')
-                  .toString(),
+          // ======================================================
+          // ROUTE
+          //
+          // The salesman may have multiple assigned routes.
+          // Stock is salesman-level, but the current sale belongs
+          // to the SELECTED CUSTOMER'S route.
+          //
+          // Never use stockData['routeName'] here because that can
+          // represent another route from the salesman's allocation.
+          // ======================================================
+          'route': (customer['route'] ?? '').toString().trim(),
 
-          'salesman':
-              (stockData[
-                          'salesmanName'] ??
-                      '')
-                  .toString(),
+          'salesman': (stockData['salesmanName'] ?? '').toString(),
 
           // Optional display/debug values
-          'allocatedQty':
-              _asInt(
-            stock['allocated'],
-          ),
+          'allocatedQty': _asDouble(stock['allocated']),
 
-          'actualSoldQty':
-              _asInt(
-            stock['sold'],
-          ),
+          'actualSoldQty': _asDouble(stock['sold']),
 
-          'actualReturnedQty':
-              _asInt(
-            stock['returned'],
-          ),
+          'actualReturnedQty': _asDouble(stock['returned']),
 
-          'availableQty':
-              available,
-        },
-      );
+          'availableQty': available,
+        });
 
-      loadedIds.add(
-        productId,
-      );
-    }
+        loadedIds.add(productId);
+      }
 
-    // ==========================================================
-    // IMPORTANT EDIT CASE
-    //
-    // Your backend currently returns only products having
-    // available > 0.
-    //
-    // A product may have:
-    //
-    // Available now = 0
-    // Existing edited bill = 10
-    //
-    // It therefore does not come from salesman-stock API.
-    // We still need it while editing that existing bill.
-    // ==========================================================
+      // ==========================================================
+      // IMPORTANT EDIT CASE
+      //
+      // Your backend currently returns only products having
+      // available > 0.
+      //
+      // A product may have:
+      //
+      // Available now = 0
+      // Existing edited bill = 10
+      //
+      // It therefore does not come from salesman-stock API.
+      // We still need it while editing that existing bill.
+      // ==========================================================
 
-    if (_isEditingSale) {
-      for (final MapEntry<String, int> entry
-          in editingOriginalQty.entries) {
-        if (entry.value <= 0 ||
-            loadedIds.contains(
-              entry.key,
-            )) {
-          continue;
-        }
+      if (_isEditingSale) {
+        for (final MapEntry<String, double> entry
+            in editingOriginalQty.entries) {
+          if (entry.value <= 0 || loadedIds.contains(entry.key)) {
+            continue;
+          }
 
-        final Map<String, dynamic>? rate =
-            rateMap[entry.key];
+          final Map<String, dynamic>? rate = rateMap[entry.key];
 
-        if (rate == null) {
-          continue;
-        }
+          if (rate == null) {
+            continue;
+          }
 
-        final double defaultRate =
-            double.tryParse(
-              rate['defaultRate']
-                      ?.toString() ??
-                  '0',
-            ) ??
-            0;
+          final double defaultRate =
+              double.tryParse(rate['defaultRate']?.toString() ?? '0') ?? 0;
 
-        double sellingRate =
-            double.tryParse(
-              rate['specialRate']
-                      ?.toString() ??
-                  '0',
-            ) ??
-            0;
+          double sellingRate =
+              double.tryParse(rate['specialRate']?.toString() ?? '0') ?? 0;
 
-        if (sellingRate <= 0) {
-          sellingRate =
-              defaultRate;
-        }
+          if (sellingRate <= 0) {
+            sellingRate = defaultRate;
+          }
 
-        loadedProducts.add(
-          <String, dynamic>{
-            'productId':
-                entry.key,
+          loadedProducts.add(<String, dynamic>{
+            'productId': entry.key,
 
-            'product':
-                (rate['productName'] ?? '')
-                    .toString(),
+            'product': (rate['productName'] ?? '').toString(),
 
-            'variant':
-                (rate['variant'] ?? '')
-                    .toString(),
+            'variant': (rate['variant'] ?? '').toString(),
 
-            'unit':
-                (rate['unit'] ?? 'Pcs')
-                    .toString(),
+            'unit': (rate['unit'] ?? 'Pcs').toString(),
 
             // Existing bill quantity can at least
             // remain unchanged.
-            'qty':
-                entry.value,
+            'qty': entry.value,
 
-            'returnedQty':
-                0,
+            'returnedQty': 0,
 
-            'soldQty':
-                0,
+            'soldQty': 0,
 
-            'rate':
-                sellingRate,
+            'rate': sellingRate,
 
-            'defaultRate':
-                defaultRate,
+            'defaultRate': defaultRate,
 
-            'hasCustomRate':
-                rate['hasCustomRate'] ==
-                    true,
+            'hasCustomRate': rate['hasCustomRate'] == true,
 
-            'route':
-                (stockData['routeName'] ??
-                        customer['route'] ??
-                        '')
-                    .toString(),
+            // ======================================================
+            // CUSTOMER ROUTE
+            //
+            // Same rule while editing:
+            // the bill route follows the selected customer.
+            // ======================================================
+            'route': (customer['route'] ?? '').toString().trim(),
 
-            'salesman':
-                (stockData[
-                            'salesmanName'] ??
-                        '')
-                    .toString(),
+            'salesman': (stockData['salesmanName'] ?? '').toString(),
 
-            'allocatedQty':
-                entry.value,
+            'allocatedQty': entry.value,
 
-            'actualSoldQty':
-                entry.value,
+            'actualSoldQty': entry.value,
 
-            'actualReturnedQty':
-                0,
+            'actualReturnedQty': 0,
 
-            'availableQty':
-                0,
-          },
-        );
+            'availableQty': 0,
+          });
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _saleProducts
+          ..clear()
+          ..addAll(loadedProducts);
+
+        // New bill should start with
+        // no product automatically selected.
+        _selectedAllocation = null;
+
+        _quantityController.clear();
+        _rateController.clear();
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      String message = error.toString();
+
+      if (message.startsWith('Exception: ')) {
+        message = message.substring('Exception: '.length);
+      }
+
+      _showMessage('Unable to load products: $message');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingProducts = false;
+        });
       }
     }
-
-    if (!mounted) {
-      return;
-    }
-
-setState(() {
-  _saleProducts
-    ..clear()
-    ..addAll(
-      loadedProducts,
-    );
-
-  // New bill should start with
-  // no product automatically selected.
-  _selectedAllocation = null;
-
-  _quantityController.clear();
-  _rateController.clear();
-});
-  } catch (error) {
-    if (!mounted) {
-      return;
-    }
-
-    String message =
-        error.toString();
-
-    if (message.startsWith(
-      'Exception: ',
-    )) {
-      message =
-          message.substring(
-        'Exception: '.length,
-      );
-    }
-
-    _showMessage(
-      'Unable to load products: $message',
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _loadingProducts = false;
-      });
-    }
   }
-}
+
+  String _formatQuantity(num value) {
+    final double number = value.toDouble();
+
+    if (number == number.roundToDouble()) {
+      return number.toStringAsFixed(0);
+    }
+
+    return number
+        .toStringAsFixed(3)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+  }
+
   void _addProductToSale() {
     final allocation = _selectedAllocation;
-    final quantity = int.tryParse(_quantityController.text);
-    final rate = double.tryParse(_rateController.text);
+
+    final double? quantity = double.tryParse(_quantityController.text.trim());
+
+    final double? rate = double.tryParse(_rateController.text.trim());
 
     if (allocation == null) {
       _showMessage('Please select an allotted product.');
       return;
     }
+
     if (quantity == null || quantity <= 0) {
       _showMessage('Please enter a valid quantity.');
       return;
     }
-    if (quantity > _availableToAdd) {
-      _showMessage('Only $_availableToAdd more of this product is available.');
+
+    if (quantity > _availableToAdd + 0.000001) {
+      _showMessage(
+        'Only ${_formatQuantity(_availableToAdd)} more of this product is available.',
+      );
       return;
     }
+
     if (rate == null || rate <= 0) {
       _showMessage('Please enter a valid rate.');
       return;
@@ -1951,12 +1916,23 @@ setState(() {
     _cart.add(
       _SaleLineDraft(allocation: allocation, quantity: quantity, rate: rate),
     );
+
     _quantityController.clear();
+
     setState(() {});
+
     _showMessage('${allocation['product']} added to this sale.', color: _green);
   }
 
   Future<void> _completeSale() async {
+    if (!UiSession.instance.can(
+  AppPermission.salesCreate,
+)) {
+  _showMessage(
+    'You no longer have permission to create or edit sales.',
+  );
+  return;
+}
     if (_savingSale) {
       return;
     }
@@ -1976,7 +1952,6 @@ setState(() {
       _showMessage('Add at least one product before completing the sale.');
       return;
     }
-
 
     final customerId = customer['customerId']?.toString() ?? '';
 
@@ -1999,52 +1974,36 @@ setState(() {
       // REQUEST
       // ============================================================
 
-final requestBody =
-    jsonEncode({
-  'saleDate':
-      _selectedDate
-          .toIso8601String(),
+      final requestBody = jsonEncode({
+        'saleDate': _selectedDate.toIso8601String(),
 
-  'customerId':
-      customerId,
+        'customerId': customerId,
 
-  // Kept for compatibility.
-  // Backend calculates the final
-  // display payment mode again.
-  'paymentMode':
-      _calculatedPaymentMode,
+        // Kept for compatibility.
+        // Backend calculates the final
+        // display payment mode again.
+        'paymentMode': _calculatedPaymentMode,
 
-  // Actual money received now.
-  'payments':
-      _paymentBreakup,
+        // Actual money received now.
+        'payments': _paymentBreakup,
 
-  // IMPORTANT:
-  // Do NOT send:
-  //
-  // paidAmount
-  // outstandingAmount
-  // paymentStatus
-  // advanceUsed
-  //
-  // Backend calculates all of them.
-
-  'products':
-      _cart.map(
-        (line) {
+        // IMPORTANT:
+        // Do NOT send:
+        //
+        // paidAmount
+        // outstandingAmount
+        // paymentStatus
+        // advanceUsed
+        //
+        // Backend calculates all of them.
+        'products': _cart.map((line) {
           return {
-            'productId':
-                line
-                    .allocation[
-                        'productId']
-                    ?.toString() ??
-                '',
+            'productId': line.allocation['productId']?.toString() ?? '',
 
-            'quantity':
-                line.quantity,
+            'quantity': line.quantity,
           };
-        },
-      ).toList(),
-});
+        }).toList(),
+      });
 
       final headers = <String, String>{
         'Content-Type': 'application/json',
@@ -2154,89 +2113,58 @@ final requestBody =
           }
         });
 
-      // ==========================================================
-// REFRESH CUSTOMER MASTER
-//
-// IMPORTANT:
-// Sale may:
-// - use old advance
-// - create new advance
-//
-// Reload customer master so next bill gets the latest
-// MAS_CUSTOMER.balance.
-// ==========================================================
+        // ==========================================================
+        // REFRESH CUSTOMER MASTER
+        //
+        // IMPORTANT:
+        // Sale may:
+        // - use old advance
+        // - create new advance
+        //
+        // Reload customer master so next bill gets the latest
+        // MAS_CUSTOMER.balance.
+        // ==========================================================
 
-await _loadCustomers();
+        await _loadCustomers();
 
+        // ==========================================================
+        // REBIND SELECTED CUSTOMER AFTER CREATE
+        // ==========================================================
 
-// ==========================================================
-// REBIND SELECTED CUSTOMER AFTER CREATE
-// ==========================================================
+        if (!wasEditing && customerId.isNotEmpty) {
+          Map<String, dynamic>? refreshedCustomer;
 
-if (
-  !wasEditing &&
-  customerId.isNotEmpty
-) {
-  Map<String, dynamic>?
-      refreshedCustomer;
+          for (final item in _customers) {
+            final id = (item['customerId'] ?? '')
+                .toString()
+                .trim()
+                .toUpperCase();
 
-  for (
-    final item in
-    _customers
-  ) {
-    final id =
-        (
-          item[
-                  'customerId'] ??
-              ''
-        )
-            .toString()
-            .trim()
-            .toUpperCase();
+            if (id == customerId.trim().toUpperCase()) {
+              refreshedCustomer = item;
 
-    if (
-      id ==
-      customerId
-          .trim()
-          .toUpperCase()
-    ) {
-      refreshedCustomer =
-          item;
+              break;
+            }
+          }
 
-      break;
-    }
-  }
+          if (refreshedCustomer != null && mounted) {
+            setState(() {
+              _selectedCustomer = refreshedCustomer;
+            });
+          }
 
+          if (_selectedCustomer != null) {
+            await _loadCustomerProducts();
+          }
+        }
 
-  if (
-    refreshedCustomer !=
-        null &&
-    mounted
-  ) {
-    setState(() {
-      _selectedCustomer =
-          refreshedCustomer;
-    });
-  }
+        // ==========================================================
+        // REFRESH SALES
+        // ==========================================================
 
+        await _loadSales();
 
-  if (
-    _selectedCustomer !=
-    null
-  ) {
-    await _loadCustomerProducts();
-  }
-}
-
-
-// ==========================================================
-// REFRESH SALES
-// ==========================================================
-
-await _loadSales();
-
-DataSyncService.instance
-    .notifySaleChanged();
+        DataSyncService.instance.notifySaleChanged();
 
         return;
       }
@@ -2316,6 +2244,11 @@ DataSyncService.instance
 
   @override
   Widget build(BuildContext context) {
+    if (!UiSession.instance.can(
+  AppPermission.salesView,
+)) {
+  return const AccessDeniedScreen();
+}
     if (_isCreatingSale) return _buildCreateSaleScreen();
 
     final sales = _filteredSales;
@@ -2468,20 +2401,15 @@ DataSyncService.instance
 
                       _rateController.clear();
 
-                     _productSearchController
-    .clear();
+                      _productSearchController.clear();
 
-_cashPaymentController
-    .clear();
+                      _cashPaymentController.clear();
 
-_upiPaymentController
-    .clear();
+                      _upiPaymentController.clear();
 
-_bankPaymentController
-    .clear();
+                      _bankPaymentController.clear();
 
-_paymentMode =
-    'Credit';
+                      _paymentMode = 'Credit';
                     });
                   },
                   icon: const Icon(
@@ -2684,10 +2612,8 @@ _paymentMode =
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SalesReportPreviewScreen(
-          sales: sales,
-          selectedDate: _selectedDate,
-        ),
+        builder: (_) =>
+            SalesReportPreviewScreen(sales: sales, selectedDate: _selectedDate),
       ),
     );
   }
@@ -3864,25 +3790,21 @@ _paymentMode =
       _quantityController.clear();
 
       _rateController.clear();
-    _cashPaymentController.text =
-    sale.cashAmount > 0
-        ? sale.cashAmount.toStringAsFixed(2)
-        : '';
+      _cashPaymentController.text = sale.cashAmount > 0
+          ? sale.cashAmount.toStringAsFixed(2)
+          : '';
 
-_upiPaymentController.text =
-    sale.upiAmount > 0
-        ? sale.upiAmount.toStringAsFixed(2)
-        : '';
+      _upiPaymentController.text = sale.upiAmount > 0
+          ? sale.upiAmount.toStringAsFixed(2)
+          : '';
 
-_bankPaymentController.text =
-    sale.bankTransferAmount > 0
-        ? sale.bankTransferAmount.toStringAsFixed(2)
-        : '';
+      _bankPaymentController.text = sale.bankTransferAmount > 0
+          ? sale.bankTransferAmount.toStringAsFixed(2)
+          : '';
 
-_productSearchController.clear();
+      _productSearchController.clear();
 
-_paymentMode =
-    sale.paymentMode;
+      _paymentMode = sale.paymentMode;
 
       _saleProducts.clear();
 
@@ -4264,12 +4186,12 @@ _paymentMode =
     );
   }
 
-  Widget _summaryMetric(String label, int value, Color color) {
+  Widget _summaryMetric(String label, num value, Color color) {
     return Expanded(
       child: Column(
         children: <Widget>[
           Text(
-            '$value',
+            _formatQuantity(value),
             style: TextStyle(
               color: color,
               fontSize: 18,
@@ -5078,121 +5000,75 @@ _paymentMode =
               ),
               child: Column(
                 children: [
-                 _buildPaymentSummaryRow(
-  'Bill Amount',
-  _cartTotal,
-),
+                  _buildPaymentSummaryRow('Bill Amount', _cartTotal),
 
-const Divider(
-  height: 20,
-),
+                  const Divider(height: 20),
 
-if (
-  _availableAdvanceForSale >
-  0.001
-) ...[
-  _buildPaymentSummaryRow(
-    'Available Advance',
-    _availableAdvanceForSale,
-    valueColor:
-        const Color(
-      0xFF2563EB,
-    ),
-  ),
+                  if (_availableAdvanceForSale > 0.001) ...[
+                    _buildPaymentSummaryRow(
+                      'Available Advance',
+                      _availableAdvanceForSale,
+                      valueColor: const Color(0xFF2563EB),
+                    ),
 
-  const SizedBox(
-    height: 9,
-  ),
-],
+                    const SizedBox(height: 9),
+                  ],
 
-_buildPaymentSummaryRow(
-  'Payment Received',
-  _paidAmount,
-  valueColor:
-      _green,
-),
+                  _buildPaymentSummaryRow(
+                    'Payment Received',
+                    _paidAmount,
+                    valueColor: _green,
+                  ),
 
-if (
-  _paidAmount >
-  0.001
-) ...[
-  const SizedBox(
-    height: 9,
-  ),
+                  if (_paidAmount > 0.001) ...[
+                    const SizedBox(height: 9),
 
-  _buildPaymentSummaryRow(
-    'Payment Applied',
-    _paymentAppliedPreview,
-    valueColor:
-        _green,
-  ),
-],
+                    _buildPaymentSummaryRow(
+                      'Payment Applied',
+                      _paymentAppliedPreview,
+                      valueColor: _green,
+                    ),
+                  ],
 
-if (
-  _advanceUsedPreview >
-  0.001
-) ...[
-  const SizedBox(
-    height: 9,
-  ),
+                  if (_advanceUsedPreview > 0.001) ...[
+                    const SizedBox(height: 9),
 
-  _buildPaymentSummaryRow(
-    'Old Advance Used',
-    _advanceUsedPreview,
-    valueColor:
-        AppColors.primary,
-  ),
-],
+                    _buildPaymentSummaryRow(
+                      'Old Advance Used',
+                      _advanceUsedPreview,
+                      valueColor: AppColors.primary,
+                    ),
+                  ],
 
-if (
-  _advanceCreatedPreview >
-  0.001
-) ...[
-  const SizedBox(
-    height: 9,
-  ),
+                  if (_advanceCreatedPreview > 0.001) ...[
+                    const SizedBox(height: 9),
 
-  _buildPaymentSummaryRow(
-    'New Advance Created',
-    _advanceCreatedPreview,
-    valueColor:
-        const Color(
-      0xFF2563EB,
-    ),
-  ),
-],
+                    _buildPaymentSummaryRow(
+                      'New Advance Created',
+                      _advanceCreatedPreview,
+                      valueColor: const Color(0xFF2563EB),
+                    ),
+                  ],
 
-const SizedBox(
-  height: 9,
-),
+                  const SizedBox(height: 9),
 
-_buildPaymentSummaryRow(
-  'Outstanding',
-  _outstandingAmount,
-  valueColor:
-      _outstandingAmount >
-              0.001
-          ? AppColors.error
-          : _green,
-),
+                  _buildPaymentSummaryRow(
+                    'Outstanding',
+                    _outstandingAmount,
+                    valueColor: _outstandingAmount > 0.001
+                        ? AppColors.error
+                        : _green,
+                  ),
 
-if (
-  _customerAdvanceAfterSalePreview >
-  0.001
-) ...[
-  const SizedBox(
-    height: 9,
-  ),
+                  if (_customerAdvanceAfterSalePreview > 0.001) ...[
+                    const SizedBox(height: 9),
 
-  _buildPaymentSummaryRow(
-    'Advance After Sale',
-    _customerAdvanceAfterSalePreview,
-    valueColor:
-        const Color(
-      0xFF2563EB,
-    ),
-  ),
-],
+                    _buildPaymentSummaryRow(
+                      'Advance After Sale',
+                      _customerAdvanceAfterSalePreview,
+                      valueColor: const Color(0xFF2563EB),
+                    ),
+                  ],
 
                   const Divider(height: 20),
 
@@ -5238,91 +5114,55 @@ if (
                     ],
                   ),
 
-                 if (
-  _advanceCreatedPreview >
-  0.001
-) ...[
-  const SizedBox(
-    height: 10,
-  ),
+                  if (_advanceCreatedPreview > 0.001) ...[
+                    const SizedBox(height: 10),
 
-  Container(
-    width:
-        double.infinity,
+                    Container(
+                      width: double.infinity,
 
-    padding:
-        const EdgeInsets.all(
-      11,
-    ),
+                      padding: const EdgeInsets.all(11),
 
-    decoration:
-        BoxDecoration(
-      color:
-          const Color(
-        0xFFEFF6FF,
-      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
 
-      border:
-          Border.all(
-        color:
-            const Color(
-          0xFFBFDBFE,
-        ),
-      ),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
 
-      borderRadius:
-          BorderRadius.circular(
-        8,
-      ),
-    ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
 
-    child: Row(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
 
-      children: [
-        const Icon(
-          Icons
-              .account_balance_wallet_outlined,
+                        children: [
+                          const Icon(
+                            Icons.account_balance_wallet_outlined,
 
-          size:
-              18,
+                            size: 18,
 
-          color:
-              Color(
-            0xFF2563EB,
-          ),
-        ),
+                            color: Color(0xFF2563EB),
+                          ),
 
-        const SizedBox(
-          width: 8,
-        ),
+                          const SizedBox(width: 8),
 
-        Expanded(
-          child: Text(
-            'Extra payment of '
-            '₹${_advanceCreatedPreview.toStringAsFixed(2)} '
-            'will be added to the customer advance balance.',
+                          Expanded(
+                            child: Text(
+                              'Extra payment of '
+                              '₹${_advanceCreatedPreview.toStringAsFixed(2)} '
+                              'will be added to the customer advance balance.',
 
-            style:
-                const TextStyle(
-              color:
-                  Color(
-                0xFF1D4ED8,
-              ),
+                              style: const TextStyle(
+                                color: Color(0xFF1D4ED8),
 
-              fontSize:
-                  10.5,
+                                fontSize: 10.5,
 
-              fontWeight:
-                  FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    ),
-  ),
-],
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -5407,13 +5247,13 @@ if (
   }
 
   Future<void> _selectSmartProduct(Map<String, dynamic> allocation) async {
-    final available = _remainingFor(allocation);
-    final product = (allocation['product'] ?? '').toString();
-   final controller =
-    TextEditingController(
-  text: '0',
-);
-    final quantity = await showDialog<int>(
+    final double available = _remainingFor(allocation);
+
+    final String product = (allocation['product'] ?? '').toString();
+
+    final controller = TextEditingController(text: '');
+
+    final double? quantity = await showDialog<double>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Add $product'),
@@ -5422,24 +5262,29 @@ if (
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              '$available units available',
+              '${_formatQuantity(available)} units available',
               style: const TextStyle(color: _muted, fontSize: 12),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: controller,
               autofocus: true,
-              keyboardType: TextInputType.number,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.digitsOnly,
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}')),
               ],
               decoration: const InputDecoration(
                 labelText: 'Quantity',
                 suffixText: 'Units',
               ),
               onSubmitted: (value) {
-                final parsed = int.tryParse(value);
-                if (parsed != null) Navigator.pop(dialogContext, parsed);
+                final double? parsed = double.tryParse(value.trim());
+
+                if (parsed != null) {
+                  Navigator.pop(dialogContext, parsed);
+                }
               },
             ),
           ],
@@ -5451,8 +5296,11 @@ if (
           ),
           ElevatedButton.icon(
             onPressed: () {
-              final parsed = int.tryParse(controller.text);
-              if (parsed != null) Navigator.pop(dialogContext, parsed);
+              final double? parsed = double.tryParse(controller.text.trim());
+
+              if (parsed != null) {
+                Navigator.pop(dialogContext, parsed);
+              }
             },
             icon: const Icon(Icons.add_rounded),
             label: const Text('Add'),
@@ -5460,15 +5308,24 @@ if (
         ],
       ),
     );
+
     Future<void>.delayed(const Duration(milliseconds: 350), controller.dispose);
-    if (!mounted || quantity == null) return;
-    if (quantity < 1 || quantity > available) {
-      _showMessage('Enter a quantity between 1 and $available.');
+
+    if (!mounted || quantity == null) {
       return;
     }
+
+    if (quantity <= 0 || quantity > available + 0.000001) {
+      _showMessage(
+        'Enter a quantity greater than 0 and up to ${_formatQuantity(available)}.',
+      );
+      return;
+    }
+
     final existing = _cart.where(
       (line) => identical(line.allocation, allocation),
     );
+
     setState(() {
       if (existing.isNotEmpty) {
         existing.first.quantity += quantity;
@@ -5481,6 +5338,7 @@ if (
           ),
         );
       }
+
       _selectedAllocation = allocation;
     });
   }
@@ -5583,7 +5441,7 @@ if (
                         _quantityControlButton(
                           icon: Icons.remove_rounded,
                           onPressed: line.quantity > 1
-                              ? () => _changeCartQuantity(line, -1)
+                              ? () => _changeCartQuantity(line, -1.0)
                               : null,
                         ),
                         Expanded(
@@ -5604,7 +5462,7 @@ if (
                         _quantityControlButton(
                           icon: Icons.add_rounded,
                           onPressed: _remainingFor(line.allocation) > 0
-                              ? () => _changeCartQuantity(line, 1)
+                              ? () => _changeCartQuantity(line, 1.0)
                               : null,
                         ),
                       ],
@@ -5665,9 +5523,14 @@ if (
               Expanded(
                 child: TextFormField(
                   controller: _quantityController,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+
                   inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,3}'),
+                    ),
                   ],
                   decoration: _referenceInputDecoration(
                     label: 'Quantity',
@@ -5877,7 +5740,7 @@ if (
                             _quantityControlButton(
                               icon: Icons.remove_rounded,
                               onPressed: line.quantity > 1
-                                  ? () => _changeCartQuantity(line, -1)
+                                  ? () => _changeCartQuantity(line, -1.0)
                                   : null,
                             ),
                             Expanded(
@@ -5885,7 +5748,7 @@ if (
                                 onTap: () => _editCartQuantity(line),
                                 child: Center(
                                   child: Text(
-                                    '${line.quantity}',
+                                    _formatQuantity(line.quantity),
                                     style: const TextStyle(
                                       color: _dark,
                                       fontSize: 11,
@@ -5898,7 +5761,7 @@ if (
                             _quantityControlButton(
                               icon: Icons.add_rounded,
                               onPressed: _remainingFor(line.allocation) > 0
-                                  ? () => _changeCartQuantity(line, 1)
+                                  ? () => _changeCartQuantity(line, 1.0)
                                   : null,
                             ),
                           ],
@@ -5960,20 +5823,36 @@ if (
     );
   }
 
-  void _changeCartQuantity(_SaleLineDraft line, int change) {
+  void _changeCartQuantity(_SaleLineDraft line, double change) {
     if (change > 0 && _remainingFor(line.allocation) <= 0) {
       _showMessage('No more allotted quantity is available.');
       return;
     }
-    final nextQuantity = line.quantity + change;
-    if (nextQuantity < 1) return;
-    setState(() => line.quantity = nextQuantity);
+
+    final double nextQuantity = line.quantity + change;
+
+    if (nextQuantity <= 0) {
+      return;
+    }
+
+    if (nextQuantity >
+        line.quantity + _remainingFor(line.allocation) + 0.000001) {
+      return;
+    }
+
+    setState(() {
+      line.quantity = nextQuantity;
+    });
   }
 
   Future<void> _editCartQuantity(_SaleLineDraft line) async {
-    final maximum = line.quantity + _remainingFor(line.allocation);
-    final controller = TextEditingController(text: '${line.quantity}');
-    final quantity = await showDialog<int>(
+    final double maximum = line.quantity + _remainingFor(line.allocation);
+
+    final controller = TextEditingController(
+      text: _formatQuantity(line.quantity),
+    );
+
+    final double? quantity = await showDialog<double>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Enter Quantity'),
@@ -5984,18 +5863,23 @@ if (
             TextField(
               controller: controller,
               autofocus: true,
-              keyboardType: TextInputType.number,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.digitsOnly,
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}')),
               ],
               decoration: InputDecoration(
                 labelText: 'Quantity',
                 suffixText: 'Units',
-                helperText: 'Maximum available: $maximum',
+                helperText: 'Maximum available: ${_formatQuantity(maximum)}',
               ),
               onSubmitted: (value) {
-                final entered = int.tryParse(value);
-                if (entered != null) Navigator.pop(dialogContext, entered);
+                final double? entered = double.tryParse(value.trim());
+
+                if (entered != null) {
+                  Navigator.pop(dialogContext, entered);
+                }
               },
             ),
           ],
@@ -6007,26 +5891,39 @@ if (
           ),
           ElevatedButton(
             onPressed: () {
-              final entered = int.tryParse(controller.text);
-              if (entered != null) Navigator.pop(dialogContext, entered);
+              final double? entered = double.tryParse(controller.text.trim());
+
+              if (entered != null) {
+                Navigator.pop(dialogContext, entered);
+              }
             },
             child: const Text('Update'),
           ),
         ],
       ),
     );
+
     Future<void>.delayed(const Duration(milliseconds: 350), controller.dispose);
-    if (!mounted || quantity == null) return;
-    if (quantity < 1 || quantity > maximum) {
-      _showMessage('Enter a quantity between 1 and $maximum.');
+
+    if (!mounted || quantity == null) {
       return;
     }
-    setState(() => line.quantity = quantity);
+
+    if (quantity <= 0 || quantity > maximum + 0.000001) {
+      _showMessage(
+        'Enter a quantity greater than 0 and up to ${_formatQuantity(maximum)}.',
+      );
+      return;
+    }
+
+    setState(() {
+      line.quantity = quantity;
+    });
   }
 
   Widget _buildSaleSummaryPanel() {
-    final todayQuantity = _serverSales.fold<int>(
-      0,
+    final double todayQuantity = _serverSales.fold<double>(
+      0.0,
       (sum, sale) => sum + sale.quantity,
     );
     return Container(
@@ -6098,7 +5995,10 @@ if (
               const SizedBox(width: 7),
               _recentSaleMetric('Transactions', '${_serverSales.length}'),
               const SizedBox(width: 7),
-              _recentSaleMetric('Quantity', '$todayQuantity Units'),
+              _recentSaleMetric(
+                'Quantity',
+                '${_formatQuantity(todayQuantity)} Units',
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -6114,35 +6014,29 @@ if (
               const SizedBox(width: 9),
               Expanded(
                 child: ElevatedButton.icon(
-               onPressed:
-    _cart.isEmpty ||
-            _savingSale
-        ? null
-        : _completeSale,
-             icon: _savingSale
-    ? const SizedBox(
-        width: 18,
-        height: 18,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: Colors.white,
-        ),
-      )
-    : Icon(
-        _isEditingSale
-            ? Icons.edit_outlined
-            : Icons.check_circle_outline_rounded,
-      ),
+                  onPressed: _cart.isEmpty || _savingSale
+                      ? null
+                      : _completeSale,
+                  icon: _savingSale
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Icon(
+                          _isEditingSale
+                              ? Icons.edit_outlined
+                              : Icons.check_circle_outline_rounded,
+                        ),
 
-label: Text(
-  _savingSale
-      ? (_isEditingSale
-          ? 'Updating...'
-          : 'Saving...')
-      : (_isEditingSale
-          ? 'Update Sale'
-          : 'Complete Sale'),
-),
+                  label: Text(
+                    _savingSale
+                        ? (_isEditingSale ? 'Updating...' : 'Saving...')
+                        : (_isEditingSale ? 'Update Sale' : 'Complete Sale'),
+                  ),
                 ),
               ),
             ],
@@ -6182,9 +6076,13 @@ label: Text(
               Expanded(
                 child: TextFormField(
                   controller: _quantityController,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,3}'),
+                    ),
                   ],
                   decoration: _referenceInputDecoration(
                     label: 'Quantity',
@@ -6578,7 +6476,7 @@ label: Text(
                     const SizedBox(width: 7),
                     _recentSaleMetric(
                       'Total Quantity',
-                      '${_serverSales.fold<int>(0, (sum, sale) => sum + sale.quantity)} Units',
+                      '${_formatQuantity(_serverSales.fold<double>(0.0, (sum, sale) => sum + sale.quantity))} Units',
                     ),
                   ],
                 ),
@@ -6694,9 +6592,14 @@ label: Text(
               Expanded(
                 child: TextFormField(
                   controller: _quantityController,
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+
                   inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,3}'),
+                    ),
                   ],
                   decoration: _inputDecoration(
                     label: 'Quantity',
@@ -7129,7 +7032,9 @@ class _SaleLineDraft {
   });
 
   final Map<String, dynamic> allocation;
-  int quantity;
+
+  double quantity;
+
   final double rate;
 
   double get total => quantity * rate;

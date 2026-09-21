@@ -20,7 +20,17 @@ class SaleProductModel {
   final String variant;
   final String unit;
 
-  final int quantity;
+  // ============================================================
+  // DECIMAL QUANTITY SUPPORT
+  //
+  // Supports:
+  // 0.5
+  // 1.25
+  // 2.5
+  // etc.
+  // ============================================================
+
+  final double quantity;
 
   final double defaultRate;
   final double rate;
@@ -30,7 +40,8 @@ class SaleProductModel {
   final double amount;
 
   bool get hasSpecialRate =>
-      rateSource.toUpperCase() == 'CUSTOMER_RATE';
+      rateSource.toUpperCase() ==
+      'CUSTOMER_RATE';
 }
 
 
@@ -52,11 +63,12 @@ class SaleModel {
     required this.paymentMode,
     required this.grandTotal,
     required this.status,
-    this.payments = const <Map<String, dynamic>>[],
- this.paidAmount = 0,
-this.advanceUsed = 0,
-this.advanceCreated = 0,
-this.outstandingAmount = 0,
+    this.payments =
+        const <Map<String, dynamic>>[],
+    this.paidAmount = 0,
+    this.advanceUsed = 0,
+    this.advanceCreated = 0,
+    this.outstandingAmount = 0,
     this.paymentStatus = 'PAID',
     this.godown = '',
   });
@@ -93,29 +105,31 @@ this.outstandingAmount = 0,
 
   final String paymentMode;
 
-  final List<Map<String, dynamic>> payments;
+  final List<Map<String, dynamic>>
+      payments;
 
   // Actual Cash / UPI / Bank payment received
   final double paidAmount;
 
-// Customer's PREVIOUS advance adjusted
-// against this bill.
-final double advanceUsed;
+  // Customer's PREVIOUS advance adjusted
+  // against this bill.
+  final double advanceUsed;
 
-// NEW advance created because payment
-// received was greater than the bill amount.
-//
-// Example:
-// Bill = 500
-// Paid = 700
-// advanceCreated = 200
-final double advanceCreated;
+  // NEW advance created because payment
+  // received was greater than the bill amount.
+  //
+  // Example:
+  //
+  // Bill = 500
+  // Paid = 700
+  // advanceCreated = 200
+  final double advanceCreated;
 
-// Remaining amount after direct payment
-// + previous advance adjustment.
-//
-// This must never be negative.
-final double outstandingAmount;
+  // Remaining amount after direct payment
+  // + previous advance adjustment.
+  //
+  // This must never be negative.
+  final double outstandingAmount;
 
   final String paymentStatus;
 
@@ -133,28 +147,49 @@ final double outstandingAmount;
   // BILL TOTAL HELPERS
   // ============================================================
 
-  int get itemCount => products.length;
+  int get itemCount =>
+      products.length;
 
-  int get totalQuantity {
-    return products.fold<int>(
-      0,
-      (int sum, SaleProductModel item) {
-        return sum + item.quantity;
+  // IMPORTANT:
+  // Quantity must remain DOUBLE.
+  //
+  // Example:
+  //
+  // Milk = 0.5
+  // Curd = 1.25
+  //
+  // Total = 1.75
+  //
+  // Never convert this to int.
+  double get totalQuantity {
+    return products.fold<double>(
+      0.0,
+      (
+        double sum,
+        SaleProductModel item,
+      ) {
+        return sum +
+            item.quantity;
       },
     );
   }
 
-  double get total => grandTotal;
+  double get total =>
+      grandTotal;
 
   bool get isCancelled =>
-      status.toUpperCase() == 'CANCELLED';
+      status.toUpperCase() ==
+      'CANCELLED';
 
   // ============================================================
   // PAYMENT HELPERS
   // ============================================================
 
-  double paymentAmountFor(String mode) {
-    for (final Map<String, dynamic> payment in payments) {
+  double paymentAmountFor(
+    String mode,
+  ) {
+    for (final Map<String, dynamic>
+        payment in payments) {
       final String paymentModeValue =
           payment['mode']
                   ?.toString()
@@ -163,9 +198,13 @@ final double outstandingAmount;
               '';
 
       if (paymentModeValue ==
-          mode.trim().toLowerCase()) {
+          mode
+              .trim()
+              .toLowerCase()) {
         return double.tryParse(
-              payment['amount']?.toString() ?? '0',
+              payment['amount']
+                      ?.toString() ??
+                  '0',
             ) ??
             0.0;
       }
@@ -175,34 +214,46 @@ final double outstandingAmount;
   }
 
   double get cashAmount =>
-      paymentAmountFor('Cash');
+      paymentAmountFor(
+        'Cash',
+      );
 
   double get upiAmount =>
-      paymentAmountFor('UPI');
+      paymentAmountFor(
+        'UPI',
+      );
 
   double get bankTransferAmount =>
-      paymentAmountFor('Bank Transfer');
+      paymentAmountFor(
+        'Bank Transfer',
+      );
 
   // Direct payment + advance adjustment
   double get settledAmount =>
-      paidAmount + advanceUsed;
-bool get hasAdvanceAdjustment =>
-    advanceUsed > 0.001;
+      paidAmount +
+      advanceUsed;
 
-bool get hasAdvanceCreated =>
-    advanceCreated > 0.001;
+  bool get hasAdvanceAdjustment =>
+      advanceUsed > 0.001;
 
-bool get isPaid =>
-      paymentStatus.toUpperCase() == 'PAID';
+  bool get hasAdvanceCreated =>
+      advanceCreated > 0.001;
 
-double get netAdvanceEffect =>
-    advanceCreated -
-    advanceUsed;
+  bool get isPaid =>
+      paymentStatus.toUpperCase() ==
+      'PAID';
+
+  double get netAdvanceEffect =>
+      advanceCreated -
+      advanceUsed;
+
   bool get isPartial =>
-      paymentStatus.toUpperCase() == 'PARTIAL';
+      paymentStatus.toUpperCase() ==
+      'PARTIAL';
 
   bool get isCredit =>
-      paymentStatus.toUpperCase() == 'CREDIT';
+      paymentStatus.toUpperCase() ==
+      'CREDIT';
 
   // ============================================================
   // PRODUCT DISPLAY
@@ -214,13 +265,15 @@ double get netAdvanceEffect =>
     }
 
     final String firstProduct =
-        products.first.productName.trim();
+        products.first.productName
+            .trim();
 
     if (products.length == 1) {
       return firstProduct;
     }
 
-    return '$firstProduct + ${products.length - 1} more';
+    return '$firstProduct + '
+        '${products.length - 1} more';
   }
 
   // ============================================================
@@ -238,10 +291,16 @@ double get netAdvanceEffect =>
       return '';
     }
 
-    return products.first.productName;
+    return products
+        .first
+        .productName;
   }
 
-  int get quantity => totalQuantity;
+  // IMPORTANT:
+  // Previously this was int.
+  // It MUST now be double.
+  double get quantity =>
+      totalQuantity;
 
   double get rate {
     if (products.isEmpty) {

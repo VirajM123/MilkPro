@@ -166,7 +166,9 @@ abstract final class BillPdfService {
                                     )
                             ? '${sale.products[i].productName} (${sale.products[i].variant})'
                             : sale.products[i].productName,
-                        '${sale.products[i].quantity} ${sale.products[i].unit}',
+                     '${_formatQuantity(
+  sale.products[i].quantity,
+)} ${sale.products[i].unit}',
                         'Rs. ${sale.products[i].rate.toStringAsFixed(2)}',
                         'Rs. ${sale.products[i].amount.toStringAsFixed(2)}',
                       ],
@@ -175,7 +177,9 @@ abstract final class BillPdfService {
                     [
                       '1',
                       sale.product.isNotEmpty ? sale.product : 'Product',
-                      '${sale.quantity} Pcs',
+                  '${_formatQuantity(
+  sale.quantity,
+)} Pcs',
                       'Rs. ${sale.rate.toStringAsFixed(2)}',
                       'Rs. ${sale.total.toStringAsFixed(2)}',
                     ],
@@ -444,17 +448,19 @@ if (sale.outstandingAmount > 0.001) ...[
     final border = PdfColor.fromHex('#DCE4EF');
     final muted = PdfColor.fromHex('#64748B');
 
-    int totalQty = 0;
-    double grandTotal = 0;
-  double totalCash = 0;
-double totalUpi = 0;
-double totalBank = 0;
+double totalQty = 0.0;
+double grandTotal = 0.0;
+
+double totalCash = 0.0;
+double totalUpi = 0.0;
+double totalBank = 0.0;
 
 // Customer advance used against sales
-double totalAdvanceUsed = 0;
+double totalAdvanceUsed = 0.0;
 
-double totalDue = 0;
+double totalDue = 0.0;
 
+// This is a COUNT, therefore keep it int.
 int cancelledCount = 0;
 
     for (final s in sales) {
@@ -571,7 +577,9 @@ totalDue += s.outstandingAmount;
                   sales[i].id,
                   sales[i].customerName,
                   sales[i].route,
-                  '${sales[i].totalQuantity} Pcs',
+                '${_formatQuantity(
+  sales[i].totalQuantity,
+)} Pcs',
                   sales[i].paymentMode,
                   sales[i].isCancelled ? 'CANCELLED' : sales[i].paymentStatus,
                   'Rs. ${sales[i].total.toStringAsFixed(2)}',
@@ -616,7 +624,13 @@ totalDue += s.outstandingAmount;
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text('Total Quantity Sold', style: pw.TextStyle(color: muted, fontSize: 9)),
-                      pw.Text('$totalQty Pcs', style: pw.TextStyle(color: muted, fontSize: 9)),
+                     pw.Text(
+  '${_formatQuantity(totalQty)} Pcs',
+  style: pw.TextStyle(
+    color: muted,
+    fontSize: 9,
+  ),
+),
                     ],
                   ),
                   pw.SizedBox(height: 5),
@@ -675,6 +689,26 @@ if (totalDue > 0.001) ...[
 
     return document.save();
   }
+  static String _formatQuantity(num value) {
+  final double number =
+      value.toDouble();
+
+  if (number ==
+      number.roundToDouble()) {
+    return number.toStringAsFixed(0);
+  }
+
+  return number
+      .toStringAsFixed(3)
+      .replaceFirst(
+        RegExp(r'0+$'),
+        '',
+      )
+      .replaceFirst(
+        RegExp(r'\.$'),
+        '',
+      );
+}
 
   static String _date(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}/'

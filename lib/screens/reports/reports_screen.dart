@@ -134,6 +134,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       color: AppColors.error,
       reports: [
         _ReportItem(
+          'Received Report',
+          'Unified receipts from direct billing and later collections',
+        ),
+        _ReportItem(
           'Collection Report',
           'Cash, UPI, bank and credit collections',
         ),
@@ -145,6 +149,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _ReportItem(
           'Expense Report',
           'Distribution expenses by category and mode',
+        ),
+      ],
+    ),
+    _ReportGroup(
+      title: 'Salesman Reports',
+      icon: Icons.badge_outlined,
+      color: AppColors.primaryDeep,
+      reports: [
+        _ReportItem(
+          'Salesman Route Customer Product Sales',
+          'Sales breakdown by salesman, route, customer, and product',
+        ),
+        _ReportItem(
+          'Salesman Sales vs Received',
+          'Revenue realization and settlement against salesman sales',
+        ),
+        _ReportItem(
+          'Salesman Performance Summary',
+          'Aggregated sales, collections, and stock allocation metrics',
         ),
       ],
     ),
@@ -274,6 +297,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     ),
   );
+
   bool _isSalesReport(String title) {
     return const <String>[
       'Salesman-wise Sales',
@@ -288,19 +312,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
     switch (title) {
       case 'Salesman-wise Sales':
         return 'salesman-wise-sales';
-
       case 'Customer-wise Sales':
         return 'customer-wise-sales';
-
       case 'Route-wise Sales':
         return 'route-wise-sales';
-
       case 'Product-wise Sales':
         return 'product-wise-sales';
-
       case 'Date-wise Sales':
         return 'date-wise-sales';
-
       default:
         return null;
     }
@@ -319,16 +338,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     switch (title) {
       case 'Purchase Register':
         return 'purchase-register';
-
       case 'Supplier-wise Purchase':
         return 'supplier-wise-purchase';
-
       case 'Product-wise Purchase':
         return 'product-wise-purchase';
-
       case 'Purchase Payment Due':
         return 'purchase-payment-due';
-
       default:
         return null;
     }
@@ -347,16 +362,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     switch (title) {
       case 'Current Stock':
         return 'current-stock';
-
       case 'Low Stock':
         return 'low-stock';
-
       case 'Stock Movement':
         return 'stock-movement';
-
       case 'Product-wise Stock':
         return 'product-wise-stock';
-
       default:
         return null;
     }
@@ -375,16 +386,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     switch (title) {
       case 'Salesman-wise Outstanding':
         return 'salesman-wise-outstanding';
-
       case 'Customer / Outlet-wise Outstanding':
         return 'customer-wise-outstanding';
-
       case 'Route-wise Outstanding':
         return 'route-wise-outstanding';
-
       case 'Outstanding Ageing':
         return 'outstanding-ageing';
-
       default:
         return null;
     }
@@ -403,80 +410,88 @@ class _ReportsScreenState extends State<ReportsScreen> {
     switch (title) {
       case 'Sales Trend':
         return 'sales-trend';
-
       case 'Purchase Trend':
         return 'purchase-trend';
-
       case 'Sales vs Purchase':
         return 'sales-vs-purchase';
-
       case 'Product Trend':
         return 'product-trend';
-
       default:
         return null;
     }
   }
+
   bool _isOperationsReport(String title) {
-  return const <String>[
-    'Collection Report',
-    'Allocation Report',
-    'Return Report',
-    'Expense Report',
-  ].contains(title);
-}
-
-String? _operationsReportType(String title) {
-  switch (title) {
-    case 'Collection Report':
-      return 'collection-report';
-
-    case 'Allocation Report':
-      return 'allocation-report';
-
-    case 'Return Report':
-      return 'return-report';
-
-    case 'Expense Report':
-      return 'expense-report';
-
-    default:
-      return null;
+    return const <String>[
+      'Received Report',
+      'Collection Report',
+      'Allocation Report',
+      'Return Report',
+      'Expense Report',
+    ].contains(title);
   }
-}
 
+  String? _operationsReportType(String title) {
+    switch (title) {
+      case 'Received Report':
+        return 'received-report';
+      case 'Collection Report':
+        return 'collection-report';
+      case 'Allocation Report':
+        return 'allocation-report';
+      case 'Return Report':
+        return 'return-report';
+      case 'Expense Report':
+        return 'expense-report';
+      default:
+        return null;
+    }
+  }
+
+  bool _isSalesmanReport(String title) {
+    return const <String>[
+      'Salesman Route Customer Product Sales',
+      'Salesman Sales vs Received',
+      'Salesman Performance Summary',
+    ].contains(title);
+  }
+
+  String? _salesmanReportType(String title) {
+    switch (title) {
+      case 'Salesman Route Customer Product Sales':
+        return 'salesman-route-customer-product-sales';
+      case 'Salesman Sales vs Received':
+        return 'salesman-route-customer-sales-vs-received';
+      case 'Salesman Performance Summary':
+        return 'salesman-performance-summary';
+      default:
+        return null;
+    }
+  }
 
   String _apiDate(DateTime date) {
     final year = date.year.toString();
-
     final month = date.month.toString().padLeft(2, '0');
-
     final day = date.day.toString().padLeft(2, '0');
-
     return '$year-$month-$day';
   }
 
   Map<String, String> get _reportHeaders {
     return <String, String>{
       'Content-Type': 'application/json',
-
       'Authorization': 'Bearer ${ApiConfig.token}',
     };
   }
 
-  Future<ReportData> _loadSalesReport({
+  Future<ReportData> _loadReportData({
+    required String endpoint,
+    required String type,
     required String title,
     required String description,
     required DateTime from,
     required DateTime to,
   }) async {
-    final type = _salesReportType(title);
-
-    if (type == null) {
-      throw Exception('Invalid sales report type.');
-    }
-
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/sales').replace(
+    final uri = Uri.parse('${ApiConfig.baseUrl}$endpoint').replace(
       queryParameters: <String, String>{
         'type': type,
         'from': _apiDate(from),
@@ -487,7 +502,6 @@ String? _operationsReportType(String title) {
     final response = await http.get(uri, headers: _reportHeaders);
 
     dynamic decoded;
-
     try {
       decoded = jsonDecode(response.body);
     } catch (_) {
@@ -496,11 +510,9 @@ String? _operationsReportType(String title) {
 
     if (response.statusCode != 200) {
       String message = 'Unable to load report.';
-
       if (decoded is Map && decoded['message'] != null) {
         message = decoded['message'].toString();
       }
-
       throw Exception(message);
     }
 
@@ -509,7 +521,6 @@ String? _operationsReportType(String title) {
     }
 
     final reportJson = decoded['report'];
-
     if (reportJson is! Map) {
       throw Exception('Report data not found.');
     }
@@ -517,6 +528,7 @@ String? _operationsReportType(String title) {
     final columns = (reportJson['columns'] as List? ?? const [])
         .map((item) => item.toString())
         .toList(growable: false);
+
     final rows = (reportJson['rows'] as List? ?? const [])
         .map<List<Object>>(
           (row) => row is List
@@ -537,14 +549,28 @@ String? _operationsReportType(String title) {
 
     return ReportData(
       title: reportJson['title']?.toString() ?? title,
-
       description: reportJson['description']?.toString() ?? description,
-
       columns: columns,
-
       rows: rows,
-
       metrics: metrics,
+    );
+  }
+
+  Future<ReportData> _loadSalesReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) {
+    final type = _salesReportType(title);
+    if (type == null) throw Exception('Invalid sales report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/sales',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
@@ -553,83 +579,16 @@ String? _operationsReportType(String title) {
     required String description,
     required DateTime from,
     required DateTime to,
-  }) async {
+  }) {
     final type = _purchaseReportType(title);
-
-    if (type == null) {
-      throw Exception('Invalid purchase report type.');
-    }
-
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/purchase').replace(
-      queryParameters: <String, String>{
-        'type': type,
-        'from': _apiDate(from),
-        'to': _apiDate(to),
-      },
-    );
-
-    final response = await http.get(uri, headers: _reportHeaders);
-
-    dynamic decoded;
-
-    try {
-      decoded = jsonDecode(response.body);
-    } catch (_) {
-      throw Exception('Invalid response from server.');
-    }
-
-    if (response.statusCode != 200) {
-      String message = 'Unable to load purchase report.';
-
-      if (decoded is Map && decoded['message'] != null) {
-        message = decoded['message'].toString();
-      }
-
-      throw Exception(message);
-    }
-
-    if (decoded is! Map) {
-      throw Exception('Invalid purchase report response.');
-    }
-
-    final reportJson = decoded['report'];
-
-    if (reportJson is! Map) {
-      throw Exception('Purchase report data not found.');
-    }
-
-    final columns = (reportJson['columns'] as List? ?? const [])
-        .map((item) => item.toString())
-        .toList(growable: false);
-
-    final rows = (reportJson['rows'] as List? ?? const [])
-        .map<List<Object>>(
-          (row) => row is List
-              ? row.map<Object>((value) => value ?? '').toList(growable: false)
-              : <Object>[],
-        )
-        .toList(growable: false);
-
-    final metrics = (reportJson['metrics'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (metric) => ReportMetric(
-            metric['label']?.toString() ?? '',
-            metric['value']?.toString() ?? '',
-          ),
-        )
-        .toList(growable: false);
-
-    return ReportData(
-      title: reportJson['title']?.toString() ?? title,
-
-      description: reportJson['description']?.toString() ?? description,
-
-      columns: columns,
-
-      rows: rows,
-
-      metrics: metrics,
+    if (type == null) throw Exception('Invalid purchase report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/purchase',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
@@ -638,83 +597,16 @@ String? _operationsReportType(String title) {
     required String description,
     required DateTime from,
     required DateTime to,
-  }) async {
+  }) {
     final type = _stockReportType(title);
-
-    if (type == null) {
-      throw Exception('Invalid stock report type.');
-    }
-
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/stock').replace(
-      queryParameters: <String, String>{
-        'type': type,
-        'from': _apiDate(from),
-        'to': _apiDate(to),
-      },
-    );
-
-    final response = await http.get(uri, headers: _reportHeaders);
-
-    dynamic decoded;
-
-    try {
-      decoded = jsonDecode(response.body);
-    } catch (_) {
-      throw Exception('Invalid response from server.');
-    }
-
-    if (response.statusCode != 200) {
-      String message = 'Unable to load stock report.';
-
-      if (decoded is Map && decoded['message'] != null) {
-        message = decoded['message'].toString();
-      }
-
-      throw Exception(message);
-    }
-
-    if (decoded is! Map) {
-      throw Exception('Invalid stock report response.');
-    }
-
-    final reportJson = decoded['report'];
-
-    if (reportJson is! Map) {
-      throw Exception('Stock report data not found.');
-    }
-
-    final columns = (reportJson['columns'] as List? ?? const [])
-        .map((item) => item.toString())
-        .toList(growable: false);
-
-    final rows = (reportJson['rows'] as List? ?? const [])
-        .map<List<Object>>(
-          (row) => row is List
-              ? row.map<Object>((value) => value ?? '').toList(growable: false)
-              : <Object>[],
-        )
-        .toList(growable: false);
-
-    final metrics = (reportJson['metrics'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (metric) => ReportMetric(
-            metric['label']?.toString() ?? '',
-            metric['value']?.toString() ?? '',
-          ),
-        )
-        .toList(growable: false);
-
-    return ReportData(
-      title: reportJson['title']?.toString() ?? title,
-
-      description: reportJson['description']?.toString() ?? description,
-
-      columns: columns,
-
-      rows: rows,
-
-      metrics: metrics,
+    if (type == null) throw Exception('Invalid stock report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/stock',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
@@ -723,84 +615,16 @@ String? _operationsReportType(String title) {
     required String description,
     required DateTime from,
     required DateTime to,
-  }) async {
+  }) {
     final type = _outstandingReportType(title);
-
-    if (type == null) {
-      throw Exception('Invalid outstanding report type.');
-    }
-
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/outstanding')
-        .replace(
-          queryParameters: <String, String>{
-            'type': type,
-            'from': _apiDate(from),
-            'to': _apiDate(to),
-          },
-        );
-
-    final response = await http.get(uri, headers: _reportHeaders);
-
-    dynamic decoded;
-
-    try {
-      decoded = jsonDecode(response.body);
-    } catch (_) {
-      throw Exception('Invalid response from server.');
-    }
-
-    if (response.statusCode != 200) {
-      String message = 'Unable to load outstanding report.';
-
-      if (decoded is Map && decoded['message'] != null) {
-        message = decoded['message'].toString();
-      }
-
-      throw Exception(message);
-    }
-
-    if (decoded is! Map) {
-      throw Exception('Invalid outstanding report response.');
-    }
-
-    final reportJson = decoded['report'];
-
-    if (reportJson is! Map) {
-      throw Exception('Outstanding report data not found.');
-    }
-
-    final columns = (reportJson['columns'] as List? ?? const [])
-        .map((item) => item.toString())
-        .toList(growable: false);
-
-    final rows = (reportJson['rows'] as List? ?? const [])
-        .map<List<Object>>(
-          (row) => row is List
-              ? row.map<Object>((value) => value ?? '').toList(growable: false)
-              : <Object>[],
-        )
-        .toList(growable: false);
-
-    final metrics = (reportJson['metrics'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (metric) => ReportMetric(
-            metric['label']?.toString() ?? '',
-            metric['value']?.toString() ?? '',
-          ),
-        )
-        .toList(growable: false);
-
-    return ReportData(
-      title: reportJson['title']?.toString() ?? title,
-
-      description: reportJson['description']?.toString() ?? description,
-
-      columns: columns,
-
-      rows: rows,
-
-      metrics: metrics,
+    if (type == null) throw Exception('Invalid outstanding report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/outstanding',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
@@ -809,254 +633,77 @@ String? _operationsReportType(String title) {
     required String description,
     required DateTime from,
     required DateTime to,
-  }) async {
+  }) {
     final type = _trendReportType(title);
-
-    if (type == null) {
-      throw Exception('Invalid trend report type.');
-    }
-
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/reports/trends').replace(
-      queryParameters: <String, String>{
-        'type': type,
-
-        'from': _apiDate(from),
-
-        'to': _apiDate(to),
-      },
-    );
-
-    final response = await http.get(uri, headers: _reportHeaders);
-
-    dynamic decoded;
-
-    try {
-      decoded = jsonDecode(response.body);
-    } catch (_) {
-      throw Exception('Invalid response from server.');
-    }
-
-    if (response.statusCode != 200) {
-      String message = 'Unable to load trend report.';
-
-      if (decoded is Map && decoded['message'] != null) {
-        message = decoded['message'].toString();
-      }
-
-      throw Exception(message);
-    }
-
-    if (decoded is! Map) {
-      throw Exception('Invalid trend report response.');
-    }
-
-    final reportJson = decoded['report'];
-
-    if (reportJson is! Map) {
-      throw Exception('Trend report data not found.');
-    }
-
-    final columns = (reportJson['columns'] as List? ?? const [])
-        .map((item) => item.toString())
-        .toList(growable: false);
-
-    final rows = (reportJson['rows'] as List? ?? const [])
-        .map<List<Object>>(
-          (row) => row is List
-              ? row.map<Object>((value) => value ?? '').toList(growable: false)
-              : <Object>[],
-        )
-        .toList(growable: false);
-
-    final metrics = (reportJson['metrics'] as List? ?? const [])
-        .whereType<Map>()
-        .map(
-          (metric) => ReportMetric(
-            metric['label']?.toString() ?? '',
-            metric['value']?.toString() ?? '',
-          ),
-        )
-        .toList(growable: false);
-
-    return ReportData(
-      title: reportJson['title']?.toString() ?? title,
-
-      description: reportJson['description']?.toString() ?? description,
-
-      columns: columns,
-
-      rows: rows,
-
-      metrics: metrics,
+    if (type == null) throw Exception('Invalid trend report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/trends',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
-Future<ReportData> _loadOperationsReport({
-  required String title,
-  required String description,
-  required DateTime from,
-  required DateTime to,
-}) async {
-  final type =
-      _operationsReportType(title);
-
-  if (type == null) {
-    throw Exception(
-      'Invalid operations report type.',
+  Future<ReportData> _loadOperationsReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) {
+    final type = _operationsReportType(title);
+    if (type == null) throw Exception('Invalid operations report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/operations',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
-  final uri = Uri.parse(
-    '${ApiConfig.baseUrl}/api/reports/operations',
-  ).replace(
-    queryParameters: <String, String>{
-      'type': type,
-      'from': _apiDate(from),
-      'to': _apiDate(to),
-    },
-  );
-
-  final response =
-      await http.get(
-    uri,
-    headers: _reportHeaders,
-  );
-
-  dynamic decoded;
-
-  try {
-    decoded =
-        jsonDecode(response.body);
-  } catch (_) {
-    throw Exception(
-      'Invalid response from server.',
+  Future<ReportData> _loadSalesmanReport({
+    required String title,
+    required String description,
+    required DateTime from,
+    required DateTime to,
+  }) {
+    final type = _salesmanReportType(title);
+    if (type == null) throw Exception('Invalid salesman report type.');
+    return _loadReportData(
+      endpoint: '/api/reports/salesman',
+      type: type,
+      title: title,
+      description: description,
+      from: from,
+      to: to,
     );
   }
 
-  if (response.statusCode != 200) {
-    String message =
-        'Unable to load operations report.';
-
-    if (decoded is Map &&
-        decoded['message'] != null) {
-      message =
-          decoded['message'].toString();
-    }
-
-    throw Exception(message);
-  }
-
-  if (decoded is! Map) {
-    throw Exception(
-      'Invalid operations report response.',
-    );
-  }
-
-  final reportJson =
-      decoded['report'];
-
-  if (reportJson is! Map) {
-    throw Exception(
-      'Operations report data not found.',
-    );
-  }
-
-  final columns =
-      (reportJson['columns']
-                  as List? ??
-              const [])
-          .map(
-            (item) =>
-                item.toString(),
-          )
-          .toList(
-            growable: false,
-          );
-
-  final rows =
-      (reportJson['rows']
-                  as List? ??
-              const [])
-          .map<List<Object>>(
-            (row) => row is List
-                ? row
-                    .map<Object>(
-                      (value) =>
-                          value ?? '',
-                    )
-                    .toList(
-                      growable:
-                          false,
-                    )
-                : <Object>[],
-          )
-          .toList(
-            growable: false,
-          );
-
-  final metrics =
-      (reportJson['metrics']
-                  as List? ??
-              const [])
-          .whereType<Map>()
-          .map(
-            (metric) =>
-                ReportMetric(
-              metric['label']
-                      ?.toString() ??
-                  '',
-              metric['value']
-                      ?.toString() ??
-                  '',
-            ),
-          )
-          .toList(
-            growable: false,
-          );
-
-  return ReportData(
-    title:
-        reportJson['title']
-                ?.toString() ??
-            title,
-    description:
-        reportJson['description']
-                ?.toString() ??
-            description,
-    columns: columns,
-    rows: rows,
-    metrics: metrics,
-  );
-}
   void _openReport(_ReportGroup group, _ReportItem report) {
     DateTime from = DateTime.now().subtract(const Duration(days: 30));
-
     DateTime to = DateTime.now();
 
     final isSalesReport = _isSalesReport(report.title);
     final isPurchaseReport = _isPurchaseReport(report.title);
     final isStockReport = _isStockReport(report.title);
     final isOutstandingReport = _isOutstandingReport(report.title);
-    final isTrendReport =
-    _isTrendReport(
-  report.title,
-);
-final isOperationsReport =
-    _isOperationsReport(
-  report.title,
-);
+    final isTrendReport = _isTrendReport(report.title);
+    final isOperationsReport = _isOperationsReport(report.title);
+    final isSalesmanReport = _isSalesmanReport(report.title);
 
-    // Other reports remain on demo data
-    // until their backend APIs are connected.
-final demoReport =
-    (
-      isSalesReport ||
-      isPurchaseReport ||
-      isStockReport ||
-      isOutstandingReport ||
-      isTrendReport ||
-      isOperationsReport
-    )
+    final isLiveReport =
+        isSalesReport ||
+        isPurchaseReport ||
+        isStockReport ||
+        isOutstandingReport ||
+        isTrendReport ||
+        isOperationsReport ||
+        isSalesmanReport;
+
+    final demoReport = isLiveReport
         ? null
         : ReportDemoProvider.forReport(
             report.title,
@@ -1067,78 +714,100 @@ final demoReport =
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, updateSheet) => Padding(
+        builder: (dialogContext, updateSheet) => Padding(
           padding: EdgeInsets.fromLTRB(
             16,
             0,
             16,
-            MediaQuery.viewInsetsOf(context).bottom + 20,
+            MediaQuery.viewInsetsOf(dialogContext).bottom + 20,
           ),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * .82,
+              maxHeight: MediaQuery.sizeOf(dialogContext).height * .82,
             ),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SizedBox(height: 12),
+                  Center(
+                    child: Container(
+                      height: 4,
+                      width: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
                   Row(
                     children: [
-                      Icon(group.icon, color: group.color),
-                      const SizedBox(width: 9),
+                      Container(
+                        height: 34,
+                        width: 34,
+                        decoration: BoxDecoration(
+                          color: group.color.withValues(alpha: .1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(group.icon, color: group.color, size: 18),
+                      ),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          report.title,
-                          style: Theme.of(context).textTheme.titleLarge,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              report.title,
+                              style: Theme.of(dialogContext).textTheme.titleMedium,
+                            ),
+                            Text(
+                              group.title,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 5),
-
+                  const SizedBox(height: 14),
                   Text(
                     report.description,
                     style: const TextStyle(color: AppColors.textSecondary),
                   ),
-
                   const SizedBox(height: 16),
-
                   Row(
                     children: [
                       Expanded(
-                        child: _dateButton('From', from, () async {
-                          final value = await _pickReportDate(from);
-
-                          if (value != null) {
-                            updateSheet(() => from = value);
+                        child: _dateButton('From Date', from, () async {
+                          final picked = await _pickReportDate(from);
+                          if (picked != null) {
+                            updateSheet(() => from = picked);
                           }
                         }),
                       ),
-
                       const SizedBox(width: 10),
-
                       Expanded(
-                        child: _dateButton('To', to, () async {
-                          final value = await _pickReportDate(to);
-
-                          if (value != null) {
-                            updateSheet(() => to = value);
+                        child: _dateButton('To Date', to, () async {
+                          final picked = await _pickReportDate(to);
+                          if (picked != null) {
+                            updateSheet(() => to = picked);
                           }
                         }),
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 16),
-
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () async {
                         if (to.isBefore(from)) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
                             const SnackBar(
                               content: Text(
                                 'The To date must be on or after the From date.',
@@ -1146,17 +815,12 @@ final demoReport =
                               backgroundColor: AppColors.error,
                             ),
                           );
-
                           return;
                         }
 
-                        // =========================
-                        // REAL SALES REPORT
-                        // =========================
-
-                        if (isSalesReport) {
+                        if (isLiveReport) {
                           showDialog<void>(
-                            context: this.context,
+                            context: context,
                             barrierDismissible: false,
                             builder: (_) => const Center(
                               child: CircularProgressIndicator(),
@@ -1164,25 +828,66 @@ final demoReport =
                           );
 
                           try {
-                            final sourceReport = await _loadSalesReport(
-                              title: report.title,
-                              description: report.description,
-                              from: from,
-                              to: to,
-                            );
-
-                            if (!mounted) {
-                              return;
+                            ReportData sourceReport;
+                            if (isSalesReport) {
+                              sourceReport = await _loadSalesReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
+                            } else if (isPurchaseReport) {
+                              sourceReport = await _loadPurchaseReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
+                            } else if (isStockReport) {
+                              sourceReport = await _loadStockReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
+                            } else if (isOutstandingReport) {
+                              sourceReport = await _loadOutstandingReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
+                            } else if (isTrendReport) {
+                              sourceReport = await _loadTrendReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
+                            } else if (isOperationsReport) {
+                              sourceReport = await _loadOperationsReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
+                            } else {
+                              sourceReport = await _loadSalesmanReport(
+                                title: report.title,
+                                description: report.description,
+                                from: from,
+                                to: to,
+                              );
                             }
 
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
+                            if (!mounted) return;
+                            Navigator.of(context, rootNavigator: true).pop();
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
 
-                            Navigator.pop(sheetContext);
-
-                            Navigator.of(this.context).push(
+                            if (!mounted) return;
+                            Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => ReportDetailScreen(
                                   report: sourceReport,
@@ -1196,16 +901,10 @@ final demoReport =
                               ),
                             );
                           } catch (error) {
-                            if (!mounted) {
-                              return;
-                            }
+                            if (!mounted) return;
+                            Navigator.of(context, rootNavigator: true).pop();
 
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            ScaffoldMessenger.of(this.context).showSnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
                                   error.toString().replaceFirst(
@@ -1217,431 +916,12 @@ final demoReport =
                               ),
                             );
                           }
-
                           return;
                         }
 
-                        // =========================
-                        // REAL PURCHASE REPORT
-                        // =========================
-
-                        if (isPurchaseReport) {
-                          showDialog<void>(
-                            context: this.context,
-                            barrierDismissible: false,
-                            builder: (_) => const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-
-                          try {
-                            final sourceReport = await _loadPurchaseReport(
-                              title: report.title,
-                              description: report.description,
-                              from: from,
-                              to: to,
-                            );
-
-                            if (!mounted) {
-                              return;
-                            }
-
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            Navigator.pop(sheetContext);
-
-                            Navigator.of(this.context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ReportDetailScreen(
-                                  report: sourceReport,
-                                  from: from,
-                                  to: to,
-                                  icon: group.icon,
-                                  color: group.color,
-                                  filterLabel: 'Period',
-                                  filterValue: 'All',
-                                ),
-                              ),
-                            );
-                          } catch (error) {
-                            if (!mounted) {
-                              return;
-                            }
-
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  error.toString().replaceFirst(
-                                    'Exception: ',
-                                    '',
-                                  ),
-                                ),
-                                backgroundColor: AppColors.error,
-                              ),
-                            );
-                          }
-
-                          return;
-                        }
-                        // =========================
-                        // REAL STOCK REPORT
-                        // =========================
-
-                        if (isStockReport) {
-                          showDialog<void>(
-                            context: this.context,
-                            barrierDismissible: false,
-                            builder: (_) => const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-
-                          try {
-                            final sourceReport = await _loadStockReport(
-                              title: report.title,
-                              description: report.description,
-                              from: from,
-                              to: to,
-                            );
-
-                            if (!mounted) {
-                              return;
-                            }
-
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            Navigator.pop(sheetContext);
-
-                            Navigator.of(this.context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ReportDetailScreen(
-                                  report: sourceReport,
-                                  from: from,
-                                  to: to,
-                                  icon: group.icon,
-                                  color: group.color,
-                                  filterLabel: 'Period',
-                                  filterValue: 'All',
-                                ),
-                              ),
-                            );
-                          } catch (error) {
-                            if (!mounted) {
-                              return;
-                            }
-
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  error.toString().replaceFirst(
-                                    'Exception: ',
-                                    '',
-                                  ),
-                                ),
-                                backgroundColor: AppColors.error,
-                              ),
-                            );
-                          }
-
-                          return;
-                        }
-                        // =========================
-                        // REAL OUTSTANDING REPORT
-                        // =========================
-
-                        if (isOutstandingReport) {
-                          showDialog<void>(
-                            context: this.context,
-                            barrierDismissible: false,
-                            builder: (_) => const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          );
-
-                          try {
-                            final sourceReport = await _loadOutstandingReport(
-                              title: report.title,
-                              description: report.description,
-                              from: from,
-                              to: to,
-                            );
-
-                            if (!mounted) {
-                              return;
-                            }
-
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            Navigator.pop(sheetContext);
-
-                            Navigator.of(this.context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ReportDetailScreen(
-                                  report: sourceReport,
-                                  from: from,
-                                  to: to,
-                                  icon: group.icon,
-                                  color: group.color,
-                                  filterLabel: 'Period',
-                                  filterValue: 'All',
-                                ),
-                              ),
-                            );
-                          } catch (error) {
-                            if (!mounted) {
-                              return;
-                            }
-
-                            Navigator.of(
-                              this.context,
-                              rootNavigator: true,
-                            ).pop();
-
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  error.toString().replaceFirst(
-                                    'Exception: ',
-                                    '',
-                                  ),
-                                ),
-                                backgroundColor: AppColors.error,
-                              ),
-                            );
-                          }
-
-                          return;
-                        }
-                        // =========================
-// REAL TREND REPORT
-// =========================
-
-if (isTrendReport) {
-  showDialog<void>(
-    context:
-        this.context,
-    barrierDismissible:
-        false,
-    builder:
-        (_) =>
-            const Center(
-      child:
-          CircularProgressIndicator(),
-    ),
-  );
-
-  try {
-    final sourceReport =
-        await _loadTrendReport(
-      title:
-          report.title,
-
-      description:
-          report.description,
-
-      from:
-          from,
-
-      to:
-          to,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(
-      this.context,
-      rootNavigator:
-          true,
-    ).pop();
-
-    Navigator.pop(
-      sheetContext,
-    );
-
-    Navigator.of(
-      this.context,
-    ).push(
-      MaterialPageRoute<void>(
-        builder:
-            (_) =>
-                ReportDetailScreen(
-          report:
-              sourceReport,
-
-          from:
-              from,
-
-          to:
-              to,
-
-          icon:
-              group.icon,
-
-          color:
-              group.color,
-
-          filterLabel:
-              'Period',
-
-          filterValue:
-              'All',
-        ),
-      ),
-    );
-  } catch (error) {
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(
-      this.context,
-      rootNavigator:
-          true,
-    ).pop();
-
-    ScaffoldMessenger
-        .of(
-          this.context,
-        )
-        .showSnackBar(
-      SnackBar(
-        content:
-            Text(
-          error
-              .toString()
-              .replaceFirst(
-                'Exception: ',
-                '',
-              ),
-        ),
-
-        backgroundColor:
-            AppColors.error,
-      ),
-    );
-  }
-
-  return;
-}
-// =========================
-// REAL OPERATIONS REPORT
-// =========================
-
-if (isOperationsReport) {
-  showDialog<void>(
-    context: this.context,
-    barrierDismissible: false,
-    builder: (_) =>
-        const Center(
-      child:
-          CircularProgressIndicator(),
-    ),
-  );
-
-  try {
-    final sourceReport =
-        await _loadOperationsReport(
-      title: report.title,
-      description:
-          report.description,
-      from: from,
-      to: to,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(
-      this.context,
-      rootNavigator: true,
-    ).pop();
-
-    Navigator.pop(
-      sheetContext,
-    );
-
-    Navigator.of(
-      this.context,
-    ).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            ReportDetailScreen(
-          report:
-              sourceReport,
-          from: from,
-          to: to,
-          icon: group.icon,
-          color: group.color,
-          filterLabel:
-              'Period',
-          filterValue:
-              'All',
-        ),
-      ),
-    );
-  } catch (error) {
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.of(
-      this.context,
-      rootNavigator: true,
-    ).pop();
-
-    ScaffoldMessenger.of(
-      this.context,
-    ).showSnackBar(
-      SnackBar(
-        content: Text(
-          error
-              .toString()
-              .replaceFirst(
-                'Exception: ',
-                '',
-              ),
-        ),
-        backgroundColor:
-            AppColors.error,
-      ),
-    );
-  }
-
-  return;
-}
-                        // =========================
-                        // EXISTING DEMO REPORTS
-                        // =========================
-
-                        if (demoReport == null) {
-                          return;
-                        }
-
+                        if (demoReport == null) return;
                         Navigator.pop(sheetContext);
-
-                        Navigator.of(this.context).push(
+                        Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => ReportDetailScreen(
                               report: demoReport,
@@ -1651,14 +931,13 @@ if (isOperationsReport) {
                               color: group.color,
                               filterLabel: 'All',
                               filterValue: 'All',
+                              isLive: false,
                             ),
                           ),
                         );
                       },
                       icon: const Icon(Icons.analytics_outlined),
-                      label: Text(
-                        isSalesReport ? 'VIEW REPORT' : 'VIEW REPORT',
-                      ),
+                      label: const Text('VIEW REPORT'),
                     ),
                   ),
                 ],
@@ -1692,78 +971,6 @@ if (isOperationsReport) {
     firstDate: DateTime(2020),
     lastDate: DateTime(2040),
   );
-
-  static const _allFilterValue = '__all__';
-
-  _ReportFilter _filterFor(ReportData report) {
-    final title = report.title.toLowerCase();
-    final preferredHeaders = <String>[
-      if (title.contains('salesman')) 'salesman',
-      if (title.contains('customer') || title.contains('outlet')) 'customer',
-      if (title.contains('route')) 'route',
-      if (title.contains('product') || title.contains('stock')) 'product',
-      if (title.contains('supplier') || title.contains('purchase')) 'supplier',
-      if (title.contains('expense')) 'category',
-      if (title.contains('collection')) 'mode',
-      if (title.contains('allocation') || title.contains('return')) 'salesman',
-      if (title.contains('ageing')) 'age bucket',
-      if (title.contains('trend') || title.contains('sales vs')) 'period',
-      if (title.contains('date-wise')) 'customer',
-      'status',
-      'category',
-      'payment',
-      'date',
-    ];
-    var columnIndex = -1;
-    for (final preferred in preferredHeaders) {
-      columnIndex = report.columns.indexWhere(
-        (header) => header.toLowerCase() == preferred,
-      );
-      if (columnIndex >= 0) break;
-    }
-    if (columnIndex < 0) columnIndex = 0;
-
-    final label = report.columns[columnIndex];
-    final options =
-        report.rows
-            .map((row) => row[columnIndex].toString())
-            .toSet()
-            .toList(growable: false)
-          ..sort();
-    return _ReportFilter(
-      label: label,
-      columnIndex: columnIndex,
-      options: options,
-      icon: _filterIcon(label),
-    );
-  }
-
-  IconData _filterIcon(String label) {
-    final value = label.toLowerCase();
-    if (value.contains('salesman')) return Icons.badge_outlined;
-    if (value.contains('customer')) return Icons.storefront_outlined;
-    if (value.contains('route')) return Icons.route_outlined;
-    if (value.contains('product')) return Icons.inventory_2_outlined;
-    if (value.contains('supplier')) return Icons.local_shipping_outlined;
-    if (value.contains('date') || value.contains('period')) {
-      return Icons.event_outlined;
-    }
-    return Icons.filter_alt_outlined;
-  }
-}
-
-class _ReportFilter {
-  const _ReportFilter({
-    required this.label,
-    required this.columnIndex,
-    required this.options,
-    required this.icon,
-  });
-
-  final String label;
-  final int columnIndex;
-  final List<String> options;
-  final IconData icon;
 }
 
 class _ReportGroup {

@@ -37,15 +37,66 @@ class _SalesmanDetailScreenState
   String _mobile = '';
   String _email = '';
   String _username = '';
-  String _businessName = '';
-  String _routeName = '';
-  String _routeId = '';
+String _businessName = '';
+
+// ============================================================
+// ROUTE ASSIGNMENTS
+//
+// _routeName / _routeId are kept as legacy primary route.
+// _routes contains all assigned routes.
+// ============================================================
+
+String _routeName = '';
+String _routeId = '';
+
+List<SalesmanRoute> _routes =
+    <SalesmanRoute>[];
+
 
   bool _isActive = true;
 
   final Set<AppPermission>
       _permissions = {};
 
+// ============================================================
+// ROUTE HELPERS
+// ============================================================
+
+int get _routeCount {
+  if (_routes.isNotEmpty) {
+    return _routes.length;
+  }
+
+  return _routeName.trim().isNotEmpty
+      ? 1
+      : 0;
+}
+
+String get _routeDisplay {
+  if (_routes.isNotEmpty) {
+    final names =
+        _routes
+            .map(
+              (route) =>
+                  route.routeName.trim(),
+            )
+            .where(
+              (name) =>
+                  name.isNotEmpty,
+            )
+            .toList();
+
+    if (names.isNotEmpty) {
+      return names.join(', ');
+    }
+  }
+
+  if (_routeName.trim().isNotEmpty) {
+    return _routeName.trim();
+  }
+
+  return 'Not Assigned';
+}
   // ============================================================
   // HEADERS
   // ============================================================
@@ -140,6 +191,66 @@ class _SalesmanDetailScreenState
           }
         }
       }
+      // ============================================================
+// LOAD ALL ASSIGNED ROUTES
+// ============================================================
+
+final List<SalesmanRoute>
+    loadedRoutes =
+    <SalesmanRoute>[];
+
+final rawRoutes =
+    data['routes'];
+
+if (rawRoutes is List) {
+  for (final rawRoute in rawRoutes) {
+    if (rawRoute is! Map) {
+      continue;
+    }
+
+    final route =
+        SalesmanRoute.fromMap(
+      Map<String, dynamic>.from(
+        rawRoute,
+      ),
+    );
+
+    if (route.isValid) {
+      loadedRoutes.add(
+        route,
+      );
+    }
+  }
+}
+
+// ============================================================
+// LEGACY FALLBACK
+// ============================================================
+
+if (loadedRoutes.isEmpty) {
+  final legacyRouteId =
+      (data['routeId'] ?? '')
+          .toString()
+          .trim();
+
+  final legacyRouteName =
+      (data['routeName'] ?? '')
+          .toString()
+          .trim();
+
+  if (legacyRouteId.isNotEmpty ||
+      legacyRouteName.isNotEmpty) {
+    loadedRoutes.add(
+      SalesmanRoute(
+        routeId:
+            legacyRouteId,
+
+        routeName:
+            legacyRouteName,
+      ),
+    );
+  }
+}
 
       if (!mounted) return;
 
@@ -170,13 +281,26 @@ class _SalesmanDetailScreenState
                     '')
                 .toString();
 
-        _routeName =
-            (data['routeName'] ?? '')
-                .toString();
+       _routes =
+    List<SalesmanRoute>.unmodifiable(
+  loadedRoutes,
+);
 
-        _routeId =
-            (data['routeId'] ?? '')
-                .toString();
+if (_routes.isNotEmpty) {
+  _routeName =
+      _routes.first.routeName;
+
+  _routeId =
+      _routes.first.routeId;
+} else {
+  _routeName =
+      (data['routeName'] ?? '')
+          .toString();
+
+  _routeId =
+      (data['routeId'] ?? '')
+          .toString();
+}
 
         _isActive =
             data['isActive'] != false;
@@ -479,23 +603,31 @@ class _SalesmanDetailScreenState
                     ),
 
                     TextFormField(
-                      initialValue:
-                          _routeName.isEmpty
-                              ? 'Not Assigned'
-                              : _routeName,
-                      readOnly: true,
-                      decoration:
-                          const InputDecoration(
-                        labelText:
-                            'Assigned Route',
-                        prefixIcon: Icon(
-                          Icons
-                              .route_outlined,
-                        ),
-                        helperText:
-                            'Change route from Route Master.',
-                      ),
-                    ),
+  initialValue:
+      _routeDisplay,
+
+  readOnly:
+      true,
+
+  maxLines:
+      3,
+
+  decoration:
+      InputDecoration(
+    labelText:
+        _routeCount == 1
+            ? 'Assigned Route'
+            : 'Assigned Routes ($_routeCount)',
+
+    prefixIcon:
+        const Icon(
+      Icons.route_outlined,
+    ),
+
+    helperText:
+        'Route assignments are managed from Route Master.',
+  ),
+),
 
                     const SizedBox(
                       height: 18,
@@ -795,14 +927,15 @@ class _SalesmanDetailScreenState
                           'Username',
                           _username,
                         ),
-                      _info(
-                        Icons
-                            .route_outlined,
-                        'Assigned route',
-                        _routeName.isEmpty
-                            ? 'Not Assigned'
-                            : _routeName,
-                      ),
+                    _info(
+  Icons.route_outlined,
+
+  _routeCount == 1
+      ? 'Assigned Route'
+      : 'Assigned Routes ($_routeCount)',
+
+  _routeDisplay,
+),
                     ],
                   ),
 

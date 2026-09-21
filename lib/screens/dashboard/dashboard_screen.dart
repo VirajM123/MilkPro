@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import '../../services/data_sync_service.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -42,6 +42,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 bool _dashboardLoading = true;
 String _dashboardError = '';
+bool _syncAllLoading = false;
 
 // ================================================================
 // SALESMAN PERFORMANCE
@@ -54,9 +55,15 @@ String _salesmanPerformanceError = '';
 
 Map<String, dynamic> _salesmanPerformance = <String, dynamic>{};
 
+
 @override
 void initState() {
   super.initState();
+
+  // Listen for changes made in Sales, Allocation,
+  // Collection, Returns, Customer, Routes, Profile, etc.
+  DataSyncService.instance
+      .addListener(_onDataSyncChanged);
 
   _loadDashboard();
 
@@ -65,7 +72,143 @@ void initState() {
   }
 }
 
+@override
+void dispose() {
+  DataSyncService.instance
+      .removeListener(_onDataSyncChanged);
+
+  super.dispose();
+}
+
   AppUser get user => UiSession.instance.currentUser;
+  void _onDataSyncChanged() {
+  if (!mounted || _syncAllLoading) {
+    return;
+  }
+
+  final SyncEventType event =
+      DataSyncService.instance.lastEventType;
+
+  final bool refreshDashboard =
+      event == SyncEventType.sale ||
+      event == SyncEventType.allocation ||
+      event == SyncEventType.returnSettlement ||
+      event == SyncEventType.collections ||
+      event == SyncEventType.customers ||
+      event == SyncEventType.routes ||
+      event == SyncEventType.profile ||
+      event == SyncEventType.all;
+
+  if (!refreshDashboard) {
+    return;
+  }
+
+  _loadDashboard();
+
+  if (user.role == UserRole.salesman) {
+    _loadSalesmanPerformance();
+  }
+}
+
+
+Future<void> _syncEverything() async {
+  if (_syncAllLoading) {
+    return;
+  }
+
+  setState(() {
+    _syncAllLoading = true;
+  });
+
+  try {
+    // ==========================================================
+    // UNIVERSAL SYNC
+    //
+    // This refreshes:
+    // - logged-in profile
+    // - salesman permissions
+    // - assigned routes
+    //
+    // Then broadcasts SyncEventType.all so all active screens
+    // know that authoritative server data has changed.
+    // ==========================================================
+
+    await DataSyncService.instance
+        .syncEverything();
+
+    // Dashboard owns these APIs, so reload them here.
+    await _loadDashboard();
+
+    if (user.role ==
+        UserRole.salesman) {
+      await _loadSalesmanPerformance();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                Icons.check_circle_outline_rounded,
+                color: Colors.white,
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'All data synchronized successfully.',
+                ),
+              ),
+            ],
+          ),
+          behavior:
+              SnackBarBehavior.floating,
+          backgroundColor:
+              AppColors.success,
+        ),
+      );
+  } catch (error) {
+    if (!mounted) {
+      return;
+    }
+
+    String message =
+        error.toString();
+
+    if (message.startsWith(
+      'Exception: ',
+    )) {
+      message = message.substring(
+        'Exception: '.length,
+      );
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Sync failed: $message',
+          ),
+          behavior:
+              SnackBarBehavior.floating,
+          backgroundColor:
+              AppColors.error,
+        ),
+      );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _syncAllLoading = false;
+      });
+    }
+  }
+}
 
   Future<void> _loadDashboard() async {
     try {
@@ -285,6 +428,43 @@ int _performanceInteger(
 
     return '₹${value.toStringAsFixed(0)}';
   }
+  String _syncLabel() {
+  final DateTime? value =
+      DataSyncService.instance
+          .lastSyncTime;
+
+  if (value == null) {
+    return 'Not synced yet';
+  }
+
+  final DateTime local =
+      value.toLocal();
+
+  int hour =
+      local.hour;
+
+  final String suffix =
+      hour >= 12
+          ? 'PM'
+          : 'AM';
+
+  hour =
+      hour % 12;
+
+  if (hour == 0) {
+    hour = 12;
+  }
+
+  final String minute =
+      local.minute
+          .toString()
+          .padLeft(
+            2,
+            '0',
+          );
+
+  return 'Synced $hour:$minute $suffix';
+}
 
   String _qty(double value) {
     if (value == value.roundToDouble()) {
@@ -853,13 +1033,45 @@ const SizedBox(
                         children: [
                           _headerChip(user.salesmanId ?? 'Salesman'),
                           _headerChip('On Duty', dot: true),
-                          _headerChip('Synced 8:42 AM'),
+                         _headerChip(
+  _syncLabel(),
+),
                         ],
                       ),
                     ],
                   ],
                 ),
               ),
+              IconButton(
+  tooltip:
+      _syncAllLoading
+          ? 'Syncing...'
+          : 'Sync All',
+
+  onPressed:
+      _syncAllLoading
+          ? null
+          : _syncEverything,
+
+  icon:
+      _syncAllLoading
+          ? const SizedBox(
+              width: 19,
+              height: 19,
+              child:
+                  CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor:
+                    AlwaysStoppedAnimation<Color>(
+                  Colors.white,
+                ),
+              ),
+            )
+          : const Icon(
+              Icons.sync_rounded,
+              color: Colors.white,
+            ),
+),
               IconButton(
                 onPressed: () {},
                 icon: const Icon(
@@ -3063,8 +3275,16 @@ Widget _customerPreview() {
       ),
     );
     if (approved != true || !mounted) return;
-    UiSession.instance.signOut();
-    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+DataSyncService.instance
+    .stopAutoSessionRefresh();
+
+UiSession.instance.signOut();
+
+Navigator.of(context)
+    .pushNamedAndRemoveUntil(
+  '/',
+  (route) => false,
+);
   }
 
   String _initials(String name) => name

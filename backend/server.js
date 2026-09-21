@@ -435,7 +435,15 @@ const routeSchema = new mongoose.Schema(
   }
 );
 
+// ======================================================
+// SALESMAN MULTI-ROUTE LOOKUP INDEX
+// ======================================================
 
+routeSchema.index({
+  farmId: 1,
+  salesmanId: 1,
+  isActive: 1,
+});
 const RouteMaster = mongoose.model(
   "RouteMaster",
   routeSchema,
@@ -1002,10 +1010,10 @@ const stockSchema = new mongoose.Schema(
         "ALLOCATION_OUT",
         "ALLOCATION_RETURN",
 
-   "ALLOCATION_EDIT",
-"ALLOCATION_EDIT_REVERSE",
-"ALLOCATION_CANCEL",
-"ALLOCATION_DELETE",
+        "ALLOCATION_EDIT",
+        "ALLOCATION_EDIT_REVERSE",
+        "ALLOCATION_CANCEL",
+        "ALLOCATION_DELETE",
 
 
         "ADJUSTMENT_IN",
@@ -1608,17 +1616,17 @@ const allocationSchema = new mongoose.Schema(
       trim: true,
     },
 
-   status: {
-  type: String,
-  enum: [
-    "POSTED",
-    "RETURNED",
-    "CANCELLED",
-    "DELETED",
-  ],
-  default: "POSTED",
-  index: true,
-},
+    status: {
+      type: String,
+      enum: [
+        "POSTED",
+        "RETURNED",
+        "CANCELLED",
+        "DELETED",
+      ],
+      default: "POSTED",
+      index: true,
+    },
     createdBy: {
       type: String,
       default: "",
@@ -1634,32 +1642,32 @@ const allocationSchema = new mongoose.Schema(
       default: "",
     },
 
-  cancelledAt: {
-  type: Date,
-  default: null,
-},
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
 
-// ======================================================
-// SOFT DELETE / AUDIT
-// ======================================================
+    // ======================================================
+    // SOFT DELETE / AUDIT
+    // ======================================================
 
-deletedBy: {
-  type: String,
-  default: "",
-},
+    deletedBy: {
+      type: String,
+      default: "",
+    },
 
-deletedAt: {
-  type: Date,
-  default: null,
-},
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
 
-deleteReason: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    deleteReason: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-createdAt: {
+    createdAt: {
       type: Date,
       default: Date.now,
     },
@@ -3265,7 +3273,7 @@ async function generateCustomerOutstandingNo(
     const lastNumber =
       Number(
         parts[
-          parts.length - 1
+        parts.length - 1
         ]
       );
 
@@ -3588,7 +3596,7 @@ async function getCustomerGrossOutstandingForAdvance({
         savedApplied
       ) &&
       savedApplied >
-        0.001
+      0.001
     ) {
       collectionApplied +=
         savedApplied;
@@ -5345,7 +5353,7 @@ app.post(
               createdCustomer._id,
           });
         } catch (
-          rollbackError
+        rollbackError
         ) {
           console.error(
             "CUSTOMER CREATION ROLLBACK ERROR:",
@@ -5395,12 +5403,12 @@ app.put(
 
     try {
 
-    const {
-  name,
-  mobile,
-  route,
-  isActive,
-} = req.body;
+      const {
+        name,
+        mobile,
+        route,
+        isActive,
+      } = req.body;
 
 
       const customer =
@@ -5474,7 +5482,7 @@ app.put(
         customer.route =
           route.trim();
 
-   
+
 
       if (isActive !== undefined)
         customer.isActive =
@@ -5726,18 +5734,41 @@ app.get(
           salesmen.map(
             async (salesman) => {
 
-              const route =
-                await RouteMaster.findOne({
+              const routes =
+                await RouteMaster.find({
                   farmId:
                     farmId,
 
                   salesmanId:
                     salesman.salesmanId,
+
+                  isActive:
+                    true,
                 })
                   .select(
                     "routeId routeName"
                   )
+                  .sort({
+                    routeName: 1,
+                  })
                   .lean();
+
+
+              // ==================================================
+              // BACKWARD COMPATIBILITY
+              //
+              // Existing frontend may still expect:
+              // routeId
+              // routeName
+              //
+              // Keep first route temporarily.
+              // New frontend must use routes[].
+              // ==================================================
+
+              const primaryRoute =
+                routes.length > 0
+                  ? routes[0]
+                  : null;
 
               const effectivePermissions = getEffectiveSalesmanPermissions(
                 salesman,
@@ -5789,11 +5820,37 @@ app.get(
                 isActive:
                   salesman.isActive,
 
+                // ==================================================
+                // MULTIPLE ASSIGNED ROUTES
+                // ==================================================
+
+                routes:
+                  routes.map(
+                    (route) => ({
+                      routeId:
+                        route.routeId || "",
+
+                      routeName:
+                        route.routeName || "",
+                    })
+                  ),
+
+                routeCount:
+                  routes.length,
+
+
+                // ==================================================
+                // LEGACY FIELDS
+                //
+                // Keep these for now so existing Flutter/Admin
+                // code does not suddenly break.
+                // ==================================================
+
                 routeId:
-                  route?.routeId || "",
+                  primaryRoute?.routeId || "",
 
                 routeName:
-                  route?.routeName || "",
+                  primaryRoute?.routeName || "",
 
                 createdAt:
                   salesman.createdAt,
@@ -5890,18 +5947,30 @@ app.get(
       }
 
 
-      const route =
-        await RouteMaster.findOne({
+      const routes =
+        await RouteMaster.find({
           farmId:
             farmId,
 
           salesmanId:
             salesman.salesmanId,
+
+          isActive:
+            true,
         })
           .select(
             "routeId routeName"
           )
+          .sort({
+            routeName: 1,
+          })
           .lean();
+
+
+      const primaryRoute =
+        routes.length > 0
+          ? routes[0]
+          : null;
 
       const farmAdmin = await Register.findOne({
         farmId: farmId,
@@ -5962,11 +6031,30 @@ app.get(
           isActive:
             salesman.isActive,
 
+          routes:
+            routes.map(
+              (route) => ({
+                routeId:
+                  route.routeId || "",
+
+                routeName:
+                  route.routeName || "",
+              })
+            ),
+
+          routeCount:
+            routes.length,
+
+
+          // ==================================================
+          // LEGACY / BACKWARD COMPATIBILITY
+          // ==================================================
+
           routeId:
-            route?.routeId || "",
+            primaryRoute?.routeId || "",
 
           routeName:
-            route?.routeName || "",
+            primaryRoute?.routeName || "",
 
           createdAt:
             salesman.createdAt,
@@ -11079,57 +11167,57 @@ app.post(
           // Bill Outstanding  = 0
           // ==================================================
 
-// ==================================================
-// RAW CUSTOMER CREDIT
-// ==================================================
+          // ==================================================
+          // RAW CUSTOMER CREDIT
+          // ==================================================
 
-const rawAdvanceBalance =
-  Math.max(
-    0,
-    Number(
-      customer.balance ||
-      0
-    )
-  );
-
-
-// ==================================================
-// EXISTING GROSS OUTSTANDING
-//
-// This is outstanding already existing BEFORE
-// the current new sale.
-// ==================================================
-
-const grossExistingOutstanding =
-  await getCustomerGrossOutstandingForAdvance({
-    farmId,
-
-    customerId:
-      customer.customerId,
-
-    session,
-  });
+          const rawAdvanceBalance =
+            Math.max(
+              0,
+              Number(
+                customer.balance ||
+                0
+              )
+            );
 
 
-// ==================================================
-// ACTUALLY USABLE ADVANCE
-//
-// Example:
-//
-// Raw credit       = 950
-// Existing due     = 800
-// Usable advance   = 150
-// ==================================================
+          // ==================================================
+          // EXISTING GROSS OUTSTANDING
+          //
+          // This is outstanding already existing BEFORE
+          // the current new sale.
+          // ==================================================
 
-const availableAdvanceBalance =
-  Number(
-    Math.max(
-      0,
+          const grossExistingOutstanding =
+            await getCustomerGrossOutstandingForAdvance({
+              farmId,
 
-      rawAdvanceBalance -
-      grossExistingOutstanding
-    ).toFixed(2)
-  );
+              customerId:
+                customer.customerId,
+
+              session,
+            });
+
+
+          // ==================================================
+          // ACTUALLY USABLE ADVANCE
+          //
+          // Example:
+          //
+          // Raw credit       = 950
+          // Existing due     = 800
+          // Usable advance   = 150
+          // ==================================================
+
+          const availableAdvanceBalance =
+            Number(
+              Math.max(
+                0,
+
+                rawAdvanceBalance -
+                grossExistingOutstanding
+              ).toFixed(2)
+            );
 
 
           // Amount of current payment actually required
@@ -11423,35 +11511,35 @@ const availableAdvanceBalance =
           // + Extra Payment Created During This Bill
           // ==================================================
 
-    const updatedAdvanceBalance =
-  Number(
-    Math.max(
-      0,
+          const updatedAdvanceBalance =
+            Number(
+              Math.max(
+                0,
 
-      rawAdvanceBalance -
-      advanceUsed +
-      advanceCreated
-    ).toFixed(2)
-  );
+                rawAdvanceBalance -
+                advanceUsed +
+                advanceCreated
+              ).toFixed(2)
+            );
 
 
-if (
-  Math.abs(
-    updatedAdvanceBalance -
-    rawAdvanceBalance
-  ) > 0.001
-) {
+          if (
+            Math.abs(
+              updatedAdvanceBalance -
+              rawAdvanceBalance
+            ) > 0.001
+          ) {
 
-  customer.balance =
-    updatedAdvanceBalance;
+            customer.balance =
+              updatedAdvanceBalance;
 
-  customer.updatedAt =
-    new Date();
+            customer.updatedAt =
+              new Date();
 
-  await customer.save({
-    session,
-  });
-}
+            await customer.save({
+              session,
+            });
+          }
 
           // ==================================================
           // MAIN GODOWN SALE ONLY
@@ -12640,72 +12728,72 @@ app.put(
           // OUTSTANDING
           // ==================================================
 
-   // ==================================================
-// CUSTOMER ADVANCE RECALCULATION FOR EDITED SALE
-//
-// At this point the original sale advance effect
-// has already been reversed.
-//
-// But customer.balance may still contain credit that
-// is already offsetting OTHER existing outstanding.
-//
-// Therefore we must calculate actually free advance.
-// ==================================================
+          // ==================================================
+          // CUSTOMER ADVANCE RECALCULATION FOR EDITED SALE
+          //
+          // At this point the original sale advance effect
+          // has already been reversed.
+          //
+          // But customer.balance may still contain credit that
+          // is already offsetting OTHER existing outstanding.
+          //
+          // Therefore we must calculate actually free advance.
+          // ==================================================
 
 
-// ==================================================
-// RAW CUSTOMER CREDIT
-// ==================================================
+          // ==================================================
+          // RAW CUSTOMER CREDIT
+          // ==================================================
 
-const rawAdvanceBalance =
-  Math.max(
-    0,
-    Number(
-      customer.balance ||
-      0
-    )
-  );
-
-
-// ==================================================
-// OTHER EXISTING OUTSTANDING
-//
-// IMPORTANT:
-// Exclude the sale currently being edited.
-//
-// We are about to recalculate that sale from scratch.
-// ==================================================
-
-const grossExistingOutstanding =
-  await getCustomerGrossOutstandingForAdvance({
-    farmId,
-
-    customerId:
-      customer.customerId,
-
-    session,
-
-    excludeSaleId:
-      sale.saleId,
-  });
+          const rawAdvanceBalance =
+            Math.max(
+              0,
+              Number(
+                customer.balance ||
+                0
+              )
+            );
 
 
-// ==================================================
-// ACTUALLY USABLE ADVANCE
-// ==================================================
+          // ==================================================
+          // OTHER EXISTING OUTSTANDING
+          //
+          // IMPORTANT:
+          // Exclude the sale currently being edited.
+          //
+          // We are about to recalculate that sale from scratch.
+          // ==================================================
 
-const availableAdvanceBalance =
-  Number(
-    Math.max(
-      0,
+          const grossExistingOutstanding =
+            await getCustomerGrossOutstandingForAdvance({
+              farmId,
 
-      rawAdvanceBalance -
-      grossExistingOutstanding
-    ).toFixed(2)
-  );
+              customerId:
+                customer.customerId,
+
+              session,
+
+              excludeSaleId:
+                sale.saleId,
+            });
 
 
-const paymentApplied =
+          // ==================================================
+          // ACTUALLY USABLE ADVANCE
+          // ==================================================
+
+          const availableAdvanceBalance =
+            Number(
+              Math.max(
+                0,
+
+                rawAdvanceBalance -
+                grossExistingOutstanding
+              ).toFixed(2)
+            );
+
+
+          const paymentApplied =
             Number(
               Math.min(
                 finalPaidAmount,
@@ -13063,35 +13151,35 @@ const paymentApplied =
           // ==================================================
           // APPLY NEW EDITED SALE ADVANCE EFFECT
           // ==================================================
-const updatedAdvanceBalance =
-  Number(
-    Math.max(
-      0,
+          const updatedAdvanceBalance =
+            Number(
+              Math.max(
+                0,
 
-      rawAdvanceBalance -
-      advanceUsed +
-      advanceCreated
-    ).toFixed(2)
-  );
+                rawAdvanceBalance -
+                advanceUsed +
+                advanceCreated
+              ).toFixed(2)
+            );
 
 
-if (
-  Math.abs(
-    updatedAdvanceBalance -
-    rawAdvanceBalance
-  ) > 0.001
-) {
+          if (
+            Math.abs(
+              updatedAdvanceBalance -
+              rawAdvanceBalance
+            ) > 0.001
+          ) {
 
-  customer.balance =
-    updatedAdvanceBalance;
+            customer.balance =
+              updatedAdvanceBalance;
 
-  customer.updatedAt =
-    new Date();
+            customer.updatedAt =
+              new Date();
 
-  await customer.save({
-    session,
-  });
-}
+            await customer.save({
+              session,
+            });
+          }
           // ==============================================
           // UPDATE SALE DOCUMENT
           // ==============================================
@@ -14073,28 +14161,28 @@ app.put(
                 : "Sale cancelled and product stock restored successfully."
             ),
 
-      data: {
-  ...cancelledSale.toObject(),
+        data: {
+          ...cancelledSale.toObject(),
 
-  advanceRestored:
-    Number(
-      advanceToRestore.toFixed(2)
-    ),
+          advanceRestored:
+            Number(
+              advanceToRestore.toFixed(2)
+            ),
 
-  advanceRemoved:
-    Number(
-      advanceToRemove.toFixed(2)
-    ),
+          advanceRemoved:
+            Number(
+              advanceToRemove.toFixed(2)
+            ),
 
-  previousAdvanceBalance:
-    Number(
-      previousAdvanceBalance.toFixed(2)
-    ),
+          previousAdvanceBalance:
+            Number(
+              previousAdvanceBalance.toFixed(2)
+            ),
 
-  currentAdvanceBalance:
-    Number(
-      currentAdvanceBalance.toFixed(2)
-    ),
+          currentAdvanceBalance:
+            Number(
+              currentAdvanceBalance.toFixed(2)
+            ),
           stockRestored:
             true,
 
@@ -14445,11 +14533,11 @@ function getAllocationBusinessDayRange(
 
     if (
       validationDate.getUTCFullYear() !==
-        year ||
+      year ||
       validationDate.getUTCMonth() !==
-        month - 1 ||
+      month - 1 ||
       validationDate.getUTCDate() !==
-        day
+      day
     ) {
       const error =
         new Error(
@@ -14629,15 +14717,15 @@ app.get(
       //   -> ONLY HIS OWN ALLOCATIONS
       // ==================================================
 
-    const allocationFilter = {
-  farmId: farmId,
+      const allocationFilter = {
+        farmId: farmId,
 
-  // Deleted records stay in DB for audit,
-  // but are hidden from normal allocation screens.
-  status: {
-    $ne: "DELETED",
-  },
-};
+        // Deleted records stay in DB for audit,
+        // but are hidden from normal allocation screens.
+        status: {
+          $ne: "DELETED",
+        },
+      };
 
       let currentSalesman = null;
 
@@ -15352,246 +15440,246 @@ app.get(
         };
       }
 
-// ======================================================
-// TODAY / PENDING / ALL SECTION
-//
-// IMPORTANT:
-// We filter AFTER FIFO calculation.
-//
-// Otherwise older allocations could be excluded before
-// sales are consumed against them and sold quantities
-// could become incorrect.
-// ======================================================
+      // ======================================================
+      // TODAY / PENDING / ALL SECTION
+      //
+      // IMPORTANT:
+      // We filter AFTER FIFO calculation.
+      //
+      // Otherwise older allocations could be excluded before
+      // sales are consumed against them and sold quantities
+      // could become incorrect.
+      // ======================================================
 
-const requestedSection =
-  (
-    req.query.section ||
-    "all"
-  )
-    .toString()
-    .trim()
-    .toLowerCase();
-
-
-if (
-  ![
-    "today",
-    "pending",
-    "all",
-  ].includes(
-    requestedSection
-  )
-) {
-  return res
-    .status(400)
-    .json({
-      success: false,
-
-      message:
-        "Invalid allocation section. Use today, pending or all.",
-    });
-}
+      const requestedSection =
+        (
+          req.query.section ||
+          "all"
+        )
+          .toString()
+          .trim()
+          .toLowerCase();
 
 
-const {
-  start:
-    todayStart,
+      if (
+        ![
+          "today",
+          "pending",
+          "all",
+        ].includes(
+          requestedSection
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-  end:
-    todayEnd,
-
-  date:
-    businessDate,
-} =
-  getAllocationBusinessDayRange(
-    req.query.date
-  );
+            message:
+              "Invalid allocation section. Use today, pending or all.",
+          });
+      }
 
 
-// ======================================================
-// ADD UI/SECTION INFORMATION TO EACH ALLOCATION
-// ======================================================
+      const {
+        start:
+        todayStart,
 
-const sectionReadyData =
-  enrichedByIndex.map(
-    (allocation) => {
+        end:
+        todayEnd,
 
-      const allocationDate =
-        new Date(
-          allocation.allocationDate ||
-          allocation.createdAt
+        date:
+        businessDate,
+      } =
+        getAllocationBusinessDayRange(
+          req.query.date
         );
 
 
-      const status =
-        (
-          allocation.status ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase();
+      // ======================================================
+      // ADD UI/SECTION INFORMATION TO EACH ALLOCATION
+      // ======================================================
+
+      const sectionReadyData =
+        enrichedByIndex.map(
+          (allocation) => {
+
+            const allocationDate =
+              new Date(
+                allocation.allocationDate ||
+                allocation.createdAt
+              );
 
 
-      const remainingQuantity =
-        Number(
-          allocation.remainingQuantity
-        ) || 0;
+            const status =
+              (
+                allocation.status ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
 
 
-      const isToday =
-        allocationDate >=
-          todayStart &&
-        allocationDate <
-          todayEnd;
+            const remainingQuantity =
+              Number(
+                allocation.remainingQuantity
+              ) || 0;
 
 
-      const isPending =
-        status !== "CANCELLED" &&
-        status !== "DELETED" &&
-        remainingQuantity > 0 &&
-        allocationDate <
-          todayStart;
+            const isToday =
+              allocationDate >=
+              todayStart &&
+              allocationDate <
+              todayEnd;
 
 
-      const isCompleted =
-        status !== "CANCELLED" &&
-        status !== "DELETED" &&
-        remainingQuantity <= 0;
+            const isPending =
+              status !== "CANCELLED" &&
+              status !== "DELETED" &&
+              remainingQuantity > 0 &&
+              allocationDate <
+              todayStart;
 
 
-      const isUpcoming =
-        status !== "CANCELLED" &&
-        status !== "DELETED" &&
-        allocationDate >=
-          todayEnd;
+            const isCompleted =
+              status !== "CANCELLED" &&
+              status !== "DELETED" &&
+              remainingQuantity <= 0;
 
 
-      return {
-        ...allocation,
+            const isUpcoming =
+              status !== "CANCELLED" &&
+              status !== "DELETED" &&
+              allocationDate >=
+              todayEnd;
 
-        allocationSection:
-          isToday
-            ? "TODAY"
-            : isPending
-              ? "PENDING"
-              : isUpcoming
-                ? "UPCOMING"
-                : isCompleted
-                  ? "COMPLETED"
-                  : "ALL",
 
-        isToday:
-          isToday,
+            return {
+              ...allocation,
 
-        isPending:
-          isPending,
+              allocationSection:
+                isToday
+                  ? "TODAY"
+                  : isPending
+                    ? "PENDING"
+                    : isUpcoming
+                      ? "UPCOMING"
+                      : isCompleted
+                        ? "COMPLETED"
+                        : "ALL",
 
-        isCompleted:
-          isCompleted,
+              isToday:
+                isToday,
+
+              isPending:
+                isPending,
+
+              isCompleted:
+                isCompleted,
+            };
+          }
+        );
+
+
+      // ======================================================
+      // SUMMARY COUNTS FOR FRONTEND TABS
+      // ======================================================
+
+      const summary = {
+
+        today:
+          sectionReadyData.filter(
+            (item) =>
+              item.isToday
+          ).length,
+
+        pending:
+          sectionReadyData.filter(
+            (item) =>
+              item.isPending
+          ).length,
+
+        all:
+          sectionReadyData.length,
+
+        completed:
+          sectionReadyData.filter(
+            (item) =>
+              item.isCompleted
+          ).length,
+
+        cancelled:
+          sectionReadyData.filter(
+            (item) =>
+              (
+                item.status ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase() ===
+              "CANCELLED"
+          ).length,
       };
-    }
-  );
 
 
-// ======================================================
-// SUMMARY COUNTS FOR FRONTEND TABS
-// ======================================================
+      // ======================================================
+      // APPLY REQUESTED SECTION
+      // ======================================================
 
-const summary = {
-
-  today:
-    sectionReadyData.filter(
-      (item) =>
-        item.isToday
-    ).length,
-
-  pending:
-    sectionReadyData.filter(
-      (item) =>
-        item.isPending
-    ).length,
-
-  all:
-    sectionReadyData.length,
-
-  completed:
-    sectionReadyData.filter(
-      (item) =>
-        item.isCompleted
-    ).length,
-
-  cancelled:
-    sectionReadyData.filter(
-      (item) =>
-        (
-          item.status ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase() ===
-        "CANCELLED"
-    ).length,
-};
+      let finalData =
+        sectionReadyData;
 
 
-// ======================================================
-// APPLY REQUESTED SECTION
-// ======================================================
-
-let finalData =
-  sectionReadyData;
-
-
-if (
-  requestedSection ===
-  "today"
-) {
-  finalData =
-    sectionReadyData.filter(
-      (item) =>
-        item.isToday
-    );
-}
+      if (
+        requestedSection ===
+        "today"
+      ) {
+        finalData =
+          sectionReadyData.filter(
+            (item) =>
+              item.isToday
+          );
+      }
 
 
-if (
-  requestedSection ===
-  "pending"
-) {
-  finalData =
-    sectionReadyData.filter(
-      (item) =>
-        item.isPending
-    );
-}
+      if (
+        requestedSection ===
+        "pending"
+      ) {
+        finalData =
+          sectionReadyData.filter(
+            (item) =>
+              item.isPending
+          );
+      }
 
 
-// ======================================================
-// RESPONSE
-// ======================================================
+      // ======================================================
+      // RESPONSE
+      // ======================================================
 
-return res.status(200).json({
+      return res.status(200).json({
 
-  success:
-    true,
+        success:
+          true,
 
-  section:
-    requestedSection,
+        section:
+          requestedSection,
 
-  businessDate:
-    businessDate,
+        businessDate:
+          businessDate,
 
-  count:
-    finalData.length,
+        count:
+          finalData.length,
 
-  summary:
-    summary,
+        summary:
+          summary,
 
-  data:
-    finalData,
-});
+        data:
+          finalData,
+      });
 
 
     } catch (error) {
@@ -15658,15 +15746,15 @@ app.get(
           });
       }
 
-    const allocation =
-  await Allocation.findOne({
-    farmId,
-    allocationId,
+      const allocation =
+        await Allocation.findOne({
+          farmId,
+          allocationId,
 
-    status: {
-      $ne: "DELETED",
-    },
-  }).lean();
+          status: {
+            $ne: "DELETED",
+          },
+        }).lean();
 
       if (!allocation) {
         return res
@@ -16241,11 +16329,11 @@ app.post(
               farmId
             );
 
-const finalAllocationDate =
-  parseAllocationBusinessDate(
-    allocationDate ||
-      getAllocationBusinessDayRange().date
-  );
+          const finalAllocationDate =
+            parseAllocationBusinessDate(
+              allocationDate ||
+              getAllocationBusinessDayRange().date
+            );
 
 
           // ============================================
@@ -17387,12 +17475,12 @@ app.put(
           // UPDATE ALLOCATION
           // ==============================================
 
-        if (allocationDate) {
-  allocation.allocationDate =
-    parseAllocationBusinessDate(
-      allocationDate
-    );
-}
+          if (allocationDate) {
+            allocation.allocationDate =
+              parseAllocationBusinessDate(
+                allocationDate
+              );
+          }
 
           allocation.salesmanId =
             salesman.salesmanId;
@@ -20277,47 +20365,47 @@ app.get(
       const masterCustomers =
         role === "admin"
           ? await Customer.find({
-              farmId,
+            farmId,
 
-              isActive:
-                true,
-            })
-              .select(
-                [
-                  "customerId",
-                  "name",
-                  "mobile",
-                  "route",
-                  "balance",
-                  "isActive",
-                  "createdAt",
-                ].join(" ")
-              )
-              .lean()
+            isActive:
+              true,
+          })
+            .select(
+              [
+                "customerId",
+                "name",
+                "mobile",
+                "route",
+                "balance",
+                "isActive",
+                "createdAt",
+              ].join(" ")
+            )
+            .lean()
 
           : await Customer.find({
-              farmId,
+            farmId,
 
-              isActive:
-                true,
+            isActive:
+              true,
 
-              route: {
-                $in:
-                  salesmanRouteValues,
-              },
-            })
-              .select(
-                [
-                  "customerId",
-                  "name",
-                  "mobile",
-                  "route",
-                  "balance",
-                  "isActive",
-                  "createdAt",
-                ].join(" ")
-              )
-              .lean();
+            route: {
+              $in:
+                salesmanRouteValues,
+            },
+          })
+            .select(
+              [
+                "customerId",
+                "name",
+                "mobile",
+                "route",
+                "balance",
+                "isActive",
+                "createdAt",
+              ].join(" ")
+            )
+            .lean();
 
       const masterCustomerMap =
         new Map(
@@ -20613,63 +20701,63 @@ app.get(
               // ============================================
               // SALES / COLLECTION VALUES
               // ============================================
-totalCreditSales:
-  0,
+              totalCreditSales:
+                0,
 
-// ============================================
-// RECEIVED MONEY
-//
-// totalPaidAtBilling
-//   = payment entered while making sale
-//
-// totalLaterCollections
-//   = TRN_COLLECTION receipts
-//
-// totalCollected / totalReceived
-//   = both combined
-// ============================================
+              // ============================================
+              // RECEIVED MONEY
+              //
+              // totalPaidAtBilling
+              //   = payment entered while making sale
+              //
+              // totalLaterCollections
+              //   = TRN_COLLECTION receipts
+              //
+              // totalCollected / totalReceived
+              //   = both combined
+              // ============================================
 
-totalPaidAtBilling:
-  0,
+              totalPaidAtBilling:
+                0,
 
-totalLaterCollections:
-  0,
+              totalLaterCollections:
+                0,
 
-totalCollected:
-  0,
+              totalCollected:
+                0,
 
-totalReceived:
-  0,
+              totalReceived:
+                0,
 
-outstanding:
-  0,
+              outstanding:
+                0,
 
-lastPaymentMode:
-  "",
+              lastPaymentMode:
+                "",
 
-lastCollectionDate:
-  null,
+              lastCollectionDate:
+                null,
 
-billCount:
-  0,
+              billCount:
+                0,
 
-bills: [],
+              bills: [],
 
-// Unified receipt list.
-// Contains virtual BILL_PAYMENT + real COLLECTION.
-receiptHistory: [],
+              // Unified receipt list.
+              // Contains virtual BILL_PAYMENT + real COLLECTION.
+              receiptHistory: [],
 
-totalManualOutstanding:
-  0,
+              totalManualOutstanding:
+                0,
 
-manualOutstandingCount:
-  0,
+              manualOutstandingCount:
+                0,
 
-manualOutstandings:
-  [],
+              manualOutstandings:
+                [],
 
-// ============================================
-// ACCOUNT AUDIT HISTORY
+              // ============================================
+              // ACCOUNT AUDIT HISTORY
               // ============================================
 
               accountHistory:
@@ -20728,76 +20816,76 @@ manualOutstandings:
               salesmanName:
                 sale.salesmanName || "",
 
-            totalCreditSales:
-  0,
+              totalCreditSales:
+                0,
 
-// ============================================
-// RECEIVED MONEY
-//
-// totalPaidAtBilling
-//   = payment entered while making sale
-//
-// totalLaterCollections
-//   = TRN_COLLECTION receipts
-//
-// totalCollected / totalReceived
-//   = both combined
-// ============================================
+              // ============================================
+              // RECEIVED MONEY
+              //
+              // totalPaidAtBilling
+              //   = payment entered while making sale
+              //
+              // totalLaterCollections
+              //   = TRN_COLLECTION receipts
+              //
+              // totalCollected / totalReceived
+              //   = both combined
+              // ============================================
 
-totalPaidAtBilling:
-  0,
+              totalPaidAtBilling:
+                0,
 
-totalLaterCollections:
-  0,
+              totalLaterCollections:
+                0,
 
-totalCollected:
-  0,
+              totalCollected:
+                0,
 
-totalReceived:
-  0,
+              totalReceived:
+                0,
 
-outstanding:
-  0,
+              outstanding:
+                0,
 
-lastPaymentMode:
-  "",
+              lastPaymentMode:
+                "",
 
-lastCollectionDate:
-  null,
+              lastCollectionDate:
+                null,
 
-billCount:
-  0,
+              billCount:
+                0,
 
-bills: [],
+              bills: [],
 
-// Unified receipt list.
-// Contains virtual BILL_PAYMENT + real COLLECTION.
-receiptHistory: [],
+              // Unified receipt list.
+              // Contains virtual BILL_PAYMENT + real COLLECTION.
+              receiptHistory: [],
 
-totalManualOutstanding:
-  0,
+              totalManualOutstanding:
+                0,
 
-manualOutstandingCount:
-  0,
+              manualOutstandingCount:
+                0,
 
-manualOutstandings:
-  [],
+              manualOutstandings:
+                [],
 
-advanceBalance:
-  Number(
-    masterCustomerMap
-      .get(customerId)
-      ?.balance ||
-    0
-  ),
+              advanceBalance:
+                Number(
+                  masterCustomerMap
+                    .get(customerId)
+                    ?.balance ||
+                  0
+                ),
 
-balance:
-  Number(
-    masterCustomerMap
-      .get(customerId)
-      ?.balance ||
-    0
-  ),
+              balance:
+                Number(
+                  masterCustomerMap
+                    .get(customerId)
+                    ?.balance ||
+                  0
+                ),
 
               accountHistory:
                 [],
@@ -20824,49 +20912,49 @@ balance:
               sale.paidAmount
             ) || 0
           );
-          // ==================================================
-// MONEY RECEIVED WHILE MAKING BILL
-//
-// DO NOT reduce outstanding here.
-//
-// sale.outstandingAmount already contains only
-// the unpaid portion of the bill.
-// ==================================================
+        // ==================================================
+        // MONEY RECEIVED WHILE MAKING BILL
+        //
+        // DO NOT reduce outstanding here.
+        //
+        // sale.outstandingAmount already contains only
+        // the unpaid portion of the bill.
+        // ==================================================
 
-row.totalPaidAtBilling +=
-  paidAmount;
+        row.totalPaidAtBilling +=
+          paidAmount;
 
-row.totalCollected +=
-  paidAmount;
+        row.totalCollected +=
+          paidAmount;
 
 
-if (
-  paidAmount > 0.001
-) {
-  const salePaymentDate =
-    sale.saleDate ||
-    null;
+        if (
+          paidAmount > 0.001
+        ) {
+          const salePaymentDate =
+            sale.saleDate ||
+            null;
 
-  if (
-    !row.lastCollectionDate ||
-    (
-      salePaymentDate &&
-      new Date(
-        salePaymentDate
-      ) >
-        new Date(
-          row.lastCollectionDate
-        )
-    )
-  ) {
-    row.lastCollectionDate =
-      salePaymentDate;
+          if (
+            !row.lastCollectionDate ||
+            (
+              salePaymentDate &&
+              new Date(
+                salePaymentDate
+              ) >
+              new Date(
+                row.lastCollectionDate
+              )
+            )
+          ) {
+            row.lastCollectionDate =
+              salePaymentDate;
 
-    row.lastPaymentMode =
-      sale.paymentMode ||
-      "";
-  }
-}
+            row.lastPaymentMode =
+              sale.paymentMode ||
+              "";
+          }
+        }
 
         const advanceUsed =
           Math.max(
@@ -21058,164 +21146,164 @@ if (
         }
 
         // ==================================================
-// VIRTUAL RECEIPT FOR PAYMENT RECEIVED AT BILLING
-//
-// This exists only in API response.
-// Nothing is written to TRN_COLLECTION.
-// ==================================================
+        // VIRTUAL RECEIPT FOR PAYMENT RECEIVED AT BILLING
+        //
+        // This exists only in API response.
+        // Nothing is written to TRN_COLLECTION.
+        // ==================================================
 
-if (
-  paidAmount > 0.001
-) {
-  row.receiptHistory.push({
-    sourceType:
-      "BILL_PAYMENT",
+        if (
+          paidAmount > 0.001
+        ) {
+          row.receiptHistory.push({
+            sourceType:
+              "BILL_PAYMENT",
 
-    id:
-      sale.saleId ||
-      "",
+            id:
+              sale.saleId ||
+              "",
 
-    saleId:
-      sale.saleId ||
-      "",
+            saleId:
+              sale.saleId ||
+              "",
 
-    saleNo:
-      sale.saleNo ||
-      "",
+            saleNo:
+              sale.saleNo ||
+              "",
 
-    receiptNo:
-      sale.saleNo ||
-      "",
+            receiptNo:
+              sale.saleNo ||
+              "",
 
-    date:
-      sale.saleDate,
+            date:
+              sale.saleDate,
 
-    collectionDate:
-      sale.saleDate,
+            collectionDate:
+              sale.saleDate,
 
-    customerId:
-      sale.customerId ||
-      customerId,
+            customerId:
+              sale.customerId ||
+              customerId,
 
-    customerName:
-      sale.customerName ||
-      row.customerName ||
-      "",
+            customerName:
+              sale.customerName ||
+              row.customerName ||
+              "",
 
-    customerMobile:
-      String(
-        sale.customerMobile ||
-        row.customerMobile ||
-        ""
-      ),
+            customerMobile:
+              String(
+                sale.customerMobile ||
+                row.customerMobile ||
+                ""
+              ),
 
-    route:
-      sale.route ||
-      row.route ||
-      "",
+            route:
+              sale.route ||
+              row.route ||
+              "",
 
-    salesmanId:
-      sale.salesmanId ||
-      "",
+            salesmanId:
+              sale.salesmanId ||
+              "",
 
-    salesmanName:
-      sale.salesmanName ||
-      "",
+            salesmanName:
+              sale.salesmanName ||
+              "",
 
-    billAmount:
-      Number(
-        billAmount.toFixed(2)
-      ),
+            billAmount:
+              Number(
+                billAmount.toFixed(2)
+              ),
 
-    amount:
-      Number(
-        paidAmount.toFixed(2)
-      ),
+            amount:
+              Number(
+                paidAmount.toFixed(2)
+              ),
 
-    paidAmount:
-      Number(
-        paidAmount.toFixed(2)
-      ),
+            paidAmount:
+              Number(
+                paidAmount.toFixed(2)
+              ),
 
-    paymentApplied:
-      Number(
-        (
-          sale.paymentApplied !== undefined && sale.paymentApplied !== null
-            ? Number(sale.paymentApplied)
-            : Math.min(paidAmount, billAmount)
-        ).toFixed(2)
-      ),
+            paymentApplied:
+              Number(
+                (
+                  sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                    ? Number(sale.paymentApplied)
+                    : Math.min(paidAmount, billAmount)
+                ).toFixed(2)
+              ),
 
-    paymentAppliedAtBilling:
-      Number(
-        (
-          sale.paymentApplied !== undefined && sale.paymentApplied !== null
-            ? Number(sale.paymentApplied)
-            : Math.min(paidAmount, billAmount)
-        ).toFixed(2)
-      ),
+            paymentAppliedAtBilling:
+              Number(
+                (
+                  sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                    ? Number(sale.paymentApplied)
+                    : Math.min(paidAmount, billAmount)
+                ).toFixed(2)
+              ),
 
-    paymentMode:
-      sale.paymentMode ||
-      "",
+            paymentMode:
+              sale.paymentMode ||
+              "",
 
-    payments:
-      payments,
+            payments:
+              payments,
 
-    paymentBreakup: {
-      cash:
-        Number(
-          cashAmount.toFixed(2)
-        ),
+            paymentBreakup: {
+              cash:
+                Number(
+                  cashAmount.toFixed(2)
+                ),
 
-      upi:
-        Number(
-          upiAmount.toFixed(2)
-        ),
+              upi:
+                Number(
+                  upiAmount.toFixed(2)
+                ),
 
-      bank:
-        Number(
-          bankAmount.toFixed(2)
-        ),
+              bank:
+                Number(
+                  bankAmount.toFixed(2)
+                ),
 
-      other:
-        Number(
-          otherAmount.toFixed(2)
-        ),
-    },
+              other:
+                Number(
+                  otherAmount.toFixed(2)
+                ),
+            },
 
-    outstandingAmount:
-      Number(
-        outstandingAmount.toFixed(2)
-      ),
+            outstandingAmount:
+              Number(
+                outstandingAmount.toFixed(2)
+              ),
 
-    paymentStatus:
-      sale.paymentStatus ||
-      (
-        outstandingAmount >
-        0.001
-          ? "PARTIAL"
-          : "PAID"
-      ),
+            paymentStatus:
+              sale.paymentStatus ||
+              (
+                outstandingAmount >
+                  0.001
+                  ? "PARTIAL"
+                  : "PAID"
+              ),
 
-    advanceCreated:
-      Number(
-        advanceCreated.toFixed(2)
-      ),
+            advanceCreated:
+              Number(
+                advanceCreated.toFixed(2)
+              ),
 
-    advanceUsed:
-      Number(
-        advanceUsed.toFixed(2)
-      ),
+            advanceUsed:
+              Number(
+                advanceUsed.toFixed(2)
+              ),
 
-    canDownloadReceipt:
-      true,
+            canDownloadReceipt:
+              true,
 
-    canCollectPayment:
-      outstandingAmount >
-      0.001,
-  });
-}
+            canCollectPayment:
+              outstandingAmount >
+              0.001,
+          });
+        }
 
         // ==================================================
         // BILL DETAIL
@@ -21242,14 +21330,14 @@ if (
             "",
 
           sourceType:
-  "BILL_PAYMENT",
+            "BILL_PAYMENT",
 
-canDownloadReceipt:
-  paidAmount > 0.001,
+          canDownloadReceipt:
+            paidAmount > 0.001,
 
-canCollectPayment:
-  outstandingAmount >
-  0.001,
+          canCollectPayment:
+            outstandingAmount >
+            0.001,
 
           billAmount:
             Number(
@@ -21444,168 +21532,168 @@ canCollectPayment:
         }
       }
 
-// ==================================================
-// ADD MANUAL OUTSTANDING TO CUSTOMER
-// ==================================================
+      // ==================================================
+      // ADD MANUAL OUTSTANDING TO CUSTOMER
+      // ==================================================
 
-for (
-  const manualOutstanding of
-  manualOutstandingRecords
-) {
-  const customerId =
-    (
-      manualOutstanding.customerId ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
-
-
-  if (
-    !customerMap.has(
-      customerId
-    )
-  ) {
-    continue;
-  }
+      for (
+        const manualOutstanding of
+        manualOutstandingRecords
+      ) {
+        const customerId =
+          (
+            manualOutstanding.customerId ||
+            ""
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
 
 
-  const row =
-    customerMap.get(
-      customerId
-    );
+        if (
+          !customerMap.has(
+            customerId
+          )
+        ) {
+          continue;
+        }
 
 
-  const amount =
-    Math.max(
-      0,
-      Number(
-        manualOutstanding.amount ||
-        0
-      )
-    );
+        const row =
+          customerMap.get(
+            customerId
+          );
 
 
-  row.totalManualOutstanding +=
-    amount;
-
-  row.manualOutstandingCount +=
-    1;
-
-
-  row.manualOutstandings.push({
-    sourceType:
-      "MANUAL_OUTSTANDING",
-
-    adjustmentId:
-      manualOutstanding.adjustmentId ||
-      "",
-
-    adjustmentNo:
-      manualOutstanding.adjustmentNo ||
-      "",
-
-    adjustmentDate:
-      manualOutstanding.adjustmentDate,
-
-    customerId:
-      manualOutstanding.customerId ||
-      row.customerId ||
-      customerId,
-
-    customerName:
-      manualOutstanding.customerName ||
-      row.customerName ||
-      "",
-
-    referenceId:
-      manualOutstanding.adjustmentId ||
-      "",
-
-    referenceNo:
-      manualOutstanding.adjustmentNo ||
-      "",
-
-    referenceDate:
-      manualOutstanding.adjustmentDate,
-
-    amount:
-      Number(
-        amount.toFixed(2)
-      ),
-
-    initialOutstanding:
-      Number(
-        amount.toFixed(2)
-      ),
-
-    collectionApplied:
-      0,
-
-    outstandingAmount:
-      Number(
-        amount.toFixed(2)
-      ),
-
-    remainingOutstanding:
-      Number(
-        amount.toFixed(2)
-      ),
-
-    outstandingId:
-      manualOutstanding.adjustmentId ||
-      "",
-
-    status:
-      "DUE",
-
-    remarks:
-      manualOutstanding.remarks ||
-      "",
-  });
+        const amount =
+          Math.max(
+            0,
+            Number(
+              manualOutstanding.amount ||
+              0
+            )
+          );
 
 
-  row.accountHistory.push({
-    type:
-      "MANUAL_OUTSTANDING",
+        row.totalManualOutstanding +=
+          amount;
 
-    date:
-      manualOutstanding.adjustmentDate,
+        row.manualOutstandingCount +=
+          1;
 
-    reference:
-      manualOutstanding.adjustmentNo ||
-      manualOutstanding.adjustmentId,
 
-    adjustmentId:
-      manualOutstanding.adjustmentId,
+        row.manualOutstandings.push({
+          sourceType:
+            "MANUAL_OUTSTANDING",
 
-    description:
-      manualOutstanding.remarks
-        ? `Manual outstanding added. ${manualOutstanding.remarks}`
-        : "Manual outstanding added.",
+          adjustmentId:
+            manualOutstanding.adjustmentId ||
+            "",
 
-    billAmount:
-      0,
+          adjustmentNo:
+            manualOutstanding.adjustmentNo ||
+            "",
 
-    receivedAmount:
-      0,
+          adjustmentDate:
+            manualOutstanding.adjustmentDate,
 
-    outstandingAdded:
-      Number(
-        amount.toFixed(2)
-      ),
+          customerId:
+            manualOutstanding.customerId ||
+            row.customerId ||
+            customerId,
 
-    outstandingReduced:
-      0,
+          customerName:
+            manualOutstanding.customerName ||
+            row.customerName ||
+            "",
 
-    advanceAdded:
-      0,
+          referenceId:
+            manualOutstanding.adjustmentId ||
+            "",
 
-    advanceUsed:
-      0,
-  });
-}
+          referenceNo:
+            manualOutstanding.adjustmentNo ||
+            "",
+
+          referenceDate:
+            manualOutstanding.adjustmentDate,
+
+          amount:
+            Number(
+              amount.toFixed(2)
+            ),
+
+          initialOutstanding:
+            Number(
+              amount.toFixed(2)
+            ),
+
+          collectionApplied:
+            0,
+
+          outstandingAmount:
+            Number(
+              amount.toFixed(2)
+            ),
+
+          remainingOutstanding:
+            Number(
+              amount.toFixed(2)
+            ),
+
+          outstandingId:
+            manualOutstanding.adjustmentId ||
+            "",
+
+          status:
+            "DUE",
+
+          remarks:
+            manualOutstanding.remarks ||
+            "",
+        });
+
+
+        row.accountHistory.push({
+          type:
+            "MANUAL_OUTSTANDING",
+
+          date:
+            manualOutstanding.adjustmentDate,
+
+          reference:
+            manualOutstanding.adjustmentNo ||
+            manualOutstanding.adjustmentId,
+
+          adjustmentId:
+            manualOutstanding.adjustmentId,
+
+          description:
+            manualOutstanding.remarks
+              ? `Manual outstanding added. ${manualOutstanding.remarks}`
+              : "Manual outstanding added.",
+
+          billAmount:
+            0,
+
+          receivedAmount:
+            0,
+
+          outstandingAdded:
+            Number(
+              amount.toFixed(2)
+            ),
+
+          outstandingReduced:
+            0,
+
+          advanceAdded:
+            0,
+
+          advanceUsed:
+            0,
+        });
+      }
       // ==================================================
       // APPLY COLLECTIONS TO CUSTOMER + BILLS
       // FIFO BILL SETTLEMENT
@@ -21667,136 +21755,136 @@ for (
           );
 
 
-     row.totalLaterCollections +=
-  collectionAmount;
+        row.totalLaterCollections +=
+          collectionAmount;
 
-row.totalCollected +=
-  collectionAmount;
+        row.totalCollected +=
+          collectionAmount;
 
 
-// ==================================================
-// REAL COLLECTION RECEIPT
-// ==================================================
+        // ==================================================
+        // REAL COLLECTION RECEIPT
+        // ==================================================
 
-row.receiptHistory.push({
-  sourceType:
-    "COLLECTION",
+        row.receiptHistory.push({
+          sourceType:
+            "COLLECTION",
 
-  id:
-    collection.collectionId ||
-    "",
+          id:
+            collection.collectionId ||
+            "",
 
-  collectionId:
-    collection.collectionId ||
-    "",
+          collectionId:
+            collection.collectionId ||
+            "",
 
-  receiptNo:
-    collection.receiptNo ||
-    "",
+          receiptNo:
+            collection.receiptNo ||
+            "",
 
-  date:
-    collection.collectionDate,
+          date:
+            collection.collectionDate,
 
-  collectionDate:
-    collection.collectionDate,
+          collectionDate:
+            collection.collectionDate,
 
-  customerId:
-    collection.customerId ||
-    customerId,
+          customerId:
+            collection.customerId ||
+            customerId,
 
-  customerName:
-    row.customerName ||
-    "",
+          customerName:
+            row.customerName ||
+            "",
 
-  customerMobile:
-    String(
-      row.customerMobile ||
-      ""
-    ),
+          customerMobile:
+            String(
+              row.customerMobile ||
+              ""
+            ),
 
-  route:
-    row.route ||
-    "",
+          route:
+            row.route ||
+            "",
 
-  salesmanId:
-    collection.salesmanId ||
-    "",
+          salesmanId:
+            collection.salesmanId ||
+            "",
 
-  salesmanName:
-    collection.salesmanName ||
-    "",
+          salesmanName:
+            collection.salesmanName ||
+            "",
 
-  amount:
-    Number(
-      collectionAmount.toFixed(2)
-    ),
+          amount:
+            Number(
+              collectionAmount.toFixed(2)
+            ),
 
-  appliedAmount:
-    Number(
-      appliedAmount.toFixed(2)
-    ),
+          appliedAmount:
+            Number(
+              appliedAmount.toFixed(2)
+            ),
 
-  advanceAmount:
-    Number(
-      advanceAmount.toFixed(2)
-    ),
+          advanceAmount:
+            Number(
+              advanceAmount.toFixed(2)
+            ),
 
-  previousOutstanding:
-    Number(
-      (collection.previousOutstanding ?? 0).toFixed(2)
-    ),
+          previousOutstanding:
+            Number(
+              (collection.previousOutstanding ?? 0).toFixed(2)
+            ),
 
-  remainingOutstanding:
-    Number(
-      (collection.remainingOutstanding ?? 0).toFixed(2)
-    ),
+          remainingOutstanding:
+            Number(
+              (collection.remainingOutstanding ?? 0).toFixed(2)
+            ),
 
-  previousAdvanceBalance:
-    Number(
-      (collection.previousAdvanceBalance ?? 0).toFixed(2)
-    ),
+          previousAdvanceBalance:
+            Number(
+              (collection.previousAdvanceBalance ?? 0).toFixed(2)
+            ),
 
-  currentAdvanceBalance:
-    Number(
-      (collection.currentAdvanceBalance ?? 0).toFixed(2)
-    ),
+          currentAdvanceBalance:
+            Number(
+              (collection.currentAdvanceBalance ?? 0).toFixed(2)
+            ),
 
-  allocations:
-    Array.isArray(collection.allocations)
-      ? collection.allocations
-      : [],
+          allocations:
+            Array.isArray(collection.allocations)
+              ? collection.allocations
+              : [],
 
-  allocationMode:
-    collection.allocationMode ||
-    "FIFO",
+          allocationMode:
+            collection.allocationMode ||
+            "FIFO",
 
-  status:
-    collection.status ||
-    "POSTED",
+          status:
+            collection.status ||
+            "POSTED",
 
-  cancelReason:
-    collection.cancelReason ||
-    "",
+          cancelReason:
+            collection.cancelReason ||
+            "",
 
-  clientRequestId:
-    collection.clientRequestId ||
-    "",
+          clientRequestId:
+            collection.clientRequestId ||
+            "",
 
-  paymentMode:
-    collection.paymentMode ||
-    "",
+          paymentMode:
+            collection.paymentMode ||
+            "",
 
-  referenceNo:
-    collection.referenceNo ||
-    "",
+          referenceNo:
+            collection.referenceNo ||
+            "",
 
-  remarks:
-    collection.remarks ||
-    "",
+          remarks:
+            collection.remarks ||
+            "",
 
-  canDownloadReceipt:
-    true,
-});
+          canDownloadReceipt:
+            true,
+        });
 
 
         row.lastPaymentMode =
@@ -21876,196 +21964,196 @@ row.receiptHistory.push({
         // SAVED ALLOCATIONS
         // ==================================================
 
-     const savedAllocations =
-  Array.isArray(
-    collection.allocations
-  )
-    ? collection.allocations
-    : [];
-
-
-// ==================================================
-// NEW RECEIPT WITH SAVED ALLOCATIONS
-// ==================================================
-
-if (
-  savedAllocations.length >
-  0
-) {
-  const sourceMap =
-    new Map();
-
-
-  // ================================================
-  // ADD SALE SOURCES
-  // ================================================
-
-  for (
-    const bill of
-    row.bills
-  ) {
-    sourceMap.set(
-      getOutstandingSourceKey(
-        "SALE",
-        bill.saleId
-      ),
-      bill
-    );
-  }
-
-
-  // ================================================
-  // ADD MANUAL OUTSTANDING SOURCES
-  // ================================================
-
-  for (
-    const manualOutstanding of
-    row.manualOutstandings
-  ) {
-    sourceMap.set(
-      getOutstandingSourceKey(
-        "MANUAL_OUTSTANDING",
-        manualOutstanding.adjustmentId
-      ),
-      manualOutstanding
-    );
-  }
-
-
-  // ================================================
-  // APPLY SAVED COLLECTION ALLOCATIONS
-  // ================================================
-
-  for (
-    const allocation of
-    savedAllocations
-  ) {
-    const sourceType =
-      (
-        allocation.sourceType ||
-        "SALE"
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
-
-
-    // ==============================================
-    // OLD RECEIPTS:
-    // referenceId may not exist.
-    // Use saleId for backward compatibility.
-    // ==============================================
-
-    const referenceId =
-      (
-        allocation.referenceId ||
-        allocation.saleId ||
-        ""
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
-
-
-    if (!referenceId) {
-      continue;
-    }
-
-
-    const key =
-      getOutstandingSourceKey(
-        sourceType,
-        referenceId
-      );
-
-
-    if (
-      !sourceMap.has(
-        key
-      )
-    ) {
-      continue;
-    }
-
-
-    const source =
-      sourceMap.get(
-        key
-      );
-
-
-    const requestedApplied =
-      Math.max(
-        0,
-        Number(
-          allocation.amountApplied
-        ) || 0
-      );
-
-
-    const currentOutstanding =
-      Math.max(
-        0,
-        Number(
-          source.outstandingAmount
-        ) || 0
-      );
-
-
-    const applied =
-      Math.min(
-        requestedApplied,
-        currentOutstanding
-      );
-
-
-    source.collectionApplied +=
-      applied;
-
-
-    source.outstandingAmount =
-      Math.max(
-        0,
-        currentOutstanding -
-        applied
-      );
-
-
-    // ==============================================
-    // SALE-SPECIFIC PAID AMOUNT
-    // ==============================================
-
-    if (
-      sourceType ===
-      "SALE"
-    ) {
-      source.paidAmount =
-        Math.min(
-          source.billAmount,
-
-          Number(
-            source.salePaidAmount ||
-            0
-          ) +
-
-          Number(
-            source.advanceUsed ||
-            0
-          ) +
-
-          Number(
-            source.collectionApplied ||
-            0
+        const savedAllocations =
+          Array.isArray(
+            collection.allocations
           )
-        );
-    }
-  }
+            ? collection.allocations
+            : [];
 
 
-  // Saved allocations handled.
-  // Do not run old FIFO for this collection.
-  continue;
-}
+        // ==================================================
+        // NEW RECEIPT WITH SAVED ALLOCATIONS
+        // ==================================================
+
+        if (
+          savedAllocations.length >
+          0
+        ) {
+          const sourceMap =
+            new Map();
+
+
+          // ================================================
+          // ADD SALE SOURCES
+          // ================================================
+
+          for (
+            const bill of
+            row.bills
+          ) {
+            sourceMap.set(
+              getOutstandingSourceKey(
+                "SALE",
+                bill.saleId
+              ),
+              bill
+            );
+          }
+
+
+          // ================================================
+          // ADD MANUAL OUTSTANDING SOURCES
+          // ================================================
+
+          for (
+            const manualOutstanding of
+            row.manualOutstandings
+          ) {
+            sourceMap.set(
+              getOutstandingSourceKey(
+                "MANUAL_OUTSTANDING",
+                manualOutstanding.adjustmentId
+              ),
+              manualOutstanding
+            );
+          }
+
+
+          // ================================================
+          // APPLY SAVED COLLECTION ALLOCATIONS
+          // ================================================
+
+          for (
+            const allocation of
+            savedAllocations
+          ) {
+            const sourceType =
+              (
+                allocation.sourceType ||
+                "SALE"
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            // ==============================================
+            // OLD RECEIPTS:
+            // referenceId may not exist.
+            // Use saleId for backward compatibility.
+            // ==============================================
+
+            const referenceId =
+              (
+                allocation.referenceId ||
+                allocation.saleId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            if (!referenceId) {
+              continue;
+            }
+
+
+            const key =
+              getOutstandingSourceKey(
+                sourceType,
+                referenceId
+              );
+
+
+            if (
+              !sourceMap.has(
+                key
+              )
+            ) {
+              continue;
+            }
+
+
+            const source =
+              sourceMap.get(
+                key
+              );
+
+
+            const requestedApplied =
+              Math.max(
+                0,
+                Number(
+                  allocation.amountApplied
+                ) || 0
+              );
+
+
+            const currentOutstanding =
+              Math.max(
+                0,
+                Number(
+                  source.outstandingAmount
+                ) || 0
+              );
+
+
+            const applied =
+              Math.min(
+                requestedApplied,
+                currentOutstanding
+              );
+
+
+            source.collectionApplied +=
+              applied;
+
+
+            source.outstandingAmount =
+              Math.max(
+                0,
+                currentOutstanding -
+                applied
+              );
+
+
+            // ==============================================
+            // SALE-SPECIFIC PAID AMOUNT
+            // ==============================================
+
+            if (
+              sourceType ===
+              "SALE"
+            ) {
+              source.paidAmount =
+                Math.min(
+                  source.billAmount,
+
+                  Number(
+                    source.salePaidAmount ||
+                    0
+                  ) +
+
+                  Number(
+                    source.advanceUsed ||
+                    0
+                  ) +
+
+                  Number(
+                    source.collectionApplied ||
+                    0
+                  )
+                );
+            }
+          }
+
+
+          // Saved allocations handled.
+          // Do not run old FIFO for this collection.
+          continue;
+        }
 
 
         // ==================================================
@@ -22266,188 +22354,188 @@ if (
           }
         }
         // ==================================================
-// FINAL MANUAL OUTSTANDING STATUS
-// ==================================================
+        // FINAL MANUAL OUTSTANDING STATUS
+        // ==================================================
 
-for (
-  const manualOutstanding of
-  row.manualOutstandings
-) {
-  manualOutstanding.collectionApplied =
-    Number(
-      Math.max(
-        0,
-        Number(
-          manualOutstanding.collectionApplied ||
-          0
-        )
-      ).toFixed(2)
-    );
-
-
-  manualOutstanding.outstandingAmount =
-    Number(
-      Math.max(
-        0,
-        Number(
-          manualOutstanding.outstandingAmount ||
-          0
-        )
-      ).toFixed(2)
-    );
-
-  manualOutstanding.remainingOutstanding =
-    manualOutstanding.outstandingAmount;
-
-  manualOutstanding.outstandingId =
-    manualOutstanding.adjustmentId;
+        for (
+          const manualOutstanding of
+          row.manualOutstandings
+        ) {
+          manualOutstanding.collectionApplied =
+            Number(
+              Math.max(
+                0,
+                Number(
+                  manualOutstanding.collectionApplied ||
+                  0
+                )
+              ).toFixed(2)
+            );
 
 
-  if (
-    manualOutstanding.outstandingAmount <=
-    0.001
-  ) {
-    manualOutstanding.status =
-      "PAID";
-  }
+          manualOutstanding.outstandingAmount =
+            Number(
+              Math.max(
+                0,
+                Number(
+                  manualOutstanding.outstandingAmount ||
+                  0
+                )
+              ).toFixed(2)
+            );
 
-  else if (
-    manualOutstanding.collectionApplied >
-    0.001
-  ) {
-    manualOutstanding.status =
-      "PARTIAL";
-  }
+          manualOutstanding.remainingOutstanding =
+            manualOutstanding.outstandingAmount;
 
-  else {
-    manualOutstanding.status =
-      "DUE";
-  }
-}
+          manualOutstanding.outstandingId =
+            manualOutstanding.adjustmentId;
 
 
-row.totalManualOutstanding =
-  Number(
-    row.totalManualOutstanding
-      .toFixed(2)
-  );
+          if (
+            manualOutstanding.outstandingAmount <=
+            0.001
+          ) {
+            manualOutstanding.status =
+              "PAID";
+          }
 
-row.manualOutstanding =
-  row.manualOutstandings;
+          else if (
+            manualOutstanding.collectionApplied >
+            0.001
+          ) {
+            manualOutstanding.status =
+              "PARTIAL";
+          }
+
+          else {
+            manualOutstanding.status =
+              "DUE";
+          }
+        }
+
+
+        row.totalManualOutstanding =
+          Number(
+            row.totalManualOutstanding
+              .toFixed(2)
+          );
+
+        row.manualOutstanding =
+          row.manualOutstandings;
         row.totalCreditSales =
           Number(
             row.totalCreditSales
               .toFixed(2)
           );
 
-row.totalPaidAtBilling =
-  Number(
-    (
-      Number(
-        row.totalPaidAtBilling
-      ) || 0
-    ).toFixed(2)
-  );
+        row.totalPaidAtBilling =
+          Number(
+            (
+              Number(
+                row.totalPaidAtBilling
+              ) || 0
+            ).toFixed(2)
+          );
 
 
-row.totalLaterCollections =
-  Number(
-    (
-      Number(
-        row.totalLaterCollections
-      ) || 0
-    ).toFixed(2)
-  );
+        row.totalLaterCollections =
+          Number(
+            (
+              Number(
+                row.totalLaterCollections
+              ) || 0
+            ).toFixed(2)
+          );
 
 
-row.totalCollected =
-  Number(
-    (
-      Number(
-        row.totalCollected
-      ) || 0
-    ).toFixed(2)
-  );
+        row.totalCollected =
+          Number(
+            (
+              Number(
+                row.totalCollected
+              ) || 0
+            ).toFixed(2)
+          );
 
 
-// Backward-compatible explicit alias.
-row.totalReceived =
-  row.totalCollected;
+        // Backward-compatible explicit alias.
+        row.totalReceived =
+          row.totalCollected;
 
 
-// Newest receipt first.
-row.receiptHistory.sort(
-  (a, b) =>
-    new Date(
-      b.date || 0
-    ) -
-    new Date(
-      a.date || 0
-    )
-);
+        // Newest receipt first.
+        row.receiptHistory.sort(
+          (a, b) =>
+            new Date(
+              b.date || 0
+            ) -
+            new Date(
+              a.date || 0
+            )
+        );
 
         // ==================================================
         // GROSS BILL OUTSTANDING
         // ==================================================
-const grossBillOutstanding =
-  Number(
-    row.bills
-      .reduce(
-        (
-          total,
-          bill
-        ) =>
-          total +
-          Math.max(
-            0,
-            Number(
-              bill.outstandingAmount
-            ) || 0
-          ),
-        0
-      )
-      .toFixed(2)
-  );
+        const grossBillOutstanding =
+          Number(
+            row.bills
+              .reduce(
+                (
+                  total,
+                  bill
+                ) =>
+                  total +
+                  Math.max(
+                    0,
+                    Number(
+                      bill.outstandingAmount
+                    ) || 0
+                  ),
+                0
+              )
+              .toFixed(2)
+          );
 
 
-const grossManualOutstanding =
-  Number(
-    row.manualOutstandings
-      .reduce(
-        (
-          total,
-          item
-        ) =>
-          total +
-          Math.max(
-            0,
-            Number(
-              item.outstandingAmount
-            ) || 0
-          ),
-        0
-      )
-      .toFixed(2)
-  );
+        const grossManualOutstanding =
+          Number(
+            row.manualOutstandings
+              .reduce(
+                (
+                  total,
+                  item
+                ) =>
+                  total +
+                  Math.max(
+                    0,
+                    Number(
+                      item.outstandingAmount
+                    ) || 0
+                  ),
+                0
+              )
+              .toFixed(2)
+          );
 
 
-const grossOutstanding =
-  Number(
-    (
-      grossBillOutstanding +
-      grossManualOutstanding
-    ).toFixed(2)
-  );
+        const grossOutstanding =
+          Number(
+            (
+              grossBillOutstanding +
+              grossManualOutstanding
+            ).toFixed(2)
+          );
 
 
-row.grossBillOutstanding =
-  grossBillOutstanding;
+        row.grossBillOutstanding =
+          grossBillOutstanding;
 
-row.grossManualOutstanding =
-  grossManualOutstanding;
+        row.grossManualOutstanding =
+          grossManualOutstanding;
 
-row.grossOutstanding =
-  grossOutstanding;
+        row.grossOutstanding =
+          grossOutstanding;
         // ==================================================
         // NET CUSTOMER OUTSTANDING
         //
@@ -24985,9 +25073,9 @@ app.get(
             isActive:
               true,
           })
-     .select(
-  "customerId name mobile route balance"
-)
+            .select(
+              "customerId name mobile route balance"
+            )
             .lean();
 
         if (!customer) {
@@ -25044,13 +25132,13 @@ app.get(
                 "totalQuantity",
 
                 "paymentMode",
-        "payments",
-"paidAmount",
-"paymentApplied",
-"advanceUsed",
-"advanceCreated",
-"outstandingAmount",
-"paymentStatus",
+                "payments",
+                "paidAmount",
+                "paymentApplied",
+                "advanceUsed",
+                "advanceCreated",
+                "outstandingAmount",
+                "paymentStatus",
 
                 "products",
 
@@ -25080,12 +25168,12 @@ app.get(
               [
                 "collectionId",
                 "receiptNo",
-             "collectionDate",
-"amount",
-"appliedAmount",
-"advanceAmount",
-"allocationMode",
-"paymentMode",
+                "collectionDate",
+                "amount",
+                "appliedAmount",
+                "advanceAmount",
+                "allocationMode",
+                "paymentMode",
                 "referenceNo",
                 "salesmanId",
                 "salesmanName",
@@ -25093,165 +25181,165 @@ app.get(
               ].join(" ")
             )
             .lean();
-            // ----------------------------------------------
-// MANUAL CUSTOMER OUTSTANDING
-// ----------------------------------------------
+        // ----------------------------------------------
+        // MANUAL CUSTOMER OUTSTANDING
+        // ----------------------------------------------
 
-const manualOutstandingRecords =
-  await CustomerOutstanding.find({
-    farmId,
+        const manualOutstandingRecords =
+          await CustomerOutstanding.find({
+            farmId,
 
-    customerId:
-      partyId,
+            customerId:
+              partyId,
 
-    status:
-      "POSTED",
-  })
-    .select(
-      [
-        "adjustmentId",
-        "adjustmentNo",
-        "adjustmentDate",
-        "amount",
-        "remarks",
-      ].join(" ")
-    )
-    .sort({
-      adjustmentDate: 1,
-      createdAt: 1,
-    })
-    .lean();
+            status:
+              "POSTED",
+          })
+            .select(
+              [
+                "adjustmentId",
+                "adjustmentNo",
+                "adjustmentDate",
+                "amount",
+                "remarks",
+              ].join(" ")
+            )
+            .sort({
+              adjustmentDate: 1,
+              createdAt: 1,
+            })
+            .lean();
 
-// ==================================================
-// CUSTOMER ADVANCE RECONCILIATION FOR LEDGER
-//
-// Current Advance
-// = Opening Advance
-// + Sale Advances Created
-// + Historical Receipt Advances
-// - Advance Used On Later Bills
-//
-// Therefore:
-//
-// Opening Advance
-// = Current Advance
-// - Created Advances
-// - Receipt Advances
-// + Used Advances
-// ==================================================
+        // ==================================================
+        // CUSTOMER ADVANCE RECONCILIATION FOR LEDGER
+        //
+        // Current Advance
+        // = Opening Advance
+        // + Sale Advances Created
+        // + Historical Receipt Advances
+        // - Advance Used On Later Bills
+        //
+        // Therefore:
+        //
+        // Opening Advance
+        // = Current Advance
+        // - Created Advances
+        // - Receipt Advances
+        // + Used Advances
+        // ==================================================
 
-const currentAdvanceBalance =
-  Math.max(
-    0,
-    Number(
-      customer.balance || 0
-    )
-  );
-
-
-const totalSaleAdvanceCreated =
-  sales.reduce(
-    (total, sale) =>
-      total +
-      Math.max(
-        0,
-        Number(
-          sale.advanceCreated || 0
-        )
-      ),
-    0
-  );
+        const currentAdvanceBalance =
+          Math.max(
+            0,
+            Number(
+              customer.balance || 0
+            )
+          );
 
 
-const totalSaleAdvanceUsed =
-  sales.reduce(
-    (total, sale) =>
-      total +
-      Math.max(
-        0,
-        Number(
-          sale.advanceUsed || 0
-        )
-      ),
-    0
-  );
+        const totalSaleAdvanceCreated =
+          sales.reduce(
+            (total, sale) =>
+              total +
+              Math.max(
+                0,
+                Number(
+                  sale.advanceCreated || 0
+                )
+              ),
+            0
+          );
 
 
-const totalCollectionAdvanceCreated =
-  collections.reduce(
-    (total, collection) =>
-      total +
-      Math.max(
-        0,
-        Number(
-          collection.advanceAmount || 0
-        )
-      ),
-    0
-  );
+        const totalSaleAdvanceUsed =
+          sales.reduce(
+            (total, sale) =>
+              total +
+              Math.max(
+                0,
+                Number(
+                  sale.advanceUsed || 0
+                )
+              ),
+            0
+          );
 
 
-const openingAdvanceBalance =
-  Number(
-    Math.max(
-      0,
-      currentAdvanceBalance -
-      totalSaleAdvanceCreated -
-      totalCollectionAdvanceCreated +
-      totalSaleAdvanceUsed
-    ).toFixed(2)
-  );
+        const totalCollectionAdvanceCreated =
+          collections.reduce(
+            (total, collection) =>
+              total +
+              Math.max(
+                0,
+                Number(
+                  collection.advanceAmount || 0
+                )
+              ),
+            0
+          );
+
+
+        const openingAdvanceBalance =
+          Number(
+            Math.max(
+              0,
+              currentAdvanceBalance -
+              totalSaleAdvanceCreated -
+              totalCollectionAdvanceCreated +
+              totalSaleAdvanceUsed
+            ).toFixed(2)
+          );
         const entries = [];
         // ==================================================
-// OPENING ADVANCE ENTRY
-// ==================================================
+        // OPENING ADVANCE ENTRY
+        // ==================================================
 
-if (
-  openingAdvanceBalance >
-  0.001
-) {
-  entries.push({
-    id:
-      "OPENING_ADVANCE",
+        if (
+          openingAdvanceBalance >
+          0.001
+        ) {
+          entries.push({
+            id:
+              "OPENING_ADVANCE",
 
-    referenceNo:
-      "OPENING",
+            referenceNo:
+              "OPENING",
 
-    date:
-      null,
+            date:
+              null,
 
-    type:
-      "OPENING_ADVANCE",
+            type:
+              "OPENING_ADVANCE",
 
-    title:
-      "Opening Advance",
+            title:
+              "Opening Advance",
 
-    amount:
-      openingAdvanceBalance,
+            amount:
+              openingAdvanceBalance,
 
-    debit:
-      0,
+            debit:
+              0,
 
-    credit:
-      openingAdvanceBalance,
+            credit:
+              openingAdvanceBalance,
 
-    paymentMode:
-      "",
+            paymentMode:
+              "",
 
-    reference:
-      "",
+            reference:
+              "",
 
-    affectsBalance:
-      true,
-  });
-}
+            affectsBalance:
+              true,
+          });
+        }
 
         let totalDebit = 0;
         let totalCredit = 0;
 
-      let totalSales = 0;
-let totalPaidAtBilling = 0;
-let totalManualOutstanding = 0;
+        let totalSales = 0;
+        let totalPaidAtBilling = 0;
+        let totalManualOutstanding = 0;
 
         let totalCash = 0;
         let totalUpi = 0;
@@ -25289,21 +25377,21 @@ let totalManualOutstanding = 0;
                 sale.paidAmount
               ) || 0
             );
-            const advanceUsed =
-  Math.max(
-    0,
-    Number(
-      sale.advanceUsed || 0
-    )
-  );
+          const advanceUsed =
+            Math.max(
+              0,
+              Number(
+                sale.advanceUsed || 0
+              )
+            );
 
-const advanceCreated =
-  Math.max(
-    0,
-    Number(
-      sale.advanceCreated || 0
-    )
-  );
+          const advanceCreated =
+            Math.max(
+              0,
+              Number(
+                sale.advanceCreated || 0
+              )
+            );
 
           // ==================================================
           // SALES SUMMARY TOTAL
@@ -25479,24 +25567,24 @@ const advanceCreated =
 
             amount: billAmount,
 
-       // Net movement created by this sale.
-//
-// outstanding + advanceUsed
-// gives the amount added to customer account.
-//
-// advanceCreated is customer credit.
-debit:
-  Number(
-    (
-      outstandingAmount +
-      advanceUsed
-    ).toFixed(2)
-  ),
+            // Net movement created by this sale.
+            //
+            // outstanding + advanceUsed
+            // gives the amount added to customer account.
+            //
+            // advanceCreated is customer credit.
+            debit:
+              Number(
+                (
+                  outstandingAmount +
+                  advanceUsed
+                ).toFixed(2)
+              ),
 
-credit:
-  Number(
-    advanceCreated.toFixed(2)
-  ),
+            credit:
+              Number(
+                advanceCreated.toFixed(2)
+              ),
 
             // ==================================================
             // BILL INFORMATION
@@ -25513,14 +25601,14 @@ credit:
 
             paidAmount: paidAmount,
             advanceUsed:
-  Number(
-    advanceUsed.toFixed(2)
-  ),
+              Number(
+                advanceUsed.toFixed(2)
+              ),
 
-advanceCreated:
-  Number(
-    advanceCreated.toFixed(2)
-  ),
+            advanceCreated:
+              Number(
+                advanceCreated.toFixed(2)
+              ),
 
             outstandingAmount:
               outstandingAmount,
@@ -25584,79 +25672,79 @@ advanceCreated:
             reference: "",
 
             affectsBalance:
-  outstandingAmount > 0 ||
-  advanceCreated > 0 ||
-  advanceUsed > 0,
+              outstandingAmount > 0 ||
+              advanceCreated > 0 ||
+              advanceUsed > 0,
           });
         }
 
         // ----------------------------------------------
-// MANUAL OUTSTANDING = DEBIT
-// ----------------------------------------------
+        // MANUAL OUTSTANDING = DEBIT
+        // ----------------------------------------------
 
-for (
-  const manualOutstanding of
-  manualOutstandingRecords
-) {
-  const amount =
-    Math.max(
-      0,
-      Number(
-        manualOutstanding.amount ||
-        0
-      )
-    );
-
-
-  totalManualOutstanding +=
-    amount;
-
-  totalDebit +=
-    amount;
+        for (
+          const manualOutstanding of
+          manualOutstandingRecords
+        ) {
+          const amount =
+            Math.max(
+              0,
+              Number(
+                manualOutstanding.amount ||
+                0
+              )
+            );
 
 
-  entries.push({
-    id:
-      manualOutstanding.adjustmentId,
+          totalManualOutstanding +=
+            amount;
 
-    referenceNo:
-      manualOutstanding.adjustmentNo,
+          totalDebit +=
+            amount;
 
-    date:
-      manualOutstanding.adjustmentDate,
 
-    type:
-      "MANUAL_OUTSTANDING",
+          entries.push({
+            id:
+              manualOutstanding.adjustmentId,
 
-    title:
-      "Manual Outstanding",
+            referenceNo:
+              manualOutstanding.adjustmentNo,
 
-    amount:
-      amount,
+            date:
+              manualOutstanding.adjustmentDate,
 
-    debit:
-      amount,
+            type:
+              "MANUAL_OUTSTANDING",
 
-    credit:
-      0,
+            title:
+              "Manual Outstanding",
 
-    paymentMode:
-      "",
+            amount:
+              amount,
 
-    reference:
-      manualOutstanding.remarks ||
-      "",
+            debit:
+              amount,
 
-    adjustmentId:
-      manualOutstanding.adjustmentId,
+            credit:
+              0,
 
-    adjustmentNo:
-      manualOutstanding.adjustmentNo,
+            paymentMode:
+              "",
 
-    affectsBalance:
-      true,
-  });
-}
+            reference:
+              manualOutstanding.remarks ||
+              "",
+
+            adjustmentId:
+              manualOutstanding.adjustmentId,
+
+            adjustmentNo:
+              manualOutstanding.adjustmentNo,
+
+            affectsBalance:
+              true,
+          });
+        }
         // ----------------------------------------------
         // COLLECTION = CREDIT
         // ----------------------------------------------
@@ -25846,11 +25934,11 @@ for (
                 totalSales
                   .toFixed(2)
               ),
-totalManualOutstanding:
-  Number(
-    totalManualOutstanding
-      .toFixed(2)
-  ),
+            totalManualOutstanding:
+              Number(
+                totalManualOutstanding
+                  .toFixed(2)
+              ),
             totalPaidAtBilling:
               Number(
                 totalPaidAtBilling
@@ -25875,30 +25963,30 @@ totalManualOutstanding:
             // ==================================================
             // OUTSTANDING
             // ==================================================
-// Signed customer account position.
-//
-// Positive = customer owes money
-// Zero     = settled
-// Negative = customer has advance
-balance:
-  Number(
-    runningBalance.toFixed(2)
-  ),
+            // Signed customer account position.
+            //
+            // Positive = customer owes money
+            // Zero     = settled
+            // Negative = customer has advance
+            balance:
+              Number(
+                runningBalance.toFixed(2)
+              ),
 
-outstanding:
-  Number(
-    runningBalance.toFixed(2)
-  ),
+            outstanding:
+              Number(
+                runningBalance.toFixed(2)
+              ),
 
-netOutstanding:
-  Number(
-    runningBalance.toFixed(2)
-  ),
+            netOutstanding:
+              Number(
+                runningBalance.toFixed(2)
+              ),
 
-advanceBalance:
-  Number(
-    currentAdvanceBalance.toFixed(2)
-  ),
+            advanceBalance:
+              Number(
+                currentAdvanceBalance.toFixed(2)
+              ),
 
             // ==================================================
             // PAYMENT MODE BREAKUP
@@ -27370,6 +27458,21 @@ app.get(
 
       const farmId =
         req.user.farmId;
+
+      const role =
+        (
+          req.user.role ||
+          ""
+        )
+          .toString()
+          .toLowerCase();
+
+      if (role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message: "Salesmen are not authorized to view purchase reports.",
+        });
+      }
 
       const type =
         (
@@ -28856,7 +28959,7 @@ app.get(
               "Unit",
               "Stock",
               "Rate",
-              "Stock Value",
+              "Value at Current Product Rate",
             ],
 
             rows,
@@ -29930,9 +30033,6 @@ app.get(
 
         status:
           "POSTED",
-
-        paymentMode:
-          "Credit",
       };
 
 
@@ -29978,7 +30078,7 @@ app.get(
           saleFilter
         )
           .select(
-            "saleId saleNo saleDate customerId customerName customerMobile route salesmanId salesmanName grandTotal createdRole"
+            "saleId saleNo saleDate customerId customerName customerMobile route salesmanId salesmanName grandTotal paidAmount paymentApplied advanceUsed outstandingAmount createdRole"
           )
           .sort({
             saleDate: 1,
@@ -30038,7 +30138,7 @@ app.get(
           collectionFilter
         )
           .select(
-            "collectionId collectionDate customerId customerName route salesmanId salesmanName amount"
+            "collectionId collectionDate customerId customerName route salesmanId salesmanName amount paymentMode allocations"
           )
           .sort({
             collectionDate: 1,
@@ -30059,7 +30159,7 @@ app.get(
 
 
       // ==================================================
-      // CUSTOMER COLLECTION TOTAL
+      // BUILD CUSTOMER TOTAL COLLECTION MAP
       // ==================================================
 
       const customerCollectionMap =
@@ -30137,6 +30237,18 @@ app.get(
           continue;
         }
 
+        const grandTotal = Number(sale.grandTotal) || 0;
+        const paidAmount = Number(sale.paidAmount) || 0;
+        const paymentApplied = sale.paymentApplied !== undefined && sale.paymentApplied !== null ? Number(sale.paymentApplied) : Math.min(grandTotal, paidAmount);
+        const advanceUsed = Number(sale.advanceUsed) || 0;
+        const initialDue = sale.outstandingAmount !== undefined && sale.outstandingAmount !== null
+          ? Number(sale.outstandingAmount)
+          : Math.max(0, grandTotal - paymentApplied - advanceUsed);
+
+        if (initialDue <= 0.001) {
+          continue;
+        }
+
 
         if (
           !customerSalesMap.has(key)
@@ -30196,10 +30308,7 @@ app.get(
           );
 
 
-        const amount =
-          Number(
-            sale.grandTotal
-          ) || 0;
+        const amount = initialDue;
 
 
         customer.totalCreditSales +=
@@ -31120,6 +31229,17 @@ app.get(
           success: false,
           message:
             "Invalid trend report type.",
+        });
+      }
+
+      if (
+        role === "salesman" &&
+        (type === "purchase-trend" || type === "sales-vs-purchase")
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Salesmen are not authorized to view purchase trends.",
         });
       }
 
@@ -32782,6 +32902,7 @@ app.get(
       // ==================================================
 
       const validTypes = [
+        "received-report",
         "collection-report",
         "allocation-report",
         "return-report",
@@ -32798,6 +32919,17 @@ app.get(
           success: false,
           message:
             "Invalid operational report type.",
+        });
+      }
+
+      if (
+        role === "salesman" &&
+        type === "expense-report"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Salesmen are not authorized to view expense reports.",
         });
       }
 
@@ -32979,6 +33111,152 @@ app.get(
           success: false,
           message:
             "You are not allowed to view this report.",
+        });
+      }
+
+
+      // ==================================================
+      // 0. UNIFIED RECEIVED REPORT
+      // ==================================================
+
+      if (
+        type === "received-report"
+      ) {
+        const saleFilter = {
+          farmId,
+          status: "POSTED",
+          paidAmount: { $gt: 0 },
+        };
+        addDateFilter(saleFilter, "saleDate");
+
+        const collFilter = {
+          farmId,
+          status: "POSTED",
+          amount: { $gt: 0 },
+        };
+        addDateFilter(collFilter, "collectionDate");
+
+        if (currentSalesman) {
+          saleFilter.salesmanId = currentSalesman.salesmanId;
+          collFilter.salesmanId = currentSalesman.salesmanId;
+        }
+
+        const customerId = (req.query.customerId || "").toString().trim();
+        if (customerId) {
+          saleFilter.customerId = customerId;
+          collFilter.customerId = customerId;
+        }
+
+        const [sales, collections] = await Promise.all([
+          Sale.find(saleFilter).lean(),
+          Collection.find(collFilter).lean(),
+        ]);
+
+        const entries = [];
+        let totalBillingReceived = 0;
+        let totalCollectionsReceived = 0;
+
+        for (const sale of sales) {
+          const sDate = sale.saleDate || sale.createdAt;
+          const sNo = sale.saleNo || sale.saleId || "";
+          const cName = sale.customerName || sale.customerId || "";
+          const cId = sale.customerId || "";
+          const sMan = sale.salesmanName || sale.salesmanId || "Admin";
+
+          if (Array.isArray(sale.payments) && sale.payments.length > 0) {
+            for (const p of sale.payments) {
+              const amt = Number(p.amount) || 0;
+              if (amt > 0) {
+                totalBillingReceived += amt;
+                entries.push({
+                  date: sDate,
+                  docNo: sNo,
+                  source: "BILL_PAYMENT",
+                  customer: `${cName} (${cId})`,
+                  salesman: sMan,
+                  paymentMode: p.mode || sale.paymentMode || "Cash",
+                  amount: amt,
+                  reference: sale.saleId || "",
+                });
+              }
+            }
+          } else {
+            const amt = Number(sale.paidAmount) || 0;
+            if (amt > 0) {
+              totalBillingReceived += amt;
+              entries.push({
+                date: sDate,
+                docNo: sNo,
+                source: "BILL_PAYMENT",
+                customer: `${cName} (${cId})`,
+                salesman: sMan,
+                paymentMode: sale.paymentMode || "Cash",
+                amount: amt,
+                reference: sale.saleId || "",
+              });
+            }
+          }
+        }
+
+        for (const col of collections) {
+          const cDate = col.collectionDate || col.createdAt;
+          const rNo = col.receiptNo || col.collectionId || "";
+          const cName = col.customerName || col.customerId || "";
+          const cId = col.customerId || "";
+          const sMan = col.salesmanName || col.salesmanId || "Admin";
+          const amt = Number(col.amount) || 0;
+          if (amt > 0) {
+            totalCollectionsReceived += amt;
+            entries.push({
+              date: cDate,
+              docNo: rNo,
+              source: "COLLECTION",
+              customer: `${cName} (${cId})`,
+              salesman: sMan,
+              paymentMode: col.paymentMode || "Cash",
+              amount: amt,
+              reference: col.collectionId || "",
+            });
+          }
+        }
+
+        entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        const formattedRows = entries.map(r => [
+          displayDate(r.date),
+          r.docNo,
+          r.source,
+          r.customer,
+          r.salesman,
+          r.paymentMode,
+          money(r.amount),
+          r.reference,
+        ]);
+
+        const totalMoneyReceived = totalBillingReceived + totalCollectionsReceived;
+
+        return res.status(200).json({
+          success: true,
+          report: {
+            title: "Unified Received Report",
+            description: "Unified receipts from direct billing and later collections",
+            columns: [
+              "Date",
+              "Receipt / Invoice No",
+              "Type",
+              "Customer",
+              "Salesman",
+              "Payment Mode",
+              "Amount",
+              "Reference",
+            ],
+            rows: formattedRows,
+            metrics: [
+              { label: "Total Money Received", value: money(totalMoneyReceived) },
+              { label: "Received at Billing", value: money(totalBillingReceived) },
+              { label: "Received via Collections", value: money(totalCollectionsReceived) },
+            ],
+          },
         });
       }
 
@@ -33952,6 +34230,717 @@ app.get(
     }
   }
 );
+
+// ======================================================
+// REPORTS - SALESMAN REPORTS
+// ======================================================
+
+app.get(
+  "/api/reports/salesman",
+  authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
+  async (req, res) => {
+    try {
+      const farmId = req.user.farmId;
+      const role = (req.user.role || "").toString().toLowerCase();
+      const userId = (req.user.userId || "").toString().trim();
+
+      const type = (req.query.type || "").toString().trim().toLowerCase();
+
+      const allowedTypes = [
+        "salesman-route-customer-product-sales",
+        "salesman-route-customer-sales-vs-received",
+        "salesman-performance-summary",
+      ];
+
+      if (!allowedTypes.includes(type)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid salesman report type.",
+        });
+      }
+
+      // Role authorization & Salesman scope validation
+      let currentSalesman = null;
+      if (role === "salesman") {
+        currentSalesman = await Salesman.findOne({
+          _id: userId,
+          farmId,
+          isActive: true,
+        }).lean();
+
+        if (!currentSalesman) {
+          currentSalesman = await Salesman.findOne({
+            salesmanId: userId,
+            farmId,
+            isActive: true,
+          }).lean();
+        }
+
+        if (!currentSalesman) {
+          return res.status(403).json({
+            success: false,
+            message: "Salesman account not found or inactive.",
+          });
+        }
+
+        if (req.query.salesmanId && req.query.salesmanId !== currentSalesman.salesmanId) {
+          return res.status(403).json({
+            success: false,
+            message: "Access denied. You can only view your own salesman reports.",
+          });
+        }
+      } else if (role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to view salesman reports.",
+        });
+      }
+
+      // Date Range parsing (IST business dates)
+      const fromText = (req.query.from || "").toString().trim();
+      const toText = (req.query.to || "").toString().trim();
+
+      let fromDate = null;
+      let toDate = null;
+
+      if (fromText) {
+        fromDate = new Date(`${fromText}T00:00:00.000`);
+        if (Number.isNaN(fromDate.getTime())) {
+          return res.status(400).json({ success: false, message: "Invalid From date." });
+        }
+      }
+
+      if (toText) {
+        toDate = new Date(`${toText}T23:59:59.999`);
+        if (Number.isNaN(toDate.getTime())) {
+          return res.status(400).json({ success: false, message: "Invalid To date." });
+        }
+      }
+
+      if (fromDate && toDate && toDate < fromDate) {
+        return res.status(400).json({
+          success: false,
+          message: "To date must be on or after From date.",
+        });
+      }
+
+      const money = (val) => `₹${Number(val || 0).toFixed(2)}`;
+      const displayDate = (dateVal) => {
+        if (!dateVal) return "";
+        const d = new Date(dateVal);
+        if (Number.isNaN(d.getTime())) return "";
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        return `${dd}-${mm}-${d.getFullYear()}`;
+      };
+
+      // Filters
+      const filterSalesmanId = role === "salesman" ? currentSalesman.salesmanId : (req.query.salesmanId || "").toString().trim();
+      const filterRoute = (req.query.route || "").toString().trim();
+      const filterCustomerId = (req.query.customerId || "").toString().trim();
+      const filterProductId = (req.query.productId || "").toString().trim();
+
+      // Common Sale query filter (Active POSTED sales for farm)
+      const saleFilter = {
+        farmId,
+        status: "POSTED",
+      };
+
+      if (filterSalesmanId) {
+        saleFilter.salesmanId = filterSalesmanId;
+      }
+      if (filterRoute) {
+        saleFilter.route = filterRoute;
+      }
+      if (filterCustomerId) {
+        saleFilter.customerId = filterCustomerId;
+      }
+      if (fromDate || toDate) {
+        saleFilter.saleDate = {};
+        if (fromDate) saleFilter.saleDate.$gte = fromDate;
+        if (toDate) saleFilter.saleDate.$lte = toDate;
+      }
+
+      // ======================================================
+      // 1. SALESMAN ROUTE CUSTOMER PRODUCT SALES
+      // ======================================================
+      if (type === "salesman-route-customer-product-sales") {
+        const sales = await Sale.find(saleFilter).lean();
+
+        const groupMap = new Map();
+        const salesmenSet = new Set();
+        const routesSet = new Set();
+        const customersSet = new Set();
+        const productsSet = new Set();
+        const billsSet = new Set();
+        let totalQuantity = 0;
+        let totalSalesValue = 0;
+
+        for (const sale of sales) {
+          const sId = (sale.salesmanId || "").toString().trim() || "Unassigned";
+          const sName = (sale.salesmanName || "").toString().trim() || sId;
+          const sRoute = (sale.route || "").toString().trim() || "Unassigned";
+          const cId = (sale.customerId || "").toString().trim() || "Unknown";
+          const cName = (sale.customerName || "").toString().trim() || cId;
+
+          const saleProducts = Array.isArray(sale.products) ? sale.products : [];
+
+          for (const item of saleProducts) {
+            const pId = (item.productId || "").toString().trim();
+            if (filterProductId && pId !== filterProductId) {
+              continue;
+            }
+            const pName = (item.productName || "").toString().trim() || pId;
+            const variant = (item.variant || "").toString().trim();
+            const unit = (item.unit || "").toString().trim();
+
+            const qty = Number(item.quantity) || 0;
+            const amount = Number(item.amount) || 0;
+
+            const groupKey = `${sId}__${sRoute}__${cId}__${pId}__${variant}`;
+
+            if (!groupMap.has(groupKey)) {
+              groupMap.set(groupKey, {
+                salesmanId: sId,
+                salesmanName: sName,
+                route: sRoute,
+                customerId: cId,
+                customerName: cName,
+                productId: pId,
+                productName: pName,
+                variant,
+                unit,
+                bills: new Set(),
+                quantitySold: 0,
+                salesValue: 0,
+              });
+            }
+
+            const record = groupMap.get(groupKey);
+            record.bills.add(sale.saleId || sale._id.toString());
+            record.quantitySold += qty;
+            record.salesValue += amount;
+
+            salesmenSet.add(sId);
+            routesSet.add(sRoute);
+            customersSet.add(cId);
+            productsSet.add(pId);
+            billsSet.add(sale.saleId || sale._id.toString());
+            totalQuantity += qty;
+            totalSalesValue += amount;
+          }
+        }
+
+        const rows = Array.from(groupMap.values())
+          .sort((a, b) => {
+            if (a.salesmanName !== b.salesmanName) return a.salesmanName.localeCompare(b.salesmanName);
+            if (a.route !== b.route) return a.route.localeCompare(b.route);
+            if (a.customerName !== b.customerName) return a.customerName.localeCompare(b.customerName);
+            return a.productName.localeCompare(b.productName);
+          })
+          .map(r => {
+            const avgRate = r.quantitySold > 0 ? r.salesValue / r.quantitySold : 0;
+            return [
+              r.salesmanName,
+              r.route,
+              `${r.customerName} (${r.customerId})`,
+              r.productName,
+              r.variant || "-",
+              r.quantitySold,
+              r.unit || "-",
+              money(r.salesValue),
+              money(avgRate),
+            ];
+          });
+
+        return res.status(200).json({
+          success: true,
+          report: {
+            title: "Salesman Route Customer Product Sales",
+            description: "Granular product-level sales breakdown by salesman, route, and customer",
+            columns: [
+              "Salesman",
+              "Route",
+              "Customer",
+              "Product",
+              "Variant",
+              "Quantity Sold",
+              "Unit",
+              "Sales Value",
+              "Average Rate",
+            ],
+            rows,
+            metrics: [
+              { label: "Salesmen", value: salesmenSet.size.toString() },
+              { label: "Routes", value: routesSet.size.toString() },
+              { label: "Customers", value: customersSet.size.toString() },
+              { label: "Products", value: productsSet.size.toString() },
+              { label: "Bills", value: billsSet.size.toString() },
+              { label: "Quantity Sold", value: totalQuantity.toString() },
+              { label: "Sales Value", value: money(totalSalesValue) },
+            ],
+          },
+        });
+      }
+
+      // ======================================================
+      // 2. SALESMAN ROUTE CUSTOMER SALES VS RECEIVED
+      // ======================================================
+      if (type === "salesman-route-customer-sales-vs-received") {
+        const sales = await Sale.find(saleFilter).lean();
+
+        // Load all active POSTED collections in the farm (all dates)
+        const collections = await Collection.find({
+          farmId,
+          status: "POSTED",
+        }).lean();
+
+        // Map later collections applied to each saleId
+        const laterCollectionsBySaleId = new Map();
+        for (const col of collections) {
+          const allocations = Array.isArray(col.allocations) ? col.allocations : [];
+          for (const alloc of allocations) {
+            if (alloc.sourceType === "SALE" && (alloc.referenceId || alloc.saleId)) {
+              const sId = (alloc.referenceId || alloc.saleId).toString().trim();
+              const applied = Number(alloc.amountApplied || alloc.amount) || 0;
+              laterCollectionsBySaleId.set(sId, (laterCollectionsBySaleId.get(sId) || 0) + applied);
+            }
+          }
+        }
+
+        // Group by salesmanId + route + customerId
+        const groupMap = new Map();
+        let sumSales = 0;
+        let sumPaidAtBilling = 0;
+        let sumLaterCollections = 0;
+        let sumTotalReceived = 0;
+        let sumOutstanding = 0;
+        let sumSettlement = 0;
+
+        for (const sale of sales) {
+          const sId = (sale.salesmanId || "").toString().trim() || "Unassigned";
+          const sName = (sale.salesmanName || "").toString().trim() || sId;
+          const sRoute = (sale.route || "").toString().trim() || "Unassigned";
+          const cId = (sale.customerId || "").toString().trim() || "Unknown";
+          const cName = (sale.customerName || "").toString().trim() || cId;
+
+          const groupKey = `${sId}__${sRoute}__${cId}`;
+          if (!groupMap.has(groupKey)) {
+            groupMap.set(groupKey, {
+              salesmanId: sId,
+              salesmanName: sName,
+              route: sRoute,
+              customerId: cId,
+              customerName: cName,
+              bills: 0,
+              salesAmount: 0,
+              paidAtBilling: 0,
+              paymentApplied: 0,
+              laterCollections: 0,
+              totalReceived: 0,
+              advanceUsed: 0,
+              advanceCreated: 0,
+              outstanding: 0,
+              settledAgainstSales: 0,
+            });
+          }
+
+          const record = groupMap.get(groupKey);
+          record.bills += 1;
+
+          const grandTotal = Number(sale.grandTotal) || 0;
+          const paidAmount = Number(sale.paidAmount) || 0;
+          const paymentApplied = sale.paymentApplied !== undefined && sale.paymentApplied !== null
+            ? Number(sale.paymentApplied)
+            : Math.min(grandTotal, paidAmount);
+          const advanceUsed = Number(sale.advanceUsed) || 0;
+          const advanceCreated = Number(sale.advanceCreated) || 0;
+
+          const saleKey = (sale.saleId || sale._id.toString()).toString().trim();
+          const laterCol = laterCollectionsBySaleId.get(saleKey) || 0;
+
+          const initialDue = sale.outstandingAmount !== undefined && sale.outstandingAmount !== null
+            ? Number(sale.outstandingAmount)
+            : Math.max(0, grandTotal - paymentApplied - advanceUsed);
+          const saleOutstanding = Math.max(0, initialDue - laterCol);
+
+          const saleSettled = Math.min(grandTotal, paymentApplied + advanceUsed + laterCol);
+
+          record.salesAmount += grandTotal;
+          record.paidAtBilling += paidAmount;
+          record.paymentApplied += paymentApplied;
+          record.laterCollections += laterCol;
+          record.totalReceived += (paidAmount + laterCol);
+          record.advanceUsed += advanceUsed;
+          record.advanceCreated += advanceCreated;
+          record.outstanding += saleOutstanding;
+          record.settledAgainstSales += saleSettled;
+
+          sumSales += grandTotal;
+          sumPaidAtBilling += paidAmount;
+          sumLaterCollections += laterCol;
+          sumTotalReceived += (paidAmount + laterCol);
+          sumOutstanding += saleOutstanding;
+          sumSettlement += saleSettled;
+        }
+
+        const rows = Array.from(groupMap.values())
+          .sort((a, b) => {
+            if (a.salesmanName !== b.salesmanName) return a.salesmanName.localeCompare(b.salesmanName);
+            if (a.route !== b.route) return a.route.localeCompare(b.route);
+            return a.customerName.localeCompare(b.customerName);
+          })
+          .map(r => {
+            const settlementPct = r.salesAmount > 0
+              ? Math.min(100, (r.settledAgainstSales / r.salesAmount) * 100)
+              : 100;
+            return [
+              r.salesmanName,
+              r.route,
+              `${r.customerName} (${r.customerId})`,
+              r.bills,
+              money(r.salesAmount),
+              money(r.paidAtBilling),
+              money(r.laterCollections),
+              money(r.totalReceived),
+              money(r.advanceUsed),
+              money(r.outstanding),
+              money(r.advanceCreated),
+              `${settlementPct.toFixed(1)}%`,
+            ];
+          });
+
+        const overallSettlementPct = sumSales > 0
+          ? Math.min(100, (sumSettlement / sumSales) * 100)
+          : 100;
+
+        return res.status(200).json({
+          success: true,
+          report: {
+            title: "Salesman Sales vs Received",
+            description: "Detailed sales settlement and revenue realization against salesman sales",
+            columns: [
+              "Salesman",
+              "Route",
+              "Customer",
+              "Bills",
+              "Sales Amount",
+              "Paid at Billing",
+              "Later Collections",
+              "Total Received",
+              "Advance Used",
+              "Current Outstanding",
+              "Advance Created",
+              "Settlement %",
+            ],
+            rows,
+            metrics: [
+              { label: "Sales", value: money(sumSales) },
+              { label: "Paid at Billing", value: money(sumPaidAtBilling) },
+              { label: "Later Collections", value: money(sumLaterCollections) },
+              { label: "Total Received", value: money(sumTotalReceived) },
+              { label: "Outstanding", value: money(sumOutstanding) },
+              { label: "Settlement %", value: `${overallSettlementPct.toFixed(1)}%` },
+            ],
+          },
+        });
+      }
+
+      // ======================================================
+      // 3. SALESMAN PERFORMANCE SUMMARY
+      // ======================================================
+      if (type === "salesman-performance-summary") {
+        const salesmanQuery = { farmId, isActive: true };
+        if (role === "salesman") {
+          salesmanQuery.salesmanId = currentSalesman.salesmanId;
+        } else if (filterSalesmanId) {
+          salesmanQuery.salesmanId = filterSalesmanId;
+        }
+        const salesmenList = await Salesman.find(salesmanQuery).lean();
+
+        // Query sales in cohort period
+        const sales = await Sale.find(saleFilter).lean();
+
+        // Load all active POSTED collections in the farm
+        const collections = await Collection.find({
+          farmId,
+          status: "POSTED",
+        }).lean();
+
+        const laterCollectionsBySaleId = new Map();
+        for (const col of collections) {
+          const allocations = Array.isArray(col.allocations) ? col.allocations : [];
+          for (const alloc of allocations) {
+            if (alloc.sourceType === "SALE" && (alloc.referenceId || alloc.saleId)) {
+              const sId = (alloc.referenceId || alloc.saleId).toString().trim();
+              const applied = Number(alloc.amountApplied || alloc.amount) || 0;
+              laterCollectionsBySaleId.set(sId, (laterCollectionsBySaleId.get(sId) || 0) + applied);
+            }
+          }
+        }
+
+        // Query allocations for current allocation position
+        const allocQuery = { farmId, status: { $ne: "DELETED" } };
+        if (role === "salesman") {
+          allocQuery.salesmanId = currentSalesman.salesmanId;
+        } else if (filterSalesmanId) {
+          allocQuery.salesmanId = filterSalesmanId;
+        }
+        const allocations = await Allocation.find(allocQuery).lean();
+
+        // Compute allocation totals per salesman: Allocated, Returned, Sold FIFO, Remaining
+        // Using authoritative logic from GET /api/allocations
+        const allSalesmanSales = await Sale.find({
+          farmId,
+          status: "POSTED",
+          $or: [
+            { stockSource: "SALESMAN_ALLOCATION" },
+            { stockSource: { $exists: false }, createdRole: "salesman" },
+            { stockSource: null, createdRole: "salesman" },
+            { stockSource: "", createdRole: "salesman" },
+          ],
+        }).select("salesmanId createdBy saleDate createdAt paymentMode products").lean();
+
+        const soldMap = new Map();
+        for (const sale of allSalesmanSales) {
+          const sId = (sale.salesmanId || "").toString().trim().toUpperCase();
+          if (!sId) continue;
+          for (const item of (sale.products || [])) {
+            const pId = (item.productId || "").toString().trim().toUpperCase();
+            if (!pId) continue;
+            const qty = Number(item.quantity) || 0;
+            const key = `${sId}|${pId}`;
+            soldMap.set(key, (soldMap.get(key) || 0) + qty);
+          }
+        }
+
+        const allocationStatsBySalesman = new Map();
+        for (const sm of salesmenList) {
+          allocationStatsBySalesman.set(sm.salesmanId, {
+            allocatedQty: 0,
+            returnedQty: 0,
+            soldQty: 0,
+            remainingQty: 0,
+          });
+        }
+
+        const sortedAllocations = [...allocations].sort((a, b) => {
+          const dateA = new Date(a.allocationDate || a.createdAt || 0).getTime();
+          const dateB = new Date(b.allocationDate || b.createdAt || 0).getTime();
+          return dateA - dateB;
+        });
+
+        const remainingSoldMap = new Map(soldMap);
+
+        for (const alloc of sortedAllocations) {
+          const sId = (alloc.salesmanId || "").toString().trim();
+          if (!allocationStatsBySalesman.has(sId)) {
+            allocationStatsBySalesman.set(sId, {
+              allocatedQty: 0,
+              returnedQty: 0,
+              soldQty: 0,
+              remainingQty: 0,
+            });
+          }
+          const stats = allocationStatsBySalesman.get(sId);
+
+          for (const p of (alloc.products || [])) {
+            const pId = (p.productId || "").toString().trim().toUpperCase();
+            const allocQty = Number(p.quantity) || 0;
+            const retQty = Number(p.returnedQuantity) || 0;
+            const key = `${sId.toUpperCase()}|${pId}`;
+
+            const unconsumedSold = remainingSoldMap.get(key) || 0;
+            const netAllocated = Math.max(0, allocQty - retQty);
+            const soldForThis = Math.min(netAllocated, unconsumedSold);
+            remainingSoldMap.set(key, Math.max(0, unconsumedSold - soldForThis));
+
+            const remForThis = Math.max(0, netAllocated - soldForThis);
+
+            stats.allocatedQty += allocQty;
+            stats.returnedQty += retQty;
+            stats.soldQty += soldForThis;
+            stats.remainingQty += remForThis;
+          }
+        }
+
+        const performanceMap = new Map();
+        for (const sm of salesmenList) {
+          performanceMap.set(sm.salesmanId, {
+            salesmanId: sm.salesmanId,
+            salesmanName: sm.name || sm.username || sm.salesmanId,
+            routes: new Set(),
+            customers: new Set(),
+            bills: 0,
+            quantitySold: 0,
+            salesAmount: 0,
+            paidAtBilling: 0,
+            paymentApplied: 0,
+            laterCollections: 0,
+            totalReceived: 0,
+            advanceUsed: 0,
+            outstanding: 0,
+            settledAgainstSales: 0,
+          });
+        }
+
+        for (const sale of sales) {
+          const sId = (sale.salesmanId || "").toString().trim();
+          if (!performanceMap.has(sId)) {
+            performanceMap.set(sId, {
+              salesmanId: sId,
+              salesmanName: sale.salesmanName || sId,
+              routes: new Set(),
+              customers: new Set(),
+              bills: 0,
+              quantitySold: 0,
+              salesAmount: 0,
+              paidAtBilling: 0,
+              paymentApplied: 0,
+              laterCollections: 0,
+              totalReceived: 0,
+              advanceUsed: 0,
+              outstanding: 0,
+              settledAgainstSales: 0,
+            });
+          }
+
+          const record = performanceMap.get(sId);
+          if (sale.route) record.routes.add(sale.route);
+          if (sale.customerId) record.customers.add(sale.customerId);
+          record.bills += 1;
+
+          const grandTotal = Number(sale.grandTotal) || 0;
+          const paidAmount = Number(sale.paidAmount) || 0;
+          const paymentApplied = sale.paymentApplied !== undefined && sale.paymentApplied !== null
+            ? Number(sale.paymentApplied)
+            : Math.min(grandTotal, paidAmount);
+          const advanceUsed = Number(sale.advanceUsed) || 0;
+
+          const saleKey = (sale.saleId || sale._id.toString()).toString().trim();
+          const laterCol = laterCollectionsBySaleId.get(saleKey) || 0;
+
+          const initialDue = sale.outstandingAmount !== undefined && sale.outstandingAmount !== null
+            ? Number(sale.outstandingAmount)
+            : Math.max(0, grandTotal - paymentApplied - advanceUsed);
+          const saleOutstanding = Math.max(0, initialDue - laterCol);
+          const saleSettled = Math.min(grandTotal, paymentApplied + advanceUsed + laterCol);
+
+          let saleQty = 0;
+          for (const p of (sale.products || [])) {
+            saleQty += (Number(p.quantity) || 0);
+          }
+
+          record.quantitySold += saleQty;
+          record.salesAmount += grandTotal;
+          record.paidAtBilling += paidAmount;
+          record.paymentApplied += paymentApplied;
+          record.laterCollections += laterCol;
+          record.totalReceived += (paidAmount + laterCol);
+          record.advanceUsed += advanceUsed;
+          record.outstanding += saleOutstanding;
+          record.settledAgainstSales += saleSettled;
+        }
+
+        let totalSales = 0;
+        let totalReceived = 0;
+        let totalOutstanding = 0;
+        let totalSettled = 0;
+        let totalRemainingAlloc = 0;
+
+        const rows = Array.from(performanceMap.values())
+          .sort((a, b) => a.salesmanName.localeCompare(b.salesmanName))
+          .map(r => {
+            const allocStats = allocationStatsBySalesman.get(r.salesmanId) || {
+              allocatedQty: 0,
+              returnedQty: 0,
+              soldQty: 0,
+              remainingQty: 0,
+            };
+
+            const settlementPct = r.salesAmount > 0
+              ? Math.min(100, (r.settledAgainstSales / r.salesAmount) * 100)
+              : 100;
+
+            totalSales += r.salesAmount;
+            totalReceived += r.totalReceived;
+            totalOutstanding += r.outstanding;
+            totalSettled += r.settledAgainstSales;
+            totalRemainingAlloc += allocStats.remainingQty;
+
+            return [
+              r.salesmanId,
+              r.salesmanName,
+              r.routes.size,
+              r.customers.size,
+              r.customers.size,
+              r.bills,
+              r.quantitySold,
+              money(r.salesAmount),
+              money(r.paidAtBilling),
+              money(r.laterCollections),
+              allocStats.allocatedQty,
+              allocStats.soldQty,
+              allocStats.returnedQty,
+              allocStats.remainingQty,
+              money(r.totalReceived),
+              money(r.outstanding),
+              `${settlementPct.toFixed(1)}%`,
+            ];
+          });
+
+        const overallSettlementPct = totalSales > 0
+          ? Math.min(100, (totalSettled / totalSales) * 100)
+          : 100;
+
+        return res.status(200).json({
+          success: true,
+          report: {
+            title: "Salesman Performance Summary",
+            description: "Aggregated operational, financial, and inventory performance metrics by salesman",
+            columns: [
+              "Salesman ID",
+              "Salesman",
+              "Routes Covered",
+              "Customers Served",
+              "Customers",
+              "Bills",
+              "Quantity Sold",
+              "Sales Amount",
+              "Paid at Billing",
+              "Later Collections",
+              "Allocated Qty",
+              "Sold Qty",
+              "Returned Qty",
+              "Remaining Allocation",
+              "Total Received",
+              "Current Outstanding",
+              "Settlement %",
+            ],
+            rows,
+            metrics: [
+              { label: "Sales", value: money(totalSales) },
+              { label: "Total Received", value: money(totalReceived) },
+              { label: "Outstanding", value: money(totalOutstanding) },
+              { label: "Settlement %", value: `${overallSettlementPct.toFixed(1)}%` },
+              { label: "Remaining Allocation", value: totalRemainingAlloc.toString() },
+            ],
+          },
+        });
+      }
+    } catch (error) {
+      console.error("GET SALESMAN REPORT ERROR:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to load salesman report.",
+        error: error.message,
+      });
+    }
+  }
+);
+
 // ======================================================
 // DASHBOARD SUMMARY
 // ADMIN + SALESMAN
@@ -34165,20 +35154,20 @@ app.get(
         await Sale.find(
           todaySaleFilter
         )
-        .select(
-  [
-    "saleId",
-    "customerId",
-    "grandTotal",
-    "totalQuantity",
+          .select(
+            [
+              "saleId",
+              "customerId",
+              "grandTotal",
+              "totalQuantity",
 
-    "paymentMode",
-    "payments",
-    "paidAmount",
+              "paymentMode",
+              "payments",
+              "paidAmount",
 
-    "saleDate",
-  ].join(" ")
-)
+              "saleDate",
+            ].join(" ")
+          )
           .lean();
 
 
@@ -34277,136 +35266,136 @@ app.get(
       // ==================================================
       // COLLECTION BREAKUP
       // ==================================================
-let todayCollectionAmount =
-  0;
+      let todayCollectionAmount =
+        0;
 
-let todayCashCollection =
-  0;
+      let todayCashCollection =
+        0;
 
-let todayUpiCollection =
-  0;
+      let todayUpiCollection =
+        0;
 
-let todayOtherCollection =
-  0;
+      let todayOtherCollection =
+        0;
 
-let billingPaymentReceipts =
-  0;
-
-
-// ==================================================
-// MONEY RECEIVED WHILE MAKING TODAY'S BILLS
-// ==================================================
-
-for (
-  const sale of todaySales
-) {
-  const billing =
-    getSaleBillingPaymentBreakup(
-      sale
-    );
+      let billingPaymentReceipts =
+        0;
 
 
-  if (
-    billing.total <= 0.001
-  ) {
-    continue;
-  }
+      // ==================================================
+      // MONEY RECEIVED WHILE MAKING TODAY'S BILLS
+      // ==================================================
+
+      for (
+        const sale of todaySales
+      ) {
+        const billing =
+          getSaleBillingPaymentBreakup(
+            sale
+          );
 
 
-  billingPaymentReceipts +=
-    1;
+        if (
+          billing.total <= 0.001
+        ) {
+          continue;
+        }
 
 
-  todayCollectionAmount +=
-    billing.total;
-
-  todayCashCollection +=
-    billing.cash;
-
-  todayUpiCollection +=
-    billing.upi;
-
-  todayOtherCollection +=
-    billing.bankTransfer +
-    billing.cheque +
-    billing.other;
-}
+        billingPaymentReceipts +=
+          1;
 
 
-// ==================================================
-// LATER COLLECTION RECEIPTS CREATED TODAY
-// ==================================================
+        todayCollectionAmount +=
+          billing.total;
 
-for (
-  const collection of
-  todayCollections
-) {
-  const amount =
-    Math.max(
-      0,
-      Number(
-        collection.amount || 0
-      )
-    );
+        todayCashCollection +=
+          billing.cash;
 
+        todayUpiCollection +=
+          billing.upi;
 
-  const mode =
-    classifyHistoryPaymentMode(
-      collection.paymentMode
-    );
+        todayOtherCollection +=
+          billing.bankTransfer +
+          billing.cheque +
+          billing.other;
+      }
 
 
-  todayCollectionAmount +=
-    amount;
+      // ==================================================
+      // LATER COLLECTION RECEIPTS CREATED TODAY
+      // ==================================================
+
+      for (
+        const collection of
+        todayCollections
+      ) {
+        const amount =
+          Math.max(
+            0,
+            Number(
+              collection.amount || 0
+            )
+          );
 
 
-  if (
-    mode === "cash"
-  ) {
-    todayCashCollection +=
-      amount;
-  }
-
-  else if (
-    mode === "upi"
-  ) {
-    todayUpiCollection +=
-      amount;
-  }
-
-  else {
-    todayOtherCollection +=
-      amount;
-  }
-}
+        const mode =
+          classifyHistoryPaymentMode(
+            collection.paymentMode
+          );
 
 
-todayCollectionAmount =
-  Number(
-    todayCollectionAmount
-      .toFixed(2)
-  );
+        todayCollectionAmount +=
+          amount;
 
 
-todayCashCollection =
-  Number(
-    todayCashCollection
-      .toFixed(2)
-  );
+        if (
+          mode === "cash"
+        ) {
+          todayCashCollection +=
+            amount;
+        }
+
+        else if (
+          mode === "upi"
+        ) {
+          todayUpiCollection +=
+            amount;
+        }
+
+        else {
+          todayOtherCollection +=
+            amount;
+        }
+      }
 
 
-todayUpiCollection =
-  Number(
-    todayUpiCollection
-      .toFixed(2)
-  );
+      todayCollectionAmount =
+        Number(
+          todayCollectionAmount
+            .toFixed(2)
+        );
 
 
-todayOtherCollection =
-  Number(
-    todayOtherCollection
-      .toFixed(2)
-  );
+      todayCashCollection =
+        Number(
+          todayCashCollection
+            .toFixed(2)
+        );
+
+
+      todayUpiCollection =
+        Number(
+          todayUpiCollection
+            .toFixed(2)
+        );
+
+
+      todayOtherCollection =
+        Number(
+          todayOtherCollection
+            .toFixed(2)
+        );
 
       // ==================================================
       // TODAY ALLOCATION
@@ -34674,7 +35663,7 @@ todayOtherCollection =
           for (
             const product
             of sale.products ||
-              []
+            []
           ) {
 
             const productId =
@@ -34750,7 +35739,7 @@ todayOtherCollection =
           for (
             const product
             of allocation.products ||
-              []
+            []
           ) {
 
             const productId =
@@ -35030,18 +36019,18 @@ todayOtherCollection =
               $or: [
                 {
                   "allocations.referenceId":
-                    {
-                      $in:
-                        salesmanSaleIds,
-                    },
+                  {
+                    $in:
+                      salesmanSaleIds,
+                  },
                 },
 
                 {
                   "allocations.saleId":
-                    {
-                      $in:
-                        salesmanSaleIds,
-                    },
+                  {
+                    $in:
+                      salesmanSaleIds,
+                  },
                 },
               ],
             })
@@ -35064,7 +36053,7 @@ todayOtherCollection =
           for (
             const allocation
             of collection.allocations ||
-              []
+            []
           ) {
 
             const sourceType =
@@ -35439,8 +36428,8 @@ todayOtherCollection =
           const receiptDate =
             collection.collectionDate
               ? new Date(
-                  collection.collectionDate
-                )
+                collection.collectionDate
+              )
               : null;
 
 
@@ -35475,7 +36464,7 @@ todayOtherCollection =
               new Date(
                 bill.saleDate
               ) >
-                receiptDate
+              receiptDate
             ) {
 
               continue;
@@ -35864,13 +36853,13 @@ todayOtherCollection =
               mode ===
                 "credit"
                 ? Math.max(
-                    0,
+                  0,
 
-                    Number(
-                      sale.grandTotal ||
-                      0
-                    )
+                  Number(
+                    sale.grandTotal ||
+                    0
                   )
+                )
                 : 0;
           }
 
@@ -36114,9 +37103,9 @@ todayOtherCollection =
           const receiptDate =
             collection.collectionDate
               ? new Date(
-                  collection
-                    .collectionDate
-                )
+                collection
+                  .collectionDate
+              )
               : null;
 
 
@@ -36160,7 +37149,7 @@ todayOtherCollection =
               new Date(
                 source.referenceDate
               ) >
-                receiptDate
+              receiptDate
             ) {
 
               continue;
@@ -36205,23 +37194,23 @@ todayOtherCollection =
               (
                 customer
               ) => [
-                (
-                  customer.customerId ||
-                  ""
-                )
-                  .toString()
-                  .trim()
-                  .toUpperCase(),
-
-                Math.max(
-                  0,
-
-                  Number(
-                    customer.balance ||
-                    0
+                  (
+                    customer.customerId ||
+                    ""
                   )
-                ),
-              ]
+                    .toString()
+                    .trim()
+                    .toUpperCase(),
+
+                  Math.max(
+                    0,
+
+                    Number(
+                      customer.balance ||
+                      0
+                    )
+                  ),
+                ]
             )
           );
 
@@ -36476,96 +37465,96 @@ todayOtherCollection =
         // TODAY COLLECTION MAP
         // ==================================================
 
-    const todayCollectionMap =
-  new Map();
+        const todayCollectionMap =
+          new Map();
 
 
-// ==================================================
-// BILL-TIME PAYMENT BY CUSTOMER
-// ==================================================
+        // ==================================================
+        // BILL-TIME PAYMENT BY CUSTOMER
+        // ==================================================
 
-for (
-  const sale of todaySales
-) {
-  const customerId =
-    (
-      sale.customerId ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
-
-
-  if (!customerId) {
-    continue;
-  }
+        for (
+          const sale of todaySales
+        ) {
+          const customerId =
+            (
+              sale.customerId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-  const billing =
-    getSaleBillingPaymentBreakup(
-      sale
-    );
+          if (!customerId) {
+            continue;
+          }
 
 
-  if (
-    billing.total <= 0.001
-  ) {
-    continue;
-  }
+          const billing =
+            getSaleBillingPaymentBreakup(
+              sale
+            );
 
 
-  todayCollectionMap.set(
-    customerId,
-
-    (
-      todayCollectionMap.get(
-        customerId
-      ) || 0
-    ) +
-      billing.total
-  );
-}
+          if (
+            billing.total <= 0.001
+          ) {
+            continue;
+          }
 
 
-// ==================================================
-// LATER COLLECTION RECEIPT BY CUSTOMER
-// ==================================================
+          todayCollectionMap.set(
+            customerId,
 
-for (
-  const collection of
-  todayCollections
-) {
-  const customerId =
-    (
-      collection.customerId ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
+            (
+              todayCollectionMap.get(
+                customerId
+              ) || 0
+            ) +
+            billing.total
+          );
+        }
 
 
-  if (!customerId) {
-    continue;
-  }
+        // ==================================================
+        // LATER COLLECTION RECEIPT BY CUSTOMER
+        // ==================================================
+
+        for (
+          const collection of
+          todayCollections
+        ) {
+          const customerId =
+            (
+              collection.customerId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-  todayCollectionMap.set(
-    customerId,
+          if (!customerId) {
+            continue;
+          }
 
-    (
-      todayCollectionMap.get(
-        customerId
-      ) || 0
-    ) +
-      (
-        Number(
-          collection.amount
-        ) || 0
-      )
-  );
-}
+
+          todayCollectionMap.set(
+            customerId,
+
+            (
+              todayCollectionMap.get(
+                customerId
+              ) || 0
+            ) +
+            (
+              Number(
+                collection.amount
+              ) || 0
+            )
+          );
+        }
 
         // ==================================================
         // BUILD CUSTOMER LIST
@@ -36624,10 +37613,10 @@ for (
 
               const visited =
                 todaySale >
-                  0 ||
+                0 ||
 
                 todayCollection >
-                  0;
+                0;
 
 
               return {
@@ -36718,42 +37707,42 @@ for (
 
       const salesProgress =
         todayAllocatedQuantity >
-        0
+          0
 
           ? Math.min(
-              1,
+            1,
 
-              todaySalesQuantity /
-              todayAllocatedQuantity
-            )
+            todaySalesQuantity /
+            todayAllocatedQuantity
+          )
 
           : 0;
 
 
       const collectionProgress =
         todaySalesAmount >
-        0
+          0
 
           ? Math.min(
-              1,
+            1,
 
-              todayCollectionAmount /
-              todaySalesAmount
-            )
+            todayCollectionAmount /
+            todaySalesAmount
+          )
 
           : 0;
 
 
       const returnProgress =
         todayAllocatedQuantity >
-        0
+          0
 
           ? Math.min(
-              1,
+            1,
 
-              todayReturnQuantity /
-              todayAllocatedQuantity
-            )
+            todayReturnQuantity /
+            todayAllocatedQuantity
+          )
 
           : 0;
 
@@ -36817,9 +37806,9 @@ for (
             todayUpiCollection,
 
             todayOtherCollection,
-collectionReceipts:
-  todayCollections.length +
-  billingPaymentReceipts,
+            collectionReceipts:
+              todayCollections.length +
+              billingPaymentReceipts,
 
 
             // ==================================================
@@ -36962,22 +37951,60 @@ app.get(
               : "inherit");
           user.permissions = getEffectiveSalesmanPermissions(user, farmAdmin);
 
-          const route =
-            await RouteMaster.findOne({
+          // ==================================================
+          // LOAD ALL ROUTES ASSIGNED TO SALESMAN
+          // ==================================================
+
+          const routes =
+            await RouteMaster.find({
               farmId,
+
               salesmanId:
                 user.salesmanId,
+
+              isActive:
+                true,
             })
               .select(
                 "routeId routeName"
               )
+              .sort({
+                routeName: 1,
+              })
               .lean();
 
+
+          // ==================================================
+          // NEW MULTI-ROUTE RESPONSE
+          // ==================================================
+
+          user.routes =
+            routes.map(
+              (route) => ({
+                routeId:
+                  route.routeId || "",
+
+                routeName:
+                  route.routeName || "",
+              })
+            );
+
+          user.routeCount =
+            routes.length;
+
+
+          // ==================================================
+          // BACKWARD COMPATIBILITY
+          //
+          // Do not remove yet.
+          // Existing Flutter screens may use these.
+          // ==================================================
+
           user.routeId =
-            route?.routeId || "";
+            routes[0]?.routeId || "";
 
           user.routeName =
-            route?.routeName || "";
+            routes[0]?.routeName || "";
         }
       } else {
         return res.status(403).json({
@@ -37998,7 +39025,7 @@ app.get(
         }
       }
 
-      
+
       // ==================================================
       // CUSTOMER-WISE PERFORMANCE
       // ==================================================
@@ -38379,43 +39406,60 @@ app.get(
             )
             .lean(),
 
-          Allocation.find({
-            farmId,
+      Allocation.find({
+  farmId,
 
-            allocationDate: {
-              $lt: todayEnd,
-            },
+  allocationDate: {
+    $lt: todayEnd,
+  },
 
-            status: {
-              $in: [
-                "POSTED",
-                "RETURNED",
-              ],
-            },
-          })
-          .select(
-  [
-    "saleId",
-    "saleNo",
-    "saleDate",
+  status: {
+    $in: [
+      "POSTED",
+      "RETURNED",
+    ],
+  },
+})
+  .select(
+    [
+      // ================================================
+      // ALLOCATION IDENTITY
+      // ================================================
+      "allocationId",
+      "allocationNo",
+      "allocationDate",
 
-    "salesmanId",
-    "salesmanName",
+      // ================================================
+      // ROUTE
+      // ================================================
+      "routeId",
+      "routeName",
 
-    "products",
-    "totalQuantity",
-    "grandTotal",
+      // ================================================
+      // SALESMAN
+      // ================================================
+      "salesmanId",
+      "salesmanName",
 
-    "paymentMode",
-    "payments",
-    "paidAmount",
-  ].join(" ")
-)
-            .sort({
-              allocationDate: 1,
-              createdAt: 1,
-            })
-            .lean(),
+      // ================================================
+      // ALLOCATION PRODUCTS / QUANTITY
+      // ================================================
+      "products",
+      "totalQuantity",
+
+      // ================================================
+      // STATUS / FIFO DATE FALLBACK
+      // ================================================
+      "status",
+      "createdAt",
+      "updatedAt",
+    ].join(" ")
+  )
+  .sort({
+    allocationDate: 1,
+    createdAt: 1,
+  })
+  .lean(),
 
           Sale.find({
             farmId,
@@ -38458,18 +39502,30 @@ app.get(
               },
             ],
           })
-            .select(
-              [
-                "saleId",
-                "saleNo",
-                "saleDate",
-                "salesmanId",
-                "salesmanName",
-                "products",
-                "totalQuantity",
-                "grandTotal",
-              ].join(" ")
-            )
+     .select(
+  [
+    "saleId",
+    "saleNo",
+    "saleDate",
+
+    "salesmanId",
+    "salesmanName",
+
+    "products",
+    "totalQuantity",
+    "grandTotal",
+
+    // Payment breakup required by dashboard
+    "paymentMode",
+    "payments",
+    "paidAmount",
+    "cashAmount",
+    "upiAmount",
+    "bankTransferAmount",
+
+    "createdAt",
+  ].join(" ")
+)
             .lean(),
 
           Collection.find({
@@ -38671,9 +39727,9 @@ app.get(
 
         const isToday =
           saleDate >=
-            todayStart &&
+          todayStart &&
           saleDate <
-            todayEnd;
+          todayEnd;
 
         if (!isToday) {
           continue;
@@ -38684,37 +39740,37 @@ app.get(
             salesmanId
           )
         ) {
-       todaySalesMap.set(
-  salesmanId,
-  {
-    soldQuantity:
-      0,
+          todaySalesMap.set(
+            salesmanId,
+            {
+              soldQuantity:
+                0,
 
-    salesAmount:
-      0,
+              salesAmount:
+                0,
 
-    billCount:
-      0,
+              billCount:
+                0,
 
-    billingReceiptCount:
-      0,
+              billingReceiptCount:
+                0,
 
-    billingCollectionAmount:
-      0,
+              billingCollectionAmount:
+                0,
 
-    billingCashCollectionAmount:
-      0,
+              billingCashCollectionAmount:
+                0,
 
-    billingOnlineCollectionAmount:
-      0,
+              billingOnlineCollectionAmount:
+                0,
 
-    billingUpiCollectionAmount:
-      0,
+              billingUpiCollectionAmount:
+                0,
 
-    billingBankCollectionAmount:
-      0,
-  }
-);
+              billingBankCollectionAmount:
+                0,
+            }
+          );
         }
 
         const todaySale =
@@ -38732,40 +39788,40 @@ app.get(
           Number(
             sale.grandTotal
           ) || 0;
-          // ==============================================
-// PAYMENT RECEIVED DURING THIS SALE
-// ==============================================
+        // ==============================================
+        // PAYMENT RECEIVED DURING THIS SALE
+        // ==============================================
 
-const billing =
-  getSaleBillingPaymentBreakup(
-    sale
-  );
+        const billing =
+          getSaleBillingPaymentBreakup(
+            sale
+          );
 
 
-if (
-  billing.total > 0.001
-) {
-  todaySale.billingReceiptCount +=
-    1;
+        if (
+          billing.total > 0.001
+        ) {
+          todaySale.billingReceiptCount +=
+            1;
 
-  todaySale.billingCollectionAmount +=
-    billing.total;
+          todaySale.billingCollectionAmount +=
+            billing.total;
 
-  todaySale.billingCashCollectionAmount +=
-    billing.cash;
+          todaySale.billingCashCollectionAmount +=
+            billing.cash;
 
-  todaySale.billingUpiCollectionAmount +=
-    billing.upi;
+          todaySale.billingUpiCollectionAmount +=
+            billing.upi;
 
-  todaySale.billingBankCollectionAmount +=
-    billing.bankTransfer;
+          todaySale.billingBankCollectionAmount +=
+            billing.bankTransfer;
 
-  todaySale.billingOnlineCollectionAmount +=
-    (
-      billing.total -
-      billing.cash
-    );
-}
+          todaySale.billingOnlineCollectionAmount +=
+            (
+              billing.total -
+              billing.cash
+            );
+        }
       }
 
       // ==================================================
@@ -38897,14 +39953,14 @@ if (
         const allocationDate =
           new Date(
             allocation.allocationDate ||
-              allocation.createdAt
+            allocation.createdAt
           );
 
         const isToday =
           allocationDate >=
-            todayStart &&
+          todayStart &&
           allocationDate <
-            todayEnd;
+          todayEnd;
 
         let allocatedQuantity =
           0;
@@ -38951,7 +40007,7 @@ if (
             Math.max(
               0,
               allocated -
-                returned
+              returned
             );
 
           const soldAvailable =
@@ -38971,7 +40027,7 @@ if (
             Math.max(
               0,
               usableAllocated -
-                consumed
+              consumed
             );
 
           allocatedQuantity +=
@@ -38991,7 +40047,7 @@ if (
             Math.max(
               0,
               soldAvailable -
-                consumed
+              consumed
             )
           );
         }
@@ -39024,7 +40080,7 @@ if (
           const routeName =
             String(
               allocation.routeName ||
-                ""
+              ""
             ).trim();
 
           if (routeName) {
@@ -39045,9 +40101,9 @@ if (
 
         if (
           allocationDate <
-            todayStart &&
+          todayStart &&
           remainingQuantity >
-            0.000001
+          0.000001
         ) {
           allocationSummary
             .previousPendingAllocationCount +=
@@ -39168,7 +40224,7 @@ if (
         const paymentMode =
           String(
             collection.paymentMode ||
-              ""
+            ""
           )
             .trim()
             .toUpperCase();
@@ -39250,37 +40306,37 @@ if (
                   [],
               };
 
-const sale =
-  todaySalesMap.get(
-    salesmanId
-  ) || {
-    soldQuantity:
-      0,
+            const sale =
+              todaySalesMap.get(
+                salesmanId
+              ) || {
+                soldQuantity:
+                  0,
 
-    salesAmount:
-      0,
+                salesAmount:
+                  0,
 
-    billCount:
-      0,
+                billCount:
+                  0,
 
-    billingReceiptCount:
-      0,
+                billingReceiptCount:
+                  0,
 
-    billingCollectionAmount:
-      0,
+                billingCollectionAmount:
+                  0,
 
-    billingCashCollectionAmount:
-      0,
+                billingCashCollectionAmount:
+                  0,
 
-    billingOnlineCollectionAmount:
-      0,
+                billingOnlineCollectionAmount:
+                  0,
 
-    billingUpiCollectionAmount:
-      0,
+                billingUpiCollectionAmount:
+                  0,
 
-    billingBankCollectionAmount:
-      0,
-  };
+                billingBankCollectionAmount:
+                  0,
+              };
 
             const collection =
               collectionMap.get(
@@ -39518,75 +40574,75 @@ const sale =
               // TODAY COLLECTION
               // =========================================
 
-           receiptCount:
-  Number(
-    collection.receiptCount ||
-      0
-  ) +
-  Number(
-    sale.billingReceiptCount ||
-      0
-  ),
+              receiptCount:
+                Number(
+                  collection.receiptCount ||
+                  0
+                ) +
+                Number(
+                  sale.billingReceiptCount ||
+                  0
+                ),
 
-collectionAmount:
-  round2(
-    Number(
-      collection.collectionAmount ||
-        0
-    ) +
-    Number(
-      sale.billingCollectionAmount ||
-        0
-    )
-  ),
+              collectionAmount:
+                round2(
+                  Number(
+                    collection.collectionAmount ||
+                    0
+                  ) +
+                  Number(
+                    sale.billingCollectionAmount ||
+                    0
+                  )
+                ),
 
-cashCollectionAmount:
-  round2(
-    Number(
-      collection.cashCollectionAmount ||
-        0
-    ) +
-    Number(
-      sale.billingCashCollectionAmount ||
-        0
-    )
-  ),
+              cashCollectionAmount:
+                round2(
+                  Number(
+                    collection.cashCollectionAmount ||
+                    0
+                  ) +
+                  Number(
+                    sale.billingCashCollectionAmount ||
+                    0
+                  )
+                ),
 
-onlineCollectionAmount:
-  round2(
-    Number(
-      collection.onlineCollectionAmount ||
-        0
-    ) +
-    Number(
-      sale.billingOnlineCollectionAmount ||
-        0
-    )
-  ),
+              onlineCollectionAmount:
+                round2(
+                  Number(
+                    collection.onlineCollectionAmount ||
+                    0
+                  ) +
+                  Number(
+                    sale.billingOnlineCollectionAmount ||
+                    0
+                  )
+                ),
 
-upiCollectionAmount:
-  round2(
-    Number(
-      collection.upiCollectionAmount ||
-        0
-    ) +
-    Number(
-      sale.billingUpiCollectionAmount ||
-        0
-    )
-  ),
+              upiCollectionAmount:
+                round2(
+                  Number(
+                    collection.upiCollectionAmount ||
+                    0
+                  ) +
+                  Number(
+                    sale.billingUpiCollectionAmount ||
+                    0
+                  )
+                ),
 
-bankCollectionAmount:
-  round2(
-    Number(
-      collection.bankCollectionAmount ||
-        0
-    ) +
-    Number(
-      sale.billingBankCollectionAmount ||
-        0
-    )
-  ),
+              bankCollectionAmount:
+                round2(
+                  Number(
+                    collection.bankCollectionAmount ||
+                    0
+                  ) +
+                  Number(
+                    sale.billingBankCollectionAmount ||
+                    0
+                  )
+                ),
 
               status,
             };
@@ -39653,11 +40709,11 @@ bankCollectionAmount:
 
           return String(
             a.salesmanName ||
-              ""
+            ""
           ).localeCompare(
             String(
               b.salesmanName ||
-                ""
+              ""
             )
           );
         }
@@ -39675,13 +40731,13 @@ bankCollectionAmount:
           ) => {
             const hasActivity =
               row.allocatedQuantity >
-                0 ||
+              0 ||
               row.soldQuantity >
-                0 ||
+              0 ||
               row.collectionAmount >
-                0 ||
+              0 ||
               row.previousPendingQuantity >
-                0;
+              0;
 
             if (hasActivity) {
               total.salesmen +=
@@ -39925,7 +40981,7 @@ bankCollectionAmount:
       return res
         .status(
           error.statusCode ||
-            500
+          500
         )
         .json({
           success: false,
@@ -39957,7 +41013,7 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
     if (parts.length === 3 && !parts.some(isNaN)) {
       rangeStart = new Date(
         Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0) -
-          HISTORY_IST_OFFSET_MS
+        HISTORY_IST_OFFSET_MS
       );
     }
   }
@@ -39968,7 +41024,7 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
     if (parts.length === 3 && !parts.some(isNaN)) {
       rangeEnd = new Date(
         Date.UTC(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999) -
-          HISTORY_IST_OFFSET_MS
+        HISTORY_IST_OFFSET_MS
       );
     }
   }
@@ -39977,7 +41033,7 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
   if (!rangeStart) {
     rangeStart = new Date(
       Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0) -
-        HISTORY_IST_OFFSET_MS
+      HISTORY_IST_OFFSET_MS
     );
   }
 
@@ -40190,8 +41246,8 @@ function getSaleBillingPaymentBreakup(
 
     addAmountByMode(
       payment?.mode ||
-        payment?.paymentMode ||
-        "",
+      payment?.paymentMode ||
+      "",
       amount
     );
 
@@ -40209,7 +41265,7 @@ function getSaleBillingPaymentBreakup(
   ) {
     addAmountByMode(
       sale?.paymentMode ||
-        "",
+      "",
       remaining
     );
   }
@@ -40258,7 +41314,7 @@ function getHistoryPaymentFilterAmount(
   const mode =
     String(
       requestedPaymentMode ||
-        "ALL"
+      "ALL"
     )
       .trim()
       .toUpperCase();
@@ -40293,13 +41349,13 @@ function getHistoryPaymentFilterAmount(
 
   if (
     mode ===
-      "BANK TRANSFER" ||
+    "BANK TRANSFER" ||
     mode ===
-      "BANK_TRANSFER"
+    "BANK_TRANSFER"
   ) {
     return Number(
       breakup?.bankTransfer ||
-        0
+      0
     );
   }
 
@@ -40763,37 +41819,37 @@ app.get(
         accountPosition,
         allTimePosition,
       ] = await Promise.all([
-      Sale.find(
-  saleFilter
-)
-  .select(
-    [
-      "saleId",
-      "saleNo",
-      "saleDate",
+        Sale.find(
+          saleFilter
+        )
+          .select(
+            [
+              "saleId",
+              "saleNo",
+              "saleDate",
 
-      "customerId",
-      "customerName",
-      "customerMobile",
-      "route",
+              "customerId",
+              "customerName",
+              "customerMobile",
+              "route",
 
-      "grandTotal",
+              "grandTotal",
 
-      "paymentMode",
-      "payments",
-      "paidAmount",
-      "paymentApplied",
-      "advanceCreated",
-      "advanceUsed",
-      "outstandingAmount",
-      "paymentStatus",
+              "paymentMode",
+              "payments",
+              "paidAmount",
+              "paymentApplied",
+              "advanceCreated",
+              "advanceUsed",
+              "outstandingAmount",
+              "paymentStatus",
 
-      "salesmanId",
-      "salesmanName",
-      "createdRole",
-    ].join(" ")
-  )
-  .lean(),
+              "salesmanId",
+              "salesmanName",
+              "createdRole",
+            ].join(" ")
+          )
+          .lean(),
         Collection.find(collectionFilter)
           .select("collectionId receiptNo collectionDate customerId customerName route amount paymentMode salesmanId salesmanName")
           .lean(),
@@ -40842,233 +41898,233 @@ app.get(
       totalSales = Number(totalSales.toFixed(2));
       const salesBillsCount = periodSales.length;
 
-   // ======================================================
-// RECEIVED PAYMENT TOTALS
-//
-// Includes:
-//
-// 1. Payment received directly while making sale
-// 2. Later TRN_COLLECTION receipts
-//
-// Does NOT alter outstanding.
-// ======================================================
+      // ======================================================
+      // RECEIVED PAYMENT TOTALS
+      //
+      // Includes:
+      //
+      // 1. Payment received directly while making sale
+      // 2. Later TRN_COLLECTION receipts
+      //
+      // Does NOT alter outstanding.
+      // ======================================================
 
-let cashCollected = 0;
-let upiCollected = 0;
-let bankTransferCollected = 0;
-let chequeCollected = 0;
-let otherCollected = 0;
+      let cashCollected = 0;
+      let upiCollected = 0;
+      let bankTransferCollected = 0;
+      let chequeCollected = 0;
+      let otherCollected = 0;
 
-let filteredCollectionsCount =
-  0;
+      let filteredCollectionsCount =
+        0;
 
-let filteredCollectionAmount =
-  0;
-
-
-// ======================================================
-// BILL-TIME PAYMENTS
-// ======================================================
-
-for (
-  const sale of periodSales
-) {
-  const billing =
-    getSaleBillingPaymentBreakup(
-      sale
-    );
-
-  cashCollected +=
-    billing.cash;
-
-  upiCollected +=
-    billing.upi;
-
-  bankTransferCollected +=
-    billing.bankTransfer;
-
-  chequeCollected +=
-    billing.cheque;
-
-  otherCollected +=
-    billing.other;
+      let filteredCollectionAmount =
+        0;
 
 
-  const matchingAmount =
-    getHistoryPaymentFilterAmount(
-      billing,
-      requestedPaymentMode
-    );
+      // ======================================================
+      // BILL-TIME PAYMENTS
+      // ======================================================
+
+      for (
+        const sale of periodSales
+      ) {
+        const billing =
+          getSaleBillingPaymentBreakup(
+            sale
+          );
+
+        cashCollected +=
+          billing.cash;
+
+        upiCollected +=
+          billing.upi;
+
+        bankTransferCollected +=
+          billing.bankTransfer;
+
+        chequeCollected +=
+          billing.cheque;
+
+        otherCollected +=
+          billing.other;
 
 
-  if (
-    matchingAmount > 0.001
-  ) {
-    filteredCollectionAmount +=
-      matchingAmount;
-
-    filteredCollectionsCount +=
-      1;
-  }
-}
+        const matchingAmount =
+          getHistoryPaymentFilterAmount(
+            billing,
+            requestedPaymentMode
+          );
 
 
-// ======================================================
-// LATER COLLECTION RECEIPTS
-// ======================================================
+        if (
+          matchingAmount > 0.001
+        ) {
+          filteredCollectionAmount +=
+            matchingAmount;
 
-for (
-  const col of
-  periodCollections
-) {
-  const amt =
-    Math.max(
-      0,
-      Number(
-        col.amount || 0
-      )
-    );
-
-  const modeGroup =
-    classifyHistoryPaymentMode(
-      col.paymentMode
-    );
+          filteredCollectionsCount +=
+            1;
+        }
+      }
 
 
-  if (
-    modeGroup === "cash"
-  ) {
-    cashCollected +=
-      amt;
-  }
+      // ======================================================
+      // LATER COLLECTION RECEIPTS
+      // ======================================================
 
-  else if (
-    modeGroup === "upi"
-  ) {
-    upiCollected +=
-      amt;
-  }
+      for (
+        const col of
+        periodCollections
+      ) {
+        const amt =
+          Math.max(
+            0,
+            Number(
+              col.amount || 0
+            )
+          );
 
-  else if (
-    modeGroup ===
-    "bankTransfer"
-  ) {
-    bankTransferCollected +=
-      amt;
-  }
-
-  else if (
-    modeGroup === "cheque"
-  ) {
-    chequeCollected +=
-      amt;
-  }
-
-  else {
-    otherCollected +=
-      amt;
-  }
+        const modeGroup =
+          classifyHistoryPaymentMode(
+            col.paymentMode
+          );
 
 
-  let matchesPaymentModeFilter =
-    true;
+        if (
+          modeGroup === "cash"
+        ) {
+          cashCollected +=
+            amt;
+        }
+
+        else if (
+          modeGroup === "upi"
+        ) {
+          upiCollected +=
+            amt;
+        }
+
+        else if (
+          modeGroup ===
+          "bankTransfer"
+        ) {
+          bankTransferCollected +=
+            amt;
+        }
+
+        else if (
+          modeGroup === "cheque"
+        ) {
+          chequeCollected +=
+            amt;
+        }
+
+        else {
+          otherCollected +=
+            amt;
+        }
 
 
-  if (
-    requestedPaymentMode !==
-    "ALL"
-  ) {
-    if (
-      requestedPaymentMode ===
-        "CASH" &&
-      modeGroup !== "cash"
-    ) {
-      matchesPaymentModeFilter =
-        false;
-    }
-
-    else if (
-      requestedPaymentMode ===
-        "UPI" &&
-      modeGroup !== "upi"
-    ) {
-      matchesPaymentModeFilter =
-        false;
-    }
-
-    else if (
-      (
-        requestedPaymentMode ===
-          "BANK TRANSFER" ||
-        requestedPaymentMode ===
-          "BANK_TRANSFER"
-      ) &&
-      modeGroup !==
-        "bankTransfer"
-    ) {
-      matchesPaymentModeFilter =
-        false;
-    }
-
-    else if (
-      requestedPaymentMode ===
-        "CHEQUE" &&
-      modeGroup !== "cheque"
-    ) {
-      matchesPaymentModeFilter =
-        false;
-    }
-  }
+        let matchesPaymentModeFilter =
+          true;
 
 
-  if (
-    matchesPaymentModeFilter
-  ) {
-    filteredCollectionAmount +=
-      amt;
+        if (
+          requestedPaymentMode !==
+          "ALL"
+        ) {
+          if (
+            requestedPaymentMode ===
+            "CASH" &&
+            modeGroup !== "cash"
+          ) {
+            matchesPaymentModeFilter =
+              false;
+          }
 
-    filteredCollectionsCount +=
-      1;
-  }
-}
+          else if (
+            requestedPaymentMode ===
+            "UPI" &&
+            modeGroup !== "upi"
+          ) {
+            matchesPaymentModeFilter =
+              false;
+          }
+
+          else if (
+            (
+              requestedPaymentMode ===
+              "BANK TRANSFER" ||
+              requestedPaymentMode ===
+              "BANK_TRANSFER"
+            ) &&
+            modeGroup !==
+            "bankTransfer"
+          ) {
+            matchesPaymentModeFilter =
+              false;
+          }
+
+          else if (
+            requestedPaymentMode ===
+            "CHEQUE" &&
+            modeGroup !== "cheque"
+          ) {
+            matchesPaymentModeFilter =
+              false;
+          }
+        }
 
 
-cashCollected =
-  Number(
-    cashCollected.toFixed(2)
-  );
+        if (
+          matchesPaymentModeFilter
+        ) {
+          filteredCollectionAmount +=
+            amt;
 
-upiCollected =
-  Number(
-    upiCollected.toFixed(2)
-  );
-
-bankTransferCollected =
-  Number(
-    bankTransferCollected
-      .toFixed(2)
-  );
-
-chequeCollected =
-  Number(
-    chequeCollected.toFixed(2)
-  );
-
-otherCollected =
-  Number(
-    otherCollected.toFixed(2)
-  );
+          filteredCollectionsCount +=
+            1;
+        }
+      }
 
 
-const totalCollected =
-  Number(
-    filteredCollectionAmount
-      .toFixed(2)
-  );
+      cashCollected =
+        Number(
+          cashCollected.toFixed(2)
+        );
+
+      upiCollected =
+        Number(
+          upiCollected.toFixed(2)
+        );
+
+      bankTransferCollected =
+        Number(
+          bankTransferCollected
+            .toFixed(2)
+        );
+
+      chequeCollected =
+        Number(
+          chequeCollected.toFixed(2)
+        );
+
+      otherCollected =
+        Number(
+          otherCollected.toFixed(2)
+        );
 
 
-const collectionTransactions =
-  filteredCollectionsCount;
+      const totalCollected =
+        Number(
+          filteredCollectionAmount
+            .toFixed(2)
+        );
+
+
+      const collectionTransactions =
+        filteredCollectionsCount;
 
       // ----------------------------------------------------
       // SALESMEN SUMMARY (For Admin view or Single Salesman)
@@ -41120,208 +42176,208 @@ const collectionTransactions =
       };
 
       // Populate sales into salesman maps
- // ======================================================
-// POPULATE SALES + BILL-TIME COLLECTION
-// INTO SALESMAN SUMMARY
-// ======================================================
+      // ======================================================
+      // POPULATE SALES + BILL-TIME COLLECTION
+      // INTO SALESMAN SUMMARY
+      // ======================================================
 
-for (
-  const sale of periodSales
-) {
-  const sId =
-    String(
-      sale.salesmanId || ""
-    )
-      .trim()
-      .toUpperCase();
-
-  const amt =
-    Math.max(
-      0,
-      Number(
-        sale.grandTotal || 0
-      )
-    );
-
-  const cId =
-    String(
-      sale.customerId || ""
-    )
-      .trim()
-      .toUpperCase();
-
-  const sDate =
-    sale.saleDate ||
-    null;
-
-
-  const billing =
-    getSaleBillingPaymentBreakup(
-      sale
-    );
-
-  const matchingBillingAmount =
-    getHistoryPaymentFilterAmount(
-      billing,
-      requestedPaymentMode
-    );
-
-
-  if (
-    sId &&
-    salesmanDataMap.has(
-      sId
-    )
-  ) {
-    const entry =
-      salesmanDataMap.get(
-        sId
-      );
-
-    entry.totalSales +=
-      amt;
-
-    entry.salesBillsCount +=
-      1;
-
-
-    entry.cash +=
-      billing.cash;
-
-    entry.upi +=
-      billing.upi;
-
-    entry.bankTransfer +=
-      billing.bankTransfer;
-
-    entry.cheque +=
-      billing.cheque;
-
-    entry.other +=
-      billing.other;
-
-
-    if (
-      matchingBillingAmount >
-      0.001
-    ) {
-      entry.totalCollected +=
-        matchingBillingAmount;
-
-      entry.collectionTransactions +=
-        1;
-
-      if (
-        sDate &&
-        (
-          !entry.lastCollectionDate ||
-          new Date(
-            sDate
-          ) >
-            new Date(
-              entry.lastCollectionDate
-            )
-        )
+      for (
+        const sale of periodSales
       ) {
-        entry.lastCollectionDate =
-          sDate;
-      }
-    }
-
-
-    if (cId) {
-      entry.customerSet.add(
-        cId
-      );
-    }
-
-
-    if (
-      sDate &&
-      (
-        !entry.lastSaleDate ||
-        new Date(
-          sDate
-        ) >
-          new Date(
-            entry.lastSaleDate
+        const sId =
+          String(
+            sale.salesmanId || ""
           )
-      )
-    ) {
-      entry.lastSaleDate =
-        sDate;
-    }
-  }
+            .trim()
+            .toUpperCase();
 
-  else {
-    unassignedSummary.totalSales +=
-      amt;
-
-    unassignedSummary.salesBillsCount +=
-      1;
-
-
-    unassignedSummary.cash +=
-      billing.cash;
-
-    unassignedSummary.upi +=
-      billing.upi;
-
-    unassignedSummary.bankTransfer +=
-      billing.bankTransfer;
-
-    unassignedSummary.cheque +=
-      billing.cheque;
-
-    unassignedSummary.other +=
-      billing.other;
-
-
-    if (
-      matchingBillingAmount >
-      0.001
-    ) {
-      unassignedSummary.totalCollected +=
-        matchingBillingAmount;
-
-      unassignedSummary.collectionTransactions +=
-        1;
-
-      if (
-        sDate &&
-        (
-          !unassignedSummary.lastCollectionDate ||
-          new Date(
-            sDate
-          ) >
-            new Date(
-              unassignedSummary.lastCollectionDate
+        const amt =
+          Math.max(
+            0,
+            Number(
+              sale.grandTotal || 0
             )
-        )
-      ) {
-        unassignedSummary.lastCollectionDate =
-          sDate;
-      }
-    }
+          );
 
-
-    if (
-      sDate &&
-      (
-        !unassignedSummary.lastSaleDate ||
-        new Date(
-          sDate
-        ) >
-          new Date(
-            unassignedSummary.lastSaleDate
+        const cId =
+          String(
+            sale.customerId || ""
           )
-      )
-    ) {
-      unassignedSummary.lastSaleDate =
-        sDate;
-    }
-  }
-}
+            .trim()
+            .toUpperCase();
+
+        const sDate =
+          sale.saleDate ||
+          null;
+
+
+        const billing =
+          getSaleBillingPaymentBreakup(
+            sale
+          );
+
+        const matchingBillingAmount =
+          getHistoryPaymentFilterAmount(
+            billing,
+            requestedPaymentMode
+          );
+
+
+        if (
+          sId &&
+          salesmanDataMap.has(
+            sId
+          )
+        ) {
+          const entry =
+            salesmanDataMap.get(
+              sId
+            );
+
+          entry.totalSales +=
+            amt;
+
+          entry.salesBillsCount +=
+            1;
+
+
+          entry.cash +=
+            billing.cash;
+
+          entry.upi +=
+            billing.upi;
+
+          entry.bankTransfer +=
+            billing.bankTransfer;
+
+          entry.cheque +=
+            billing.cheque;
+
+          entry.other +=
+            billing.other;
+
+
+          if (
+            matchingBillingAmount >
+            0.001
+          ) {
+            entry.totalCollected +=
+              matchingBillingAmount;
+
+            entry.collectionTransactions +=
+              1;
+
+            if (
+              sDate &&
+              (
+                !entry.lastCollectionDate ||
+                new Date(
+                  sDate
+                ) >
+                new Date(
+                  entry.lastCollectionDate
+                )
+              )
+            ) {
+              entry.lastCollectionDate =
+                sDate;
+            }
+          }
+
+
+          if (cId) {
+            entry.customerSet.add(
+              cId
+            );
+          }
+
+
+          if (
+            sDate &&
+            (
+              !entry.lastSaleDate ||
+              new Date(
+                sDate
+              ) >
+              new Date(
+                entry.lastSaleDate
+              )
+            )
+          ) {
+            entry.lastSaleDate =
+              sDate;
+          }
+        }
+
+        else {
+          unassignedSummary.totalSales +=
+            amt;
+
+          unassignedSummary.salesBillsCount +=
+            1;
+
+
+          unassignedSummary.cash +=
+            billing.cash;
+
+          unassignedSummary.upi +=
+            billing.upi;
+
+          unassignedSummary.bankTransfer +=
+            billing.bankTransfer;
+
+          unassignedSummary.cheque +=
+            billing.cheque;
+
+          unassignedSummary.other +=
+            billing.other;
+
+
+          if (
+            matchingBillingAmount >
+            0.001
+          ) {
+            unassignedSummary.totalCollected +=
+              matchingBillingAmount;
+
+            unassignedSummary.collectionTransactions +=
+              1;
+
+            if (
+              sDate &&
+              (
+                !unassignedSummary.lastCollectionDate ||
+                new Date(
+                  sDate
+                ) >
+                new Date(
+                  unassignedSummary.lastCollectionDate
+                )
+              )
+            ) {
+              unassignedSummary.lastCollectionDate =
+                sDate;
+            }
+          }
+
+
+          if (
+            sDate &&
+            (
+              !unassignedSummary.lastSaleDate ||
+              new Date(
+                sDate
+              ) >
+              new Date(
+                unassignedSummary.lastSaleDate
+              )
+            )
+          ) {
+            unassignedSummary.lastSaleDate =
+              sDate;
+          }
+        }
+      }
       // Populate collections into salesman maps
       for (const col of periodCollections) {
         const sId = String(col.salesmanId || "").trim().toUpperCase();
@@ -41484,16 +42540,16 @@ for (
         salesmenSummary: salesmenSummaryList,
         unassignedSummary:
           unassignedSummary.totalSales > 0 ||
-          unassignedSummary.totalCollected > 0 ||
-          (unassignedSummary.currentOutstanding && unassignedSummary.currentOutstanding > 0)
+            unassignedSummary.totalCollected > 0 ||
+            (unassignedSummary.currentOutstanding && unassignedSummary.currentOutstanding > 0)
             ? unassignedSummary
             : null,
         salesmen: isAdmin
           ? allSalesmen.map((s) => ({
-              salesmanId: s.salesmanId,
-              name: s.name,
-              mobile: s.mobile,
-            }))
+            salesmanId: s.salesmanId,
+            name: s.name,
+            mobile: s.mobile,
+          }))
           : [],
         customers: allCustomers.map((c) => ({
           customerId: c.customerId,
@@ -41641,36 +42697,36 @@ app.get(
       // Fetch All Matching Sales & Collections for this target within period
       const [allSales, allCollections, accountPos, allTimePos] = await Promise.all([
         Sale.find(
-  saleFilter
-)
-  .select(
-    [
-      "saleId",
-      "saleNo",
-      "saleDate",
+          saleFilter
+        )
+          .select(
+            [
+              "saleId",
+              "saleNo",
+              "saleDate",
 
-      "customerId",
-      "customerName",
-      "customerMobile",
-      "route",
+              "customerId",
+              "customerName",
+              "customerMobile",
+              "route",
 
-      "grandTotal",
+              "grandTotal",
 
-      "paymentMode",
-      "payments",
-      "paidAmount",
-      "paymentApplied",
-      "advanceCreated",
-      "advanceUsed",
-      "outstandingAmount",
-      "paymentStatus",
+              "paymentMode",
+              "payments",
+              "paidAmount",
+              "paymentApplied",
+              "advanceCreated",
+              "advanceUsed",
+              "outstandingAmount",
+              "paymentStatus",
 
-      "status",
+              "status",
 
-      "salesmanId",
-      "salesmanName",
-    ].join(" ")
-  )
+              "salesmanId",
+              "salesmanName",
+            ].join(" ")
+          )
           .sort({ saleDate: -1, createdAt: -1 })
           .lean(),
         Collection.find(collectionFilter)
@@ -41697,209 +42753,209 @@ app.get(
       totalSales = Number(totalSales.toFixed(2));
       const salesBillsCount = allSales.length;
 
- let cash = 0;
-let upi = 0;
-let bankTransfer = 0;
-let cheque = 0;
-let other = 0;
+      let cash = 0;
+      let upi = 0;
+      let bankTransfer = 0;
+      let cheque = 0;
+      let other = 0;
 
-let totalCollected = 0;
-let collectionTransactions =
-  0;
-
-
-// ======================================================
-// PAYMENT RECEIVED AT BILLING
-// ======================================================
-
-for (
-  const sale of allSales
-) {
-  const billing =
-    getSaleBillingPaymentBreakup(
-      sale
-    );
-
-  cash +=
-    billing.cash;
-
-  upi +=
-    billing.upi;
-
-  bankTransfer +=
-    billing.bankTransfer;
-
-  cheque +=
-    billing.cheque;
-
-  other +=
-    billing.other;
+      let totalCollected = 0;
+      let collectionTransactions =
+        0;
 
 
-  const matchingAmount =
-    getHistoryPaymentFilterAmount(
-      billing,
-      requestedPaymentMode
-    );
+      // ======================================================
+      // PAYMENT RECEIVED AT BILLING
+      // ======================================================
+
+      for (
+        const sale of allSales
+      ) {
+        const billing =
+          getSaleBillingPaymentBreakup(
+            sale
+          );
+
+        cash +=
+          billing.cash;
+
+        upi +=
+          billing.upi;
+
+        bankTransfer +=
+          billing.bankTransfer;
+
+        cheque +=
+          billing.cheque;
+
+        other +=
+          billing.other;
 
 
-  if (
-    matchingAmount > 0.001
-  ) {
-    totalCollected +=
-      matchingAmount;
-
-    collectionTransactions +=
-      1;
-  }
-}
+        const matchingAmount =
+          getHistoryPaymentFilterAmount(
+            billing,
+            requestedPaymentMode
+          );
 
 
-// ======================================================
-// LATER COLLECTION RECEIPTS
-// ======================================================
+        if (
+          matchingAmount > 0.001
+        ) {
+          totalCollected +=
+            matchingAmount;
 
-for (
-  const col of
-  allCollections
-) {
-  const amt =
-    Math.max(
-      0,
-      Number(
-        col.amount || 0
-      )
-    );
-
-  const modeGroup =
-    classifyHistoryPaymentMode(
-      col.paymentMode
-    );
+          collectionTransactions +=
+            1;
+        }
+      }
 
 
-  if (
-    modeGroup === "cash"
-  ) {
-    cash += amt;
-  }
+      // ======================================================
+      // LATER COLLECTION RECEIPTS
+      // ======================================================
 
-  else if (
-    modeGroup === "upi"
-  ) {
-    upi += amt;
-  }
+      for (
+        const col of
+        allCollections
+      ) {
+        const amt =
+          Math.max(
+            0,
+            Number(
+              col.amount || 0
+            )
+          );
 
-  else if (
-    modeGroup ===
-    "bankTransfer"
-  ) {
-    bankTransfer +=
-      amt;
-  }
-
-  else if (
-    modeGroup === "cheque"
-  ) {
-    cheque += amt;
-  }
-
-  else {
-    other += amt;
-  }
+        const modeGroup =
+          classifyHistoryPaymentMode(
+            col.paymentMode
+          );
 
 
-  let matchesFilter =
-    true;
+        if (
+          modeGroup === "cash"
+        ) {
+          cash += amt;
+        }
+
+        else if (
+          modeGroup === "upi"
+        ) {
+          upi += amt;
+        }
+
+        else if (
+          modeGroup ===
+          "bankTransfer"
+        ) {
+          bankTransfer +=
+            amt;
+        }
+
+        else if (
+          modeGroup === "cheque"
+        ) {
+          cheque += amt;
+        }
+
+        else {
+          other += amt;
+        }
 
 
-  if (
-    requestedPaymentMode !==
-    "ALL"
-  ) {
-    if (
-      requestedPaymentMode ===
-        "CASH" &&
-      modeGroup !== "cash"
-    ) {
-      matchesFilter =
-        false;
-    }
-
-    else if (
-      requestedPaymentMode ===
-        "UPI" &&
-      modeGroup !== "upi"
-    ) {
-      matchesFilter =
-        false;
-    }
-
-    else if (
-      (
-        requestedPaymentMode ===
-          "BANK TRANSFER" ||
-        requestedPaymentMode ===
-          "BANK_TRANSFER"
-      ) &&
-      modeGroup !==
-        "bankTransfer"
-    ) {
-      matchesFilter =
-        false;
-    }
-
-    else if (
-      requestedPaymentMode ===
-        "CHEQUE" &&
-      modeGroup !== "cheque"
-    ) {
-      matchesFilter =
-        false;
-    }
-  }
+        let matchesFilter =
+          true;
 
 
-  if (
-    matchesFilter
-  ) {
-    totalCollected +=
-      amt;
+        if (
+          requestedPaymentMode !==
+          "ALL"
+        ) {
+          if (
+            requestedPaymentMode ===
+            "CASH" &&
+            modeGroup !== "cash"
+          ) {
+            matchesFilter =
+              false;
+          }
 
-    collectionTransactions +=
-      1;
-  }
-}
+          else if (
+            requestedPaymentMode ===
+            "UPI" &&
+            modeGroup !== "upi"
+          ) {
+            matchesFilter =
+              false;
+          }
+
+          else if (
+            (
+              requestedPaymentMode ===
+              "BANK TRANSFER" ||
+              requestedPaymentMode ===
+              "BANK_TRANSFER"
+            ) &&
+            modeGroup !==
+            "bankTransfer"
+          ) {
+            matchesFilter =
+              false;
+          }
+
+          else if (
+            requestedPaymentMode ===
+            "CHEQUE" &&
+            modeGroup !== "cheque"
+          ) {
+            matchesFilter =
+              false;
+          }
+        }
 
 
-totalCollected =
-  Number(
-    totalCollected.toFixed(2)
-  );
+        if (
+          matchesFilter
+        ) {
+          totalCollected +=
+            amt;
 
-cash =
-  Number(
-    cash.toFixed(2)
-  );
+          collectionTransactions +=
+            1;
+        }
+      }
 
-upi =
-  Number(
-    upi.toFixed(2)
-  );
 
-bankTransfer =
-  Number(
-    bankTransfer.toFixed(2)
-  );
+      totalCollected =
+        Number(
+          totalCollected.toFixed(2)
+        );
 
-cheque =
-  Number(
-    cheque.toFixed(2)
-  );
+      cash =
+        Number(
+          cash.toFixed(2)
+        );
 
-other =
-  Number(
-    other.toFixed(2)
-  );
+      upi =
+        Number(
+          upi.toFixed(2)
+        );
+
+      bankTransfer =
+        Number(
+          bankTransfer.toFixed(2)
+        );
+
+      cheque =
+        Number(
+          cheque.toFixed(2)
+        );
+
+      other =
+        Number(
+          other.toFixed(2)
+        );
 
       // ----------------------------------------------------
       // SALES TAB (with search and pagination)
@@ -41927,382 +42983,382 @@ other =
       );
 
       // ----------------------------------------------------
-// COLLECTIONS TAB
-//
-// Unified list:
-//
-// BILL_PAYMENT
-//   Money received while making sale
-//
-// COLLECTION
-//   Money received later through TRN_COLLECTION
-// ----------------------------------------------------
+      // COLLECTIONS TAB
+      //
+      // Unified list:
+      //
+      // BILL_PAYMENT
+      //   Money received while making sale
+      //
+      // COLLECTION
+      //   Money received later through TRN_COLLECTION
+      // ----------------------------------------------------
 
-const billingReceiptRows =
-  allSales
-    .filter(
-      (sale) =>
-        Math.max(
-          0,
-          Number(
-            sale.paidAmount || 0
+      const billingReceiptRows =
+        allSales
+          .filter(
+            (sale) =>
+              Math.max(
+                0,
+                Number(
+                  sale.paidAmount || 0
+                )
+              ) > 0.001
           )
-        ) > 0.001
-    )
-    .map(
-      (sale) => {
-        const billing =
-          getSaleBillingPaymentBreakup(
-            sale
-          );
+          .map(
+            (sale) => {
+              const billing =
+                getSaleBillingPaymentBreakup(
+                  sale
+                );
 
-        return {
-          sourceType:
-            "BILL_PAYMENT",
+              return {
+                sourceType:
+                  "BILL_PAYMENT",
 
-          collectionId:
-            `BILL-${sale.saleId}`,
+                collectionId:
+                  `BILL-${sale.saleId}`,
 
-          receiptNo:
-            sale.saleNo ||
-            sale.saleId,
+                receiptNo:
+                  sale.saleNo ||
+                  sale.saleId,
 
-          collectionDate:
-            sale.saleDate,
+                collectionDate:
+                  sale.saleDate,
 
-          customerId:
-            sale.customerId ||
-            "",
+                customerId:
+                  sale.customerId ||
+                  "",
 
-          customerName:
-            sale.customerName ||
-            "",
+                customerName:
+                  sale.customerName ||
+                  "",
 
-          customerMobile:
-            String(
-              sale.customerMobile ||
-              ""
-            ),
+                customerMobile:
+                  String(
+                    sale.customerMobile ||
+                    ""
+                  ),
 
-          route:
-            sale.route ||
-            "",
+                route:
+                  sale.route ||
+                  "",
 
-          amount:
-            billing.total,
+                amount:
+                  billing.total,
 
-          paymentMode:
-            sale.paymentMode ||
-            "",
+                paymentMode:
+                  sale.paymentMode ||
+                  "",
 
-          payments:
-            Array.isArray(
-              sale.payments
-            )
-              ? sale.payments
-              : [],
+                payments:
+                  Array.isArray(
+                    sale.payments
+                  )
+                    ? sale.payments
+                    : [],
 
-          paymentBreakup:
-            billing,
+                paymentBreakup:
+                  billing,
 
-          referenceNo:
-            sale.saleNo ||
-            "",
+                referenceNo:
+                  sale.saleNo ||
+                  "",
 
-          remarks:
-            "Payment received at billing.",
+                remarks:
+                  "Payment received at billing.",
 
-          status:
-            "POSTED",
+                status:
+                  "POSTED",
 
-          salesmanId:
-            sale.salesmanId ||
-            "",
+                salesmanId:
+                  sale.salesmanId ||
+                  "",
 
-          salesmanName:
-            sale.salesmanName ||
-            "",
+                salesmanName:
+                  sale.salesmanName ||
+                  "",
 
-          saleId:
-            sale.saleId ||
-            "",
+                saleId:
+                  sale.saleId ||
+                  "",
 
-          saleNo:
-            sale.saleNo ||
-            "",
+                saleNo:
+                  sale.saleNo ||
+                  "",
 
-          billAmount:
-            Number(
-              sale.grandTotal ||
-              0
-            ),
+                billAmount:
+                  Number(
+                    sale.grandTotal ||
+                    0
+                  ),
 
-          paidAmount:
-            billing.total,
+                paidAmount:
+                  billing.total,
 
-          paymentApplied:
-            Number(
-              (
-                sale.paymentApplied !== undefined && sale.paymentApplied !== null
-                  ? Number(sale.paymentApplied)
-                  : Math.min(billing.total, Number(sale.grandTotal || 0))
-              ).toFixed(2)
-            ),
+                paymentApplied:
+                  Number(
+                    (
+                      sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                        ? Number(sale.paymentApplied)
+                        : Math.min(billing.total, Number(sale.grandTotal || 0))
+                    ).toFixed(2)
+                  ),
 
-          paymentAppliedAtBilling:
-            Number(
-              (
-                sale.paymentApplied !== undefined && sale.paymentApplied !== null
-                  ? Number(sale.paymentApplied)
-                  : Math.min(billing.total, Number(sale.grandTotal || 0))
-              ).toFixed(2)
-            ),
+                paymentAppliedAtBilling:
+                  Number(
+                    (
+                      sale.paymentApplied !== undefined && sale.paymentApplied !== null
+                        ? Number(sale.paymentApplied)
+                        : Math.min(billing.total, Number(sale.grandTotal || 0))
+                    ).toFixed(2)
+                  ),
 
-          outstandingAmount:
-            Number(
-              sale.outstandingAmount ||
-              0
-            ),
+                outstandingAmount:
+                  Number(
+                    sale.outstandingAmount ||
+                    0
+                  ),
 
-          paymentStatus:
-            sale.paymentStatus ||
-            "",
+                paymentStatus:
+                  sale.paymentStatus ||
+                  "",
 
-          advanceCreated:
-            Number(
-              sale.advanceCreated ||
-              0
-            ),
+                advanceCreated:
+                  Number(
+                    sale.advanceCreated ||
+                    0
+                  ),
 
-          advanceUsed:
-            Number(
-              sale.advanceUsed ||
-              0
-            ),
+                advanceUsed:
+                  Number(
+                    sale.advanceUsed ||
+                    0
+                  ),
 
-          canDownloadReceipt:
-            true,
+                canDownloadReceipt:
+                  true,
 
-          canCollectPayment:
-            Number(
-              sale.outstandingAmount ||
-              0
-            ) > 0.001,
-        };
-      }
-    );
-
-
-const laterCollectionRows =
-  allCollections.map(
-    (collection) => ({
-      ...collection,
-
-      allocationMode:
-        collection.allocationMode ||
-        "FIFO",
-
-      sourceType:
-        "COLLECTION",
-
-      customerMobile:
-        String(
-          collection.customerMobile ||
-          ""
-        ),
-
-      canDownloadReceipt:
-        true,
-    })
-  );
-
-
-let filteredCollections = [
-  ...billingReceiptRows,
-  ...laterCollectionRows,
-];
-
-
-// NEWEST FIRST
-
-filteredCollections.sort(
-  (a, b) =>
-    new Date(
-      b.collectionDate || 0
-    ) -
-    new Date(
-      a.collectionDate || 0
-    )
-);
-
-
-// PAYMENT MODE FILTER
-
-if (
-  requestedPaymentMode !==
-  "ALL"
-) {
-  filteredCollections =
-    filteredCollections.filter(
-      (item) => {
-        if (
-          item.sourceType ===
-          "BILL_PAYMENT"
-        ) {
-          return (
-            getHistoryPaymentFilterAmount(
-              item.paymentBreakup,
-              requestedPaymentMode
-            ) > 0.001
-          );
-        }
-
-
-        const modeGroup =
-          classifyHistoryPaymentMode(
-            item.paymentMode
+                canCollectPayment:
+                  Number(
+                    sale.outstandingAmount ||
+                    0
+                  ) > 0.001,
+              };
+            }
           );
 
 
-        if (
-          requestedPaymentMode ===
-          "CASH"
-        ) {
-          return (
-            modeGroup ===
-            "cash"
-          );
-        }
+      const laterCollectionRows =
+        allCollections.map(
+          (collection) => ({
+            ...collection,
 
+            allocationMode:
+              collection.allocationMode ||
+              "FIFO",
 
-        if (
-          requestedPaymentMode ===
-          "UPI"
-        ) {
-          return (
-            modeGroup ===
-            "upi"
-          );
-        }
+            sourceType:
+              "COLLECTION",
 
+            customerMobile:
+              String(
+                collection.customerMobile ||
+                ""
+              ),
 
-        if (
-          requestedPaymentMode ===
-            "BANK TRANSFER" ||
-          requestedPaymentMode ===
-            "BANK_TRANSFER"
-        ) {
-          return (
-            modeGroup ===
-            "bankTransfer"
-          );
-        }
-
-
-        if (
-          requestedPaymentMode ===
-          "CHEQUE"
-        ) {
-          return (
-            modeGroup ===
-            "cheque"
-          );
-        }
-
-
-        return true;
-      }
-    );
-}
-
-
-// SEARCH
-
-if (search) {
-  filteredCollections =
-    filteredCollections.filter(
-      (item) => {
-        const rNo =
-          String(
-            item.receiptNo || ""
-          ).toLowerCase();
-
-        const saleNo =
-          String(
-            item.saleNo || ""
-          ).toLowerCase();
-
-        const cName =
-          String(
-            item.customerName ||
-              ""
-          ).toLowerCase();
-
-        const cId =
-          String(
-            item.customerId || ""
-          ).toLowerCase();
-
-        const mobile =
-          String(
-            item.customerMobile ||
-              ""
-          ).toLowerCase();
-
-        const mode =
-          String(
-            item.paymentMode || ""
-          ).toLowerCase();
-
-        const refNo =
-          String(
-            item.referenceNo ||
-              ""
-          ).toLowerCase();
-
-
-        return (
-          rNo.includes(
-            search
-          ) ||
-          saleNo.includes(
-            search
-          ) ||
-          cName.includes(
-            search
-          ) ||
-          cId.includes(
-            search
-          ) ||
-          mobile.includes(
-            search
-          ) ||
-          mode.includes(
-            search
-          ) ||
-          refNo.includes(
-            search
-          )
+            canDownloadReceipt:
+              true,
+          })
         );
+
+
+      let filteredCollections = [
+        ...billingReceiptRows,
+        ...laterCollectionRows,
+      ];
+
+
+      // NEWEST FIRST
+
+      filteredCollections.sort(
+        (a, b) =>
+          new Date(
+            b.collectionDate || 0
+          ) -
+          new Date(
+            a.collectionDate || 0
+          )
+      );
+
+
+      // PAYMENT MODE FILTER
+
+      if (
+        requestedPaymentMode !==
+        "ALL"
+      ) {
+        filteredCollections =
+          filteredCollections.filter(
+            (item) => {
+              if (
+                item.sourceType ===
+                "BILL_PAYMENT"
+              ) {
+                return (
+                  getHistoryPaymentFilterAmount(
+                    item.paymentBreakup,
+                    requestedPaymentMode
+                  ) > 0.001
+                );
+              }
+
+
+              const modeGroup =
+                classifyHistoryPaymentMode(
+                  item.paymentMode
+                );
+
+
+              if (
+                requestedPaymentMode ===
+                "CASH"
+              ) {
+                return (
+                  modeGroup ===
+                  "cash"
+                );
+              }
+
+
+              if (
+                requestedPaymentMode ===
+                "UPI"
+              ) {
+                return (
+                  modeGroup ===
+                  "upi"
+                );
+              }
+
+
+              if (
+                requestedPaymentMode ===
+                "BANK TRANSFER" ||
+                requestedPaymentMode ===
+                "BANK_TRANSFER"
+              ) {
+                return (
+                  modeGroup ===
+                  "bankTransfer"
+                );
+              }
+
+
+              if (
+                requestedPaymentMode ===
+                "CHEQUE"
+              ) {
+                return (
+                  modeGroup ===
+                  "cheque"
+                );
+              }
+
+
+              return true;
+            }
+          );
       }
-    );
-}
 
 
-const totalCollectionsCount =
-  filteredCollections.length;
+      // SEARCH
+
+      if (search) {
+        filteredCollections =
+          filteredCollections.filter(
+            (item) => {
+              const rNo =
+                String(
+                  item.receiptNo || ""
+                ).toLowerCase();
+
+              const saleNo =
+                String(
+                  item.saleNo || ""
+                ).toLowerCase();
+
+              const cName =
+                String(
+                  item.customerName ||
+                  ""
+                ).toLowerCase();
+
+              const cId =
+                String(
+                  item.customerId || ""
+                ).toLowerCase();
+
+              const mobile =
+                String(
+                  item.customerMobile ||
+                  ""
+                ).toLowerCase();
+
+              const mode =
+                String(
+                  item.paymentMode || ""
+                ).toLowerCase();
+
+              const refNo =
+                String(
+                  item.referenceNo ||
+                  ""
+                ).toLowerCase();
 
 
-const paginatedCollections =
-  filteredCollections.slice(
-    (
-      collectionPage - 1
-    ) *
-      collectionLimit,
+              return (
+                rNo.includes(
+                  search
+                ) ||
+                saleNo.includes(
+                  search
+                ) ||
+                cName.includes(
+                  search
+                ) ||
+                cId.includes(
+                  search
+                ) ||
+                mobile.includes(
+                  search
+                ) ||
+                mode.includes(
+                  search
+                ) ||
+                refNo.includes(
+                  search
+                )
+              );
+            }
+          );
+      }
 
-    collectionPage *
-      collectionLimit
-  );
+
+      const totalCollectionsCount =
+        filteredCollections.length;
+
+
+      const paginatedCollections =
+        filteredCollections.slice(
+          (
+            collectionPage - 1
+          ) *
+          collectionLimit,
+
+          collectionPage *
+          collectionLimit
+        );
       // ----------------------------------------------------
       // CUSTOMER SUMMARY TAB
       // ----------------------------------------------------
@@ -42329,37 +43385,37 @@ const paginatedCollections =
         item.periodSales += Math.max(0, Number(s.grandTotal || 0));
         item.salesCount += 1;
         const billing =
-  getSaleBillingPaymentBreakup(
-    s
-  );
+          getSaleBillingPaymentBreakup(
+            s
+          );
 
 
-if (
-  billing.total > 0.001
-) {
-  item.periodCollections +=
-    billing.total;
+        if (
+          billing.total > 0.001
+        ) {
+          item.periodCollections +=
+            billing.total;
 
-  item.collectionCount +=
-    1;
+          item.collectionCount +=
+            1;
 
 
-  if (
-    s.saleDate &&
-    (
-      !item.lastCollectionDate ||
-      new Date(
-        s.saleDate
-      ) >
-        new Date(
-          item.lastCollectionDate
-        )
-    )
-  ) {
-    item.lastCollectionDate =
-      s.saleDate;
-  }
-}
+          if (
+            s.saleDate &&
+            (
+              !item.lastCollectionDate ||
+              new Date(
+                s.saleDate
+              ) >
+              new Date(
+                item.lastCollectionDate
+              )
+            )
+          ) {
+            item.lastCollectionDate =
+              s.saleDate;
+          }
+        }
         if (s.saleDate && (!item.lastSaleDate || new Date(s.saleDate) > new Date(item.lastSaleDate))) {
           item.lastSaleDate = s.saleDate;
         }
@@ -42413,14 +43469,14 @@ if (
         if (!trendMap.has(dStr)) trendMap.set(dStr, { date: dStr, sales: 0, collections: 0 });
         trendMap.get(dStr).sales += Math.max(0, Number(s.grandTotal || 0));
         const billing =
-  getSaleBillingPaymentBreakup(
-    s
-  );
+          getSaleBillingPaymentBreakup(
+            s
+          );
 
-trendMap
-  .get(dStr)
-  .collections +=
-  billing.total;
+        trendMap
+          .get(dStr)
+          .collections +=
+          billing.total;
       }
       for (const c of allCollections) {
         const dStr = (c.collectionDate || c.createdAt || "").toISOString().substring(0, 10);
@@ -42437,13 +43493,13 @@ trendMap
 
       return res.status(200).json({
         success: true,
-        salesman: salesmanProfile
+        salesman: salesmanProfileA
           ? {
-              salesmanId: salesmanProfile.salesmanId,
-              name: salesmanProfile.name,
-              mobile: salesmanProfile.mobile,
-              routes: assignedRoutes,
-            }
+            salesmanId: salesmanProfile.salesmanId,
+            name: salesmanProfile.name,
+            mobile: salesmanProfile.mobile,
+            routes: assignedRoutes,
+          }
           : null,
         overview: {
           totalSales,

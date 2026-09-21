@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import '../../services/data_sync_service.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -101,6 +101,68 @@ ApiConfig.farmId =
         );
         return;
       }
+      // ============================================================
+// LOAD FULL CURRENT USER PROFILE
+//
+// Login response is intentionally kept lightweight.
+// /api/profile contains the complete salesman information,
+// including the new multi-route routes[] array.
+// ============================================================
+
+Map<String, dynamic> sessionUser =
+    Map<String, dynamic>.from(
+  user,
+);
+
+if (
+    serverRole == 'salesman' &&
+    ApiConfig.token.isNotEmpty
+) {
+  try {
+    final profileResponse =
+        await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/api/profile',
+      ),
+      headers: {
+        'Content-Type':
+            'application/json',
+
+        'Authorization':
+            'Bearer ${ApiConfig.token}',
+      },
+    );
+
+    if (
+        profileResponse.statusCode ==
+            200
+    ) {
+      final profileBody =
+          jsonDecode(
+        profileResponse.body,
+      );
+
+      if (
+          profileBody is Map &&
+          profileBody['success'] ==
+              true &&
+          profileBody['data']
+              is Map
+      ) {
+        sessionUser =
+            Map<String, dynamic>.from(
+          profileBody['data']
+              as Map,
+        );
+      }
+    }
+  } catch (_) {
+    // --------------------------------------------------------
+    // Do not block login if profile refresh temporarily fails.
+    // Existing login information remains available.
+    // --------------------------------------------------------
+  }
+}
 // ============================================================
 // CONVERT BACKEND PERMISSIONS TO AppPermission
 // ============================================================
@@ -109,7 +171,7 @@ final Set<AppPermission> permissions =
     <AppPermission>{};
 
 final rawPermissions =
-    user['permissions'];
+sessionUser['permissions'];
 
 if (rawPermissions is List) {
   for (final permission in rawPermissions) {
@@ -129,27 +191,153 @@ if (rawPermissions is List) {
 
 
 // ============================================================
+// PARSE SALESMAN ASSIGNED ROUTES
+// ============================================================
+
+final List<SalesmanRoute>
+    assignedRoutes =
+    <SalesmanRoute>[];
+
+final rawRoutes =
+    sessionUser['routes'];
+
+if (rawRoutes is List) {
+  for (
+    final rawRoute
+    in rawRoutes
+  ) {
+    if (rawRoute is! Map) {
+      continue;
+    }
+
+    final route =
+        SalesmanRoute.fromMap(
+      Map<String, dynamic>.from(
+        rawRoute,
+      ),
+    );
+
+    if (route.isValid) {
+      assignedRoutes.add(
+        route,
+      );
+    }
+  }
+}
+
+// ============================================================
+// LEGACY FALLBACK
+//
+// Supports old server response containing only
+// routeId + routeName.
+// ============================================================
+
+if (assignedRoutes.isEmpty) {
+  final legacyRouteId =
+      (sessionUser['routeId'] ??
+              '')
+          .toString()
+          .trim();
+
+  final legacyRouteName =
+      (sessionUser['routeName'] ??
+              '')
+          .toString()
+          .trim();
+
+  if (
+      legacyRouteId.isNotEmpty ||
+      legacyRouteName.isNotEmpty
+  ) {
+    assignedRoutes.add(
+      SalesmanRoute(
+        routeId:
+            legacyRouteId,
+
+        routeName:
+            legacyRouteName,
+      ),
+    );
+  }
+}
+
+final String?
+    legacyPrimaryRoute =
+    assignedRoutes.isNotEmpty
+        ? assignedRoutes
+            .first
+            .routeName
+        : null;
+// ============================================================
 // CREATE REAL APP USER FROM BACKEND
 // ============================================================
 
-final loggedInUser = AppUser(
-  id: user['id']?.toString() ?? '',
+final loggedInUser =
+    AppUser(
+  id:
+      sessionUser['_id']
+              ?.toString() ??
+          sessionUser['id']
+              ?.toString() ??
+          user['id']
+              ?.toString() ??
+          '',
+
   name:
-      user['name']?.toString() ?? '',
-  role: serverRole == 'salesman'
-      ? UserRole.salesman
-      : UserRole.admin,
+      sessionUser['name']
+              ?.toString() ??
+          user['name']
+              ?.toString() ??
+          '',
+
+  role:
+      serverRole == 'salesman'
+          ? UserRole.salesman
+          : UserRole.admin,
+
   branch:
-      user['businessName']?.toString() ??
-      'Main Distribution Centre',
+      sessionUser[
+                  'businessName']
+              ?.toString() ??
+          user['businessName']
+              ?.toString() ??
+          'Main Distribution Centre',
+
   mobile:
-      user['mobile']?.toString() ?? '',
+      sessionUser['mobile']
+              ?.toString() ??
+          user['mobile']
+              ?.toString() ??
+          '',
+
   salesmanId:
       serverRole == 'salesman'
-          ? user['salesmanId']?.toString()
+          ? (
+              sessionUser[
+                          'salesmanId']
+                      ?.toString() ??
+                  user[
+                          'salesmanId']
+                      ?.toString()
+            )
           : null,
+
+  // ========================================================
+  // LEGACY PRIMARY ROUTE
+  // ========================================================
+
   route:
-      user['routeName']?.toString(),
+      legacyPrimaryRoute,
+
+  // ========================================================
+  // NEW MULTI-ROUTE SUPPORT
+  // ========================================================
+
+  routes:
+      List<SalesmanRoute>.unmodifiable(
+    assignedRoutes,
+  ),
+
   permissions:
       permissions,
 );
@@ -162,6 +350,8 @@ final loggedInUser = AppUser(
 UiSession.instance.signInFromBackend(
   loggedInUser,
 );
+DataSyncService.instance
+    .startAutoSessionRefresh();
 
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
