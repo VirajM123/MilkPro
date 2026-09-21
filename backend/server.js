@@ -43493,7 +43493,7 @@ app.get(
 
       return res.status(200).json({
         success: true,
-        salesman: salesmanProfileA
+        salesman: salesmanProfile
           ? {
             salesmanId: salesmanProfile.salesmanId,
             name: salesmanProfile.name,
