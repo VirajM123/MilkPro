@@ -23034,28 +23034,57 @@ app.post(
             error.statusCode = 403;
             throw error;
           }
+// ==================================================
+// CONCURRENCY TOKEN / LOCK
+// Supports old customers where collectionRevision
+// does not yet physically exist in MongoDB.
+// ==================================================
 
-          // CONCURRENCY TOKEN / LOCK
-          const currentRevision = Number(customer.collectionRevision || 0);
-          const lockedCustomer = await Customer.findOneAndUpdate(
-            {
-              _id: customer._id,
-              collectionRevision: currentRevision,
-            },
-            {
-              $set: {
-                collectionRevision: currentRevision + 1,
-                updatedAt: new Date(),
-              },
-            },
-            { session, new: true }
-          );
+const currentRevision =
+  Number(customer.collectionRevision || 0);
 
-          if (!lockedCustomer) {
-            const error = new Error("Outstanding position has changed. Refresh the customer bills and try again.");
-            error.statusCode = 409;
-            throw error;
-          }
+let revisionFilter;
+
+if (currentRevision === 0) {
+  revisionFilter = {
+    _id: customer._id,
+    $or: [
+      { collectionRevision: 0 },
+      { collectionRevision: { $exists: false } },
+      { collectionRevision: null },
+    ],
+  };
+} else {
+  revisionFilter = {
+    _id: customer._id,
+    collectionRevision: currentRevision,
+  };
+}
+
+const lockedCustomer =
+  await Customer.findOneAndUpdate(
+    revisionFilter,
+    {
+      $inc: {
+        collectionRevision: 1,
+      },
+      $set: {
+        updatedAt: new Date(),
+      },
+    },
+    {
+      session,
+      returnDocument: "after",
+    }
+  );
+
+if (!lockedCustomer) {
+  const error = new Error(
+    "Outstanding position has changed. Refresh the customer bills and try again."
+  );
+  error.statusCode = 409;
+  throw error;
+}
 
           // LOAD POSTED SALES
           const saleFilter = {
