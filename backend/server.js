@@ -17043,10 +17043,7 @@ app.put(
               !Number.isFinite(
                 quantity
               ) ||
-              quantity <= 0 ||
-              !Number.isInteger(
-                quantity
-              )
+              quantity <= 0
             ) {
               const error =
                 new Error(
@@ -26730,6 +26727,100 @@ app.get(
           ).toFixed(2)}`;
 
 
+      const isYes = (value) =>
+        ["yes", "true", "1"].includes(
+          String(value || "").trim().toLowerCase()
+        );
+
+      const customerWise = isYes(req.query.customerWise);
+      const productWise = isYes(req.query.productWise);
+
+      const buildSalesBreakdown = ({
+        includeSalesman = false,
+        includeRoute = false,
+        includeCustomer = false,
+        includeProduct = false,
+      }) => {
+        const columns = [];
+        if (includeSalesman) columns.push("Salesman");
+        if (includeRoute) columns.push("Route");
+        if (includeCustomer) columns.push("Customer ID", "Customer");
+        if (includeProduct) columns.push("Product ID", "Product", "Variant", "Unit");
+        columns.push("Bills", "Quantity", "Sales", "Paid at Billing", "Outstanding");
+
+        const grouped = new Map();
+        for (const sale of sales) {
+          const products = includeProduct
+            ? (sale.products || []).filter((product) =>
+                !productId || String(product.productId || "").toUpperCase() === productId
+              )
+            : [null];
+
+          for (const product of products) {
+            const values = [];
+            const keys = [];
+            if (includeSalesman) {
+              const name = sale.salesmanName || (sale.createdRole === "admin" ? "Admin" : "Unassigned");
+              values.push(name);
+              keys.push(sale.salesmanId || `NAME:${name}`);
+            }
+            if (includeRoute) {
+              const routeName = sale.route || "No Route";
+              values.push(routeName);
+              keys.push(routeName);
+            }
+            if (includeCustomer) {
+              values.push(sale.customerId || "", sale.customerName || "");
+              keys.push(sale.customerId || `NAME:${sale.customerName || ""}`);
+            }
+            if (includeProduct) {
+              values.push(product.productId || "", product.productName || "", product.variant || "", product.unit || "");
+              keys.push(product.productId || `NAME:${product.productName || ""}`);
+            }
+
+            const key = JSON.stringify(keys);
+            if (!grouped.has(key)) {
+              grouped.set(key, {
+                values,
+                bills: new Set(),
+                quantity: 0,
+                sales: 0,
+                paidAtBilling: 0,
+                outstanding: 0,
+              });
+            }
+
+            const item = grouped.get(key);
+            const lineSales = includeProduct ? Number(product.amount || 0) : Number(sale.grandTotal || 0);
+            const billSales = Number(sale.grandTotal || 0);
+            const share = includeProduct && billSales > 0 ? lineSales / billSales : 1;
+            item.bills.add(sale.saleId || sale.saleNo);
+            item.quantity += includeProduct ? Number(product.quantity || 0) : Number(sale.totalQuantity || 0);
+            item.sales += lineSales;
+            item.paidAtBilling += (Number(sale.paymentApplied ?? sale.paidAmount) || 0) * share;
+            item.outstanding += (Number(sale.outstandingAmount) || 0) * share;
+          }
+        }
+
+        const rows = Array.from(grouped.values())
+          .sort((a, b) => b.sales - a.sales)
+          .map((item) => [
+            ...item.values,
+            item.bills.size,
+            Number(item.quantity.toFixed(2)),
+            Number(item.sales.toFixed(2)),
+            Number(item.paidAtBilling.toFixed(2)),
+            Number(item.outstanding.toFixed(2)),
+          ]);
+
+        return {
+          columns,
+          rows,
+          totalQuantity: rows.reduce((total, row) => total + Number(row[row.length - 4] || 0), 0),
+          totalSales: rows.reduce((total, row) => total + Number(row[row.length - 3] || 0), 0),
+        };
+      };
+
       // ==================================================
       // SALESMAN-WISE SALES
       // ==================================================
@@ -26738,6 +26829,28 @@ app.get(
         type ===
         "salesman-wise-sales"
       ) {
+
+        if (customerWise || productWise) {
+          const breakdown = buildSalesBreakdown({
+            includeSalesman: true,
+            includeCustomer: customerWise,
+            includeProduct: productWise,
+          });
+          return res.status(200).json({
+            success: true,
+            report: {
+              title: "Salesman-wise Sales",
+              description: "Sales quantity and value for each salesman with selected breakdowns",
+              columns: breakdown.columns,
+              rows: breakdown.rows,
+              metrics: [
+                { label: "Total Sales", value: money(breakdown.totalSales) },
+                { label: "Bills", value: totalBills.toString() },
+                { label: "Quantity", value: breakdown.totalQuantity.toString() },
+              ],
+            },
+          });
+        }
 
         const grouped =
           new Map();
@@ -26774,6 +26887,10 @@ app.get(
                   0,
                 sales:
                   0,
+                paidAtBilling:
+                  0,
+                outstanding:
+                  0,
               }
             );
           }
@@ -26794,6 +26911,16 @@ app.get(
             Number(
               sale.grandTotal
             ) || 0;
+
+          item.paidAtBilling +=
+            Number(
+              sale.paymentApplied ?? sale.paidAmount
+            ) || 0;
+
+          item.outstanding +=
+            Number(
+              sale.outstandingAmount
+            ) || 0;
         }
 
 
@@ -26809,11 +26936,12 @@ app.get(
             )
             .map(
               item => [
-                item.salesmanId,
                 item.salesman,
                 item.bills,
                 item.quantity,
                 item.sales,
+                item.paidAtBilling,
+                item.outstanding,
               ]
             );
 
@@ -26829,11 +26957,12 @@ app.get(
               "Sales quantity and value for each salesman",
 
             columns: [
-              "Salesman ID",
               "Salesman",
               "Bills",
               "Quantity",
               "Sales",
+              "Paid at Billing",
+              "Outstanding",
             ],
 
             rows,
@@ -26876,6 +27005,24 @@ app.get(
         "customer-wise-sales"
       ) {
 
+        if (productWise) {
+          const breakdown = buildSalesBreakdown({ includeCustomer: true, includeProduct: true });
+          return res.status(200).json({
+            success: true,
+            report: {
+              title: "Customer-wise Sales",
+              description: "Products sold to each customer or outlet",
+              columns: breakdown.columns,
+              rows: breakdown.rows,
+              metrics: [
+                { label: "Total Sales", value: money(breakdown.totalSales) },
+                { label: "Customers", value: new Set(sales.map((sale) => sale.customerId).filter(Boolean)).size.toString() },
+                { label: "Bills", value: totalBills.toString() },
+              ],
+            },
+          });
+        }
+
         const grouped =
           new Map();
 
@@ -26908,6 +27055,10 @@ app.get(
                   0,
                 sales:
                   0,
+                paidAtBilling:
+                  0,
+                outstanding:
+                  0,
               }
             );
           }
@@ -26927,6 +27078,16 @@ app.get(
           item.sales +=
             Number(
               sale.grandTotal
+            ) || 0;
+
+          item.paidAtBilling +=
+            Number(
+              sale.paymentApplied ?? sale.paidAmount
+            ) || 0;
+
+          item.outstanding +=
+            Number(
+              sale.outstandingAmount
             ) || 0;
         }
 
@@ -26949,6 +27110,8 @@ app.get(
                 item.bills,
                 item.quantity,
                 item.sales,
+                item.paidAtBilling,
+                item.outstanding,
               ]
             );
 
@@ -26970,6 +27133,8 @@ app.get(
               "Bills",
               "Quantity",
               "Sales",
+              "Paid at Billing",
+              "Outstanding",
             ],
 
             rows,
@@ -27012,6 +27177,28 @@ app.get(
         "route-wise-sales"
       ) {
 
+        if (customerWise || productWise) {
+          const breakdown = buildSalesBreakdown({
+            includeRoute: true,
+            includeCustomer: customerWise,
+            includeProduct: productWise,
+          });
+          return res.status(200).json({
+            success: true,
+            report: {
+              title: "Route-wise Sales",
+              description: "Route sales with selected customer and product breakdowns",
+              columns: breakdown.columns,
+              rows: breakdown.rows,
+              metrics: [
+                { label: "Total Sales", value: money(breakdown.totalSales) },
+                { label: "Routes", value: new Set(sales.map((sale) => sale.route || "No Route")).size.toString() },
+                { label: "Bills", value: totalBills.toString() },
+              ],
+            },
+          });
+        }
+
         const grouped =
           new Map();
 
@@ -27038,6 +27225,10 @@ app.get(
                   0,
                 sales:
                   0,
+                paidAtBilling:
+                  0,
+                outstanding:
+                  0,
               }
             );
           }
@@ -27058,6 +27249,16 @@ app.get(
             Number(
               sale.grandTotal
             ) || 0;
+
+          item.paidAtBilling +=
+            Number(
+              sale.paymentApplied ?? sale.paidAmount
+            ) || 0;
+
+          item.outstanding +=
+            Number(
+              sale.outstandingAmount
+            ) || 0;
         }
 
 
@@ -27077,6 +27278,8 @@ app.get(
                 item.bills,
                 item.quantity,
                 item.sales,
+                item.paidAtBilling,
+                item.outstanding,
               ]
             );
 
@@ -27096,6 +27299,8 @@ app.get(
               "Bills",
               "Quantity",
               "Sales",
+              "Paid at Billing",
+              "Outstanding",
             ],
 
             rows,
@@ -27137,6 +27342,24 @@ app.get(
         type ===
         "product-wise-sales"
       ) {
+
+        if (customerWise) {
+          const breakdown = buildSalesBreakdown({ includeCustomer: true, includeProduct: true });
+          return res.status(200).json({
+            success: true,
+            report: {
+              title: "Product-wise Sales",
+              description: "Products sold with customer-wise breakdown",
+              columns: breakdown.columns,
+              rows: breakdown.rows,
+              metrics: [
+                { label: "Sales Value", value: money(breakdown.totalSales) },
+                { label: "Products", value: new Set(breakdown.rows.map((row) => row[2]).filter(Boolean)).size.toString() },
+                { label: "Quantity", value: breakdown.totalQuantity.toString() },
+              ],
+            },
+          });
+        }
 
         const grouped =
           new Map();
@@ -27191,6 +27414,8 @@ app.get(
                     0,
                   sales:
                     0,
+                  bills:
+                    new Set(),
                 }
               );
             }
@@ -27208,6 +27433,10 @@ app.get(
               Number(
                 product.amount
               ) || 0;
+
+            item.bills.add(
+              sale.saleId || sale.saleNo
+            );
           }
         }
 
@@ -27230,6 +27459,10 @@ app.get(
                 item.unit,
                 item.quantity,
                 item.sales,
+                item.bills.size,
+                item.quantity > 0
+                  ? Number((item.sales / item.quantity).toFixed(2))
+                  : 0,
               ]
             );
 
@@ -27267,6 +27500,8 @@ app.get(
               "Unit",
               "Quantity",
               "Sales",
+              "Bills",
+              "Average Rate",
             ],
 
             rows,
@@ -27354,6 +27589,23 @@ app.get(
                 Number(
                   sale.grandTotal
                 ) || 0,
+
+                sale.customerId ||
+                "",
+
+                sale.salesmanId ||
+                "",
+
+                sale.paymentStatus ||
+                "",
+
+                Number(
+                  sale.paymentApplied ?? sale.paidAmount
+                ) || 0,
+
+                Number(
+                  sale.outstandingAmount
+                ) || 0,
               ]
             );
 
@@ -27421,6 +27673,11 @@ app.get(
               "Payment",
               "Quantity",
               "Amount",
+              "Customer ID",
+              "Salesman ID",
+              "Payment Status",
+              "Paid at Billing",
+              "Outstanding",
             ],
 
             rows,
@@ -30115,6 +30372,49 @@ app.get(
           })
           .lean();
 
+      // Include every posted source that contributes to the customer account.
+      const manualOutstandingFilter = { farmId, status: "POSTED" };
+      const effectiveOutstandingSalesmanId = role === "salesman"
+        ? currentSalesman.salesmanId
+        : salesmanId;
+      let outstandingReportRoutes = [];
+
+      if (effectiveOutstandingSalesmanId) {
+        const assignedRoutes = await RouteMaster.find({
+          farmId,
+          salesmanId: effectiveOutstandingSalesmanId,
+          isActive: true,
+        }).select("routeId routeName").lean();
+        outstandingReportRoutes = assignedRoutes
+          .flatMap((item) => [item.routeId, item.routeName])
+          .filter(Boolean);
+        manualOutstandingFilter.route = { $in: outstandingReportRoutes };
+      }
+
+      if (customerId) manualOutstandingFilter.customerId = customerId;
+      if (route) {
+        manualOutstandingFilter.route = effectiveOutstandingSalesmanId
+          ? { $in: outstandingReportRoutes.includes(route) ? [route] : [] }
+          : route;
+      }
+
+      const [manualOutstandingRecords, reportCustomers] = await Promise.all([
+        CustomerOutstanding.find(manualOutstandingFilter)
+          .select("adjustmentId adjustmentNo adjustmentDate customerId customerName route amount")
+          .sort({ adjustmentDate: 1, createdAt: 1 })
+          .lean(),
+        Customer.find({
+          farmId,
+          isActive: true,
+          ...(customerId ? { customerId } : {}),
+          ...(route
+            ? { route }
+            : effectiveOutstandingSalesmanId
+              ? { route: { $in: outstandingReportRoutes } }
+              : {}),
+        }).select("customerId name route balance").lean(),
+      ]);
+
 
       // ==================================================
       // COLLECTION FILTER
@@ -30133,16 +30433,16 @@ app.get(
       if (
         role === "salesman"
       ) {
-
-        collectionFilter.salesmanId =
-          currentSalesman.salesmanId;
+        collectionFilter.route = {
+          $in: outstandingReportRoutes,
+        };
       }
 
 
       else if (salesmanId) {
-
-        collectionFilter.salesmanId =
-          salesmanId;
+        collectionFilter.route = {
+          $in: outstandingReportRoutes,
+        };
       }
 
 
@@ -30153,8 +30453,9 @@ app.get(
 
 
       if (route) {
-        collectionFilter.route =
-          route;
+        collectionFilter.route = effectiveOutstandingSalesmanId
+          ? { $in: outstandingReportRoutes.includes(route) ? [route] : [] }
+          : route;
       }
 
 
@@ -30167,7 +30468,7 @@ app.get(
           collectionFilter
         )
           .select(
-            "collectionId collectionDate customerId customerName route salesmanId salesmanName amount paymentMode allocations"
+            "collectionId collectionDate customerId customerName route salesmanId salesmanName amount appliedAmount advanceAmount paymentMode allocations"
           )
           .sort({
             collectionDate: 1,
@@ -30188,7 +30489,7 @@ app.get(
 
 
       // ==================================================
-      // BUILD CUSTOMER TOTAL COLLECTION MAP
+      // BUILD CUSTOMER COLLECTION MAP
       // ==================================================
 
       const customerCollectionMap =
@@ -30215,21 +30516,11 @@ app.get(
         }
 
 
-        const oldAmount =
-          customerCollectionMap.get(
-            key
-          ) || 0;
+        if (!customerCollectionMap.has(key)) {
+          customerCollectionMap.set(key, []);
+        }
 
-
-        customerCollectionMap.set(
-          key,
-          oldAmount +
-          (
-            Number(
-              collection.amount
-            ) || 0
-          )
-        );
+        customerCollectionMap.get(key).push(collection);
       }
 
 
@@ -30245,6 +30536,37 @@ app.get(
 
       const customerSalesMap =
         new Map();
+
+      const customerMasterMap = new Map(
+        reportCustomers.map((customer) => [
+          String(customer.customerId || "").trim().toUpperCase(),
+          customer,
+        ])
+      );
+
+      const ensureCustomerRow = (key, seed = {}) => {
+        if (!customerSalesMap.has(key)) {
+          const master = customerMasterMap.get(key) || {};
+          customerSalesMap.set(key, {
+            customerId: seed.customerId || master.customerId || key,
+            customerName: seed.customerName || master.name || "",
+            mobile: seed.customerMobile || "",
+            route: seed.route || master.route || "",
+            salesmanId: seed.salesmanId || effectiveOutstandingSalesmanId || "",
+            salesmanName: seed.salesmanName ||
+              (role === "salesman" ? currentSalesman.name : effectiveOutstandingSalesmanId) ||
+              (seed.createdRole === "admin" ? "Admin" : ""),
+            totalCreditSales: 0,
+            manualOutstanding: 0,
+            collected: 0,
+            advance: Math.max(0, Number(master.balance ?? 0)),
+            grossOutstanding: 0,
+            outstanding: 0,
+            bills: [],
+          });
+        }
+        return customerSalesMap.get(key);
+      };
 
 
       for (
@@ -30279,62 +30601,7 @@ app.get(
         }
 
 
-        if (
-          !customerSalesMap.has(key)
-        ) {
-
-          customerSalesMap.set(
-            key,
-            {
-              customerId:
-                sale.customerId ||
-                "",
-
-              customerName:
-                sale.customerName ||
-                "",
-
-              mobile:
-                sale.customerMobile ||
-                "",
-
-              route:
-                sale.route ||
-                "",
-
-              salesmanId:
-                sale.salesmanId ||
-                "",
-
-              salesmanName:
-                sale.salesmanName ||
-                (
-                  sale.createdRole ===
-                    "admin"
-                    ? "Admin"
-                    : ""
-                ),
-
-              totalCreditSales:
-                0,
-
-              collected:
-                0,
-
-              outstanding:
-                0,
-
-              bills:
-                [],
-            }
-          );
-        }
-
-
-        const customer =
-          customerSalesMap.get(
-            key
-          );
+        const customer = ensureCustomerRow(key, sale);
 
 
         const amount = initialDue;
@@ -30361,6 +30628,33 @@ app.get(
 
           remaining:
             amount,
+
+          sourceType:
+            "SALE",
+
+          referenceId:
+            sale.saleId || "",
+        });
+      }
+
+      // Manual/opening outstanding is a debit source in its own right.
+      for (const manual of manualOutstandingRecords) {
+        const key = String(manual.customerId || "").trim().toUpperCase();
+        if (!key) continue;
+
+        const customer = ensureCustomerRow(key, manual);
+        const amount = Math.max(0, Number(manual.amount ?? 0));
+        if (amount <= 0.001) continue;
+
+        customer.manualOutstanding += amount;
+        customer.bills.push({
+          saleId: "",
+          saleNo: manual.adjustmentNo || manual.adjustmentId || "",
+          saleDate: manual.adjustmentDate,
+          amount,
+          remaining: amount,
+          sourceType: "MANUAL_OUTSTANDING",
+          referenceId: manual.adjustmentId || "",
         });
       }
 
@@ -30379,58 +30673,66 @@ app.get(
         ] of customerSalesMap
       ) {
 
-        const collected =
-          customerCollectionMap.get(
-            key
-          ) || 0;
+        customer.bills.sort((a, b) => new Date(a.saleDate || 0) - new Date(b.saleDate || 0));
+        const sourceMap = new Map(
+          customer.bills.map((bill) => [
+            getOutstandingSourceKey(bill.sourceType, bill.referenceId),
+            bill,
+          ])
+        );
 
+        const customerCollections = customerCollectionMap.get(key) || [];
+        for (const collection of customerCollections) {
+          const allocations = Array.isArray(collection.allocations)
+            ? collection.allocations
+            : [];
+          let appliedFromReceipt = 0;
 
-        customer.collected =
-          collected;
-
-
-        let collectionRemaining =
-          collected;
-
-
-        // ----------------------------------------------
-        // FIFO BILL SETTLEMENT
-        // ----------------------------------------------
-
-        for (
-          const bill of
-          customer.bills
-        ) {
-
-          if (
-            collectionRemaining <= 0
-          ) {
-            break;
+          if (allocations.length > 0) {
+            for (const allocation of allocations) {
+              const allocationKey = getOutstandingSourceKey(
+                allocation.sourceType || "SALE",
+                allocation.referenceId || allocation.saleId || ""
+              );
+              const source = sourceMap.get(allocationKey);
+              if (!source) continue;
+              const requested = Math.max(0, Number(allocation.amountApplied ?? allocation.amount ?? 0));
+              const applied = Math.min(source.remaining, requested);
+              source.remaining -= applied;
+              appliedFromReceipt += applied;
+            }
+          } else {
+            // Legacy receipts had no saved allocation rows. Replay them FIFO,
+            // but never against a source created after the receipt date.
+            let remainingReceipt = Math.max(
+              0,
+              Number(collection.appliedAmount ?? collection.amount ?? 0) -
+                Math.max(0, Number(collection.advanceAmount ?? 0))
+            );
+            const receiptDate = collection.collectionDate
+              ? new Date(collection.collectionDate)
+              : null;
+            for (const source of customer.bills) {
+              if (remainingReceipt <= 0.001) break;
+              if (receiptDate && source.saleDate && new Date(source.saleDate) > receiptDate) continue;
+              const applied = Math.min(source.remaining, remainingReceipt);
+              source.remaining -= applied;
+              remainingReceipt -= applied;
+              appliedFromReceipt += applied;
+            }
           }
 
-
-          const adjusted =
-            Math.min(
-              bill.remaining,
-              collectionRemaining
-            );
-
-
-          bill.remaining -=
-            adjusted;
-
-
-          collectionRemaining -=
-            adjusted;
+          customer.collected += appliedFromReceipt;
         }
 
-
-        customer.outstanding =
-          Math.max(
-            0,
-            customer.totalCreditSales -
-            collected
-          );
+        const grossRemaining = customer.bills.reduce(
+          (total, source) => total + Math.max(0, Number(source.remaining ?? 0)),
+          0
+        );
+        customer.grossOutstanding = Number(grossRemaining.toFixed(2));
+        customer.outstanding = Number(
+          Math.max(0, grossRemaining - customer.advance).toFixed(2)
+        );
       }
 
 
@@ -30481,6 +30783,16 @@ app.get(
           0
         );
 
+      const totalManualOutstanding = outstandingCustomers.reduce(
+        (total, customer) => total + (Number(customer.manualOutstanding) || 0),
+        0
+      );
+
+      const totalAdvance = outstandingCustomers.reduce(
+        (total, customer) => total + (Number(customer.advance) || 0),
+        0
+      );
+
 
       const totalOutstanding =
         outstandingCustomers.reduce(
@@ -30528,7 +30840,11 @@ app.get(
 
                 customer.totalCreditSales,
 
+                customer.manualOutstanding,
+
                 customer.collected,
+
+                customer.advance,
 
                 customer.outstanding,
               ]
@@ -30550,9 +30866,11 @@ app.get(
               "Customer",
               "Route",
               "Salesman",
-              "Credit Sales",
-              "Collected",
-              "Outstanding",
+              "Invoice Outstanding Added",
+              "Manual Outstanding Added",
+              "Collections Applied",
+              "Advance Available",
+              "Final Outstanding",
             ],
 
             rows,
@@ -30586,6 +30904,14 @@ app.get(
                   money(
                     totalCollected
                   ),
+              },
+              {
+                label: "Manual Outstanding Added",
+                value: money(totalManualOutstanding),
+              },
+              {
+                label: "Advance Available",
+                value: money(totalAdvance),
               },
             ],
           },
@@ -41430,123 +41756,100 @@ async function calculateHistoryAccountPosition(
       .sort({ saleDate: 1, createdAt: 1 })
       .lean();
 
-    const saleIds = salesmanSales
-      .map((s) => String(s.saleId || "").trim().toUpperCase())
+    const routeDocs = await RouteMaster.find({ farmId, salesmanId, isActive: true })
+      .select("routeId routeName")
+      .lean();
+    const routeValues = routeDocs.flatMap((item) => [item.routeId, item.routeName]).filter(Boolean);
+    const customerFilter = { farmId, isActive: true, route: { $in: routeValues } };
+    if (customerId) customerFilter.customerId = customerId;
+    const visibleCustomers = await Customer.find(customerFilter)
+      .select("customerId balance")
+      .lean();
+    const visibleCustomerIds = visibleCustomers
+      .map((item) => String(item.customerId || "").trim().toUpperCase())
       .filter(Boolean);
-    const saleIdSet = new Set(saleIds);
 
-    let allocatedCollections = [];
-    if (saleIds.length > 0) {
-      allocatedCollections = await Collection.find({
-        farmId,
-        status: "POSTED",
-        $or: [
-          { "allocations.referenceId": { $in: saleIds } },
-          { "allocations.saleId": { $in: saleIds } },
-        ],
-      })
-        .select("allocations")
-        .lean();
-    }
+    const manualFilter = { farmId, status: "POSTED", customerId: { $in: visibleCustomerIds } };
+    if (rangeStart && rangeEnd) manualFilter.adjustmentDate = { $gte: rangeStart, $lte: rangeEnd };
+    const collectionFilter = { farmId, status: "POSTED", customerId: { $in: visibleCustomerIds } };
+    if (rangeStart && rangeEnd) collectionFilter.collectionDate = { $gte: rangeStart, $lte: rangeEnd };
 
-    const collectionAppliedBySale = new Map();
-    for (const col of allocatedCollections) {
-      for (const alloc of col.allocations || []) {
-        const srcType = String(alloc.sourceType || "SALE").trim().toUpperCase();
-        if (srcType !== "SALE") continue;
-        const sId = String(alloc.referenceId || alloc.saleId || "").trim().toUpperCase();
-        if (!sId || !saleIdSet.has(sId)) continue;
-        const applied = Math.max(0, Number(alloc.amountApplied || 0));
-        collectionAppliedBySale.set(
-          sId,
-          (collectionAppliedBySale.get(sId) || 0) + applied
-        );
-      }
-    }
+    const [manualOutstandings, collections] = await Promise.all([
+      CustomerOutstanding.find(manualFilter)
+        .select("adjustmentId adjustmentDate createdAt customerId amount")
+        .sort({ adjustmentDate: 1, createdAt: 1 })
+        .lean(),
+      Collection.find(collectionFilter)
+        .select("customerId amount appliedAmount advanceAmount collectionDate createdAt allocations")
+        .sort({ collectionDate: 1, createdAt: 1 })
+        .lean(),
+    ]);
 
-    const billsByCust = new Map();
-    const advanceByCust = new Map();
+    const sourceMap = new Map();
+    const sourcesByCustomer = new Map();
+    const addSource = (source) => {
+      sourceMap.set(source.key, source);
+      if (!sourcesByCustomer.has(source.customerId)) sourcesByCustomer.set(source.customerId, []);
+      sourcesByCustomer.get(source.customerId).push(source);
+    };
 
     for (const sale of salesmanSales) {
       const cId = String(sale.customerId || "").trim().toUpperCase();
-      if (!cId) continue;
-
-      let billOutstanding = Number(sale.outstandingAmount);
-      if (!Number.isFinite(billOutstanding)) {
-        const billAmt = Math.max(0, Number(sale.grandTotal || 0));
-        const paid = Math.max(0, Number(sale.paymentApplied ?? sale.paidAmount ?? 0));
-        const advUsed = Math.max(0, Number(sale.advanceUsed || 0));
-        billOutstanding = Math.max(0, billAmt - paid - advUsed);
+      const saleId = String(sale.saleId || "").trim().toUpperCase();
+      if (!cId || !saleId) continue;
+      let due = Number(sale.outstandingAmount);
+      if (!Number.isFinite(due)) {
+        due = Math.max(0, Number(sale.grandTotal || 0) - Number(sale.paymentApplied ?? sale.paidAmount ?? 0) - Number(sale.advanceUsed || 0));
       }
-
-      const sId = String(sale.saleId || "").trim().toUpperCase();
-      const allocated = Math.max(0, Number(collectionAppliedBySale.get(sId) || 0));
-      const remOutstanding = Math.max(0, billOutstanding - allocated);
-
-      if (!billsByCust.has(cId)) billsByCust.set(cId, []);
-      billsByCust.get(cId).push({
-        saleId: sId,
-        saleDate: sale.saleDate || sale.createdAt,
-        remainingOutstanding: remOutstanding,
-      });
-
-      if (!advanceByCust.has(cId)) advanceByCust.set(cId, { created: 0, used: 0 });
-      const advRow = advanceByCust.get(cId);
-      advRow.created += Math.max(0, Number(sale.advanceCreated || 0));
-      advRow.used += Math.max(0, Number(sale.advanceUsed || 0));
+      addSource({ key: `SALE|${saleId}`, customerId: cId, referenceDate: sale.saleDate || sale.createdAt, remainingOutstanding: Math.max(0, due) });
     }
 
-    const directColQuery = {
-      farmId,
-      salesmanId,
-      status: "POSTED",
-      $or: [{ allocations: { $size: 0 } }, { allocations: { $exists: false } }],
-    };
-    if (customerId) directColQuery.customerId = customerId;
-    if (rangeStart && rangeEnd) {
-      directColQuery.collectionDate = { $gte: rangeStart, $lte: rangeEnd };
+    for (const item of manualOutstandings) {
+      const cId = String(item.customerId || "").trim().toUpperCase();
+      const adjustmentId = String(item.adjustmentId || "").trim().toUpperCase();
+      if (!cId || !adjustmentId) continue;
+      addSource({ key: `MANUAL_OUTSTANDING|${adjustmentId}`, customerId: cId, referenceDate: item.adjustmentDate || item.createdAt, remainingOutstanding: Math.max(0, Number(item.amount || 0)) });
     }
 
-    const unallocatedCollections = await Collection.find(directColQuery)
-      .select("customerId amount collectionDate")
-      .sort({ collectionDate: 1, createdAt: 1 })
-      .lean();
+    for (const sources of sourcesByCustomer.values()) {
+      sources.sort((a, b) => new Date(a.referenceDate || 0) - new Date(b.referenceDate || 0));
+    }
 
-    for (const col of unallocatedCollections) {
-      const cId = String(col.customerId || "").trim().toUpperCase();
-      if (!cId || !billsByCust.has(cId)) continue;
-      const cBills = billsByCust.get(cId);
-      let remReceipt = Math.max(0, Number(col.amount || 0));
-      const colDate = col.collectionDate ? new Date(col.collectionDate) : null;
-
-      for (const bill of cBills) {
-        if (remReceipt <= 0.001) break;
-        if (colDate && bill.saleDate && new Date(bill.saleDate) > colDate) continue;
-        if (bill.remainingOutstanding <= 0.001) continue;
-        const applied = Math.min(remReceipt, bill.remainingOutstanding);
-        bill.remainingOutstanding -= applied;
-        remReceipt -= applied;
+    for (const collection of collections) {
+      const allocations = Array.isArray(collection.allocations) ? collection.allocations : [];
+      if (allocations.length > 0) {
+        for (const allocation of allocations) {
+          const sourceType = String(allocation.sourceType || "SALE").trim().toUpperCase();
+          const referenceId = String(allocation.referenceId || allocation.saleId || "").trim().toUpperCase();
+          const source = sourceMap.get(`${sourceType}|${referenceId}`);
+          if (!source) continue;
+          const applied = Math.min(source.remainingOutstanding, Math.max(0, Number(allocation.amountApplied ?? allocation.amount ?? 0)));
+          source.remainingOutstanding -= applied;
+        }
+        continue;
+      }
+      const cId = String(collection.customerId || "").trim().toUpperCase();
+      let remainingReceipt = Math.max(0, Number(collection.appliedAmount ?? collection.amount ?? 0) - Number(collection.advanceAmount ?? 0));
+      const receiptDate = collection.collectionDate ? new Date(collection.collectionDate) : null;
+      for (const source of sourcesByCustomer.get(cId) || []) {
+        if (remainingReceipt <= 0.001) break;
+        if (receiptDate && source.referenceDate && new Date(source.referenceDate) > receiptDate) continue;
+        const applied = Math.min(source.remainingOutstanding, remainingReceipt);
+        source.remainingOutstanding -= applied;
+        remainingReceipt -= applied;
       }
     }
 
-    const allCustIds = new Set([...billsByCust.keys(), ...advanceByCust.keys()]);
+    const advanceMap = new Map(visibleCustomers.map((item) => [
+      String(item.customerId || "").trim().toUpperCase(),
+      Math.max(0, Number(item.balance || 0)),
+    ]));
+    const allCustIds = new Set([...sourcesByCustomer.keys(), ...advanceMap.keys()]);
     for (const cId of allCustIds) {
-      const gross = (billsByCust.get(cId) || []).reduce(
-        (sum, b) => sum + Math.max(0, Number(b.remainingOutstanding || 0)),
-        0
-      );
-      const advRow = advanceByCust.get(cId) || { created: 0, used: 0 };
-      const netAdv = Math.max(0, Number(advRow.created || 0) - Number(advRow.used || 0));
-      const netPosition = Number((gross - netAdv).toFixed(2));
-
-      customerPositionMap.set(cId, {
-        grossOutstanding: Number(gross.toFixed(2)),
-        advance: Number(netAdv.toFixed(2)),
-        netPosition,
-        outstanding: netPosition > 0.001 ? netPosition : 0,
-        advanceAmount: netPosition < -0.001 ? Math.abs(netPosition) : 0,
-      });
-
+      const gross = (sourcesByCustomer.get(cId) || []).reduce((sum, source) => sum + Math.max(0, Number(source.remainingOutstanding || 0)), 0);
+      const advance = advanceMap.get(cId) || 0;
+      const netPosition = Number((gross - advance).toFixed(2));
+      customerPositionMap.set(cId, { grossOutstanding: Number(gross.toFixed(2)), advance: Number(advance.toFixed(2)), netPosition, outstanding: netPosition > 0.001 ? netPosition : 0, advanceAmount: netPosition < -0.001 ? Math.abs(netPosition) : 0 });
       if (netPosition > 0.001) totalOutstanding += netPosition;
       else if (netPosition < -0.001) totalAdvance += Math.abs(netPosition);
     }
@@ -41836,6 +42139,19 @@ app.get(
 
       if (customerId) {
         collectionFilter.customerId = customerId;
+      }
+
+      if (effectiveSalesmanId && effectiveSalesmanId !== "UNASSIGNED") {
+        const collectionRouteDocs = await RouteMaster.find({
+          farmId,
+          salesmanId: effectiveSalesmanId,
+          isActive: true,
+        }).select("routeId routeName").lean();
+        const collectionRouteValues = collectionRouteDocs
+          .flatMap((item) => [item.routeId, item.routeName])
+          .filter(Boolean);
+        delete collectionFilter.salesmanId;
+        collectionFilter.route = { $in: collectionRouteValues };
       }
 
       // Parallel Data Fetching
@@ -42714,6 +43030,15 @@ app.get(
           routeId: r.routeId || "",
           routeName: r.routeName || "",
         }));
+
+        // A receipt may be entered manually by Admin for a salesman-route
+        // customer. Attribute history by the customer's route, not only by
+        // the user who entered the receipt.
+        const assignedRouteValues = assignedRoutes
+          .flatMap((item) => [item.routeId, item.routeName])
+          .filter(Boolean);
+        delete collectionFilter.salesmanId;
+        collectionFilter.route = { $in: assignedRouteValues };
       } else if (targetSalesmanId === "UNASSIGNED") {
         salesmanProfile = {
           salesmanId: "UNASSIGNED",
@@ -42723,8 +43048,22 @@ app.get(
         };
       }
 
-      // Fetch All Matching Sales & Collections for this target within period
-      const [allSales, allCollections, accountPos, allTimePos] = await Promise.all([
+      // Manual/opening outstanding belongs to the customer account history too.
+      const manualHistoryFilter = {
+        farmId,
+        status: "POSTED",
+        adjustmentDate: { $gte: rangeStart, $lte: rangeEnd },
+      };
+      if (customerId) manualHistoryFilter.customerId = customerId;
+      if (targetSalesmanId && targetSalesmanId !== "UNASSIGNED") {
+        const routeValues = assignedRoutes
+          .flatMap((item) => [item.routeId, item.routeName])
+          .filter(Boolean);
+        manualHistoryFilter.route = { $in: routeValues };
+      }
+
+      // Fetch All Matching Sales, Collections and manual entries for the period.
+      const [allSales, allCollections, allManualOutstandings, accountPos, allTimePos] = await Promise.all([
         Sale.find(
           saleFilter
         )
@@ -42761,6 +43100,10 @@ app.get(
         Collection.find(collectionFilter)
           .select("collectionId receiptNo collectionDate customerId customerName customerMobile route amount appliedAmount advanceAmount allocationMode previousOutstanding remainingOutstanding paymentMode referenceNo remarks status cancelReason salesmanId salesmanName allocations")
           .sort({ collectionDate: -1, createdAt: -1 })
+          .lean(),
+        CustomerOutstanding.find(manualHistoryFilter)
+          .select("adjustmentId adjustmentNo adjustmentDate customerId customerName customerMobile route amount remarks")
+          .sort({ adjustmentDate: -1, createdAt: -1 })
           .lean(),
         calculateHistoryAccountPosition(farmId, {
           salesmanId: targetSalesmanId,
@@ -43475,8 +43818,40 @@ app.get(
         }
       }
 
+      for (const manual of allManualOutstandings) {
+        const cId = String(manual.customerId || "").trim().toUpperCase();
+        if (!cId) continue;
+        if (!custSummaryMap.has(cId)) {
+          custSummaryMap.set(cId, {
+            customerId: cId,
+            customerName: manual.customerName || "",
+            customerMobile: manual.customerMobile || "",
+            route: manual.route || "",
+            periodSales: 0,
+            salesCount: 0,
+            periodCollections: 0,
+            collectionCount: 0,
+            lastSaleDate: null,
+            lastCollectionDate: null,
+          });
+        }
+        const item = custSummaryMap.get(cId);
+        item.periodManualOutstanding =
+          (Number(item.periodManualOutstanding) || 0) +
+          Math.max(0, Number(manual.amount || 0));
+        item.manualOutstandingCount =
+          (Number(item.manualOutstandingCount) || 0) + 1;
+        if (
+          manual.adjustmentDate &&
+          (!item.lastManualOutstandingDate ||
+            new Date(manual.adjustmentDate) > new Date(item.lastManualOutstandingDate))
+        ) {
+          item.lastManualOutstandingDate = manual.adjustmentDate;
+        }
+      }
+
       const customerSummaryList = Array.from(custSummaryMap.values()).map((cust) => {
-        const pos = accountPos.customerPositionMap.get(cust.customerId) || {
+        const pos = allTimePos.customerPositionMap.get(cust.customerId) || {
           outstanding: 0,
           advanceAmount: 0,
         };
@@ -43484,6 +43859,10 @@ app.get(
           ...cust,
           periodSales: Number(cust.periodSales.toFixed(2)),
           periodCollections: Number(cust.periodCollections.toFixed(2)),
+          periodManualOutstanding: Number(
+            (Number(cust.periodManualOutstanding) || 0).toFixed(2)
+          ),
+          manualOutstandingCount: Number(cust.manualOutstandingCount) || 0,
           currentOutstanding: pos.outstanding || 0,
           currentAdvance: pos.advanceAmount || 0,
         };
@@ -43535,7 +43914,7 @@ app.get(
           salesBillsCount,
           totalCollected,
           collectionTransactions,
-          currentOutstanding: accountPos.currentOutstanding,
+          currentOutstanding: allTimePos.currentOutstanding,
           periodOutstanding: accountPos.currentOutstanding,
           allTimeOutstanding: allTimePos.currentOutstanding,
           currentAdvance: accountPos.currentAdvance,

@@ -22,6 +22,7 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   String _query = '';
+  final Map<String, String> _activeReportFilters = <String, String>{};
 
   static const _groups = <_ReportGroup>[
     _ReportGroup(
@@ -496,6 +497,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         'type': type,
         'from': _apiDate(from),
         'to': _apiDate(to),
+        for (final entry in _activeReportFilters.entries)
+          if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
       },
     );
 
@@ -683,6 +686,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _openReport(_ReportGroup group, _ReportItem report) {
+    _activeReportFilters.clear();
     DateTime from = DateTime.now().subtract(const Duration(days: 30));
     DateTime to = DateTime.now();
 
@@ -800,6 +804,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         }),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Customer ID',
+                      hintText: 'All customers',
+                      prefixIcon: Icon(Icons.person_search_outlined),
+                    ),
+                    onChanged: (value) => _activeReportFilters['customerId'] = value.trim(),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'Route',
+                            hintText: 'All routes',
+                            prefixIcon: Icon(Icons.route_outlined),
+                          ),
+                          onChanged: (value) => _activeReportFilters['route'] = value.trim(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'Salesman ID',
+                            hintText: 'All salesmen',
+                            prefixIcon: Icon(Icons.badge_outlined),
+                          ),
+                          onChanged: (value) => _activeReportFilters['salesmanId'] = value.trim(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Product ID',
+                      hintText: 'All products',
+                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                    ),
+                    onChanged: (value) => _activeReportFilters['productId'] = value.trim(),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(

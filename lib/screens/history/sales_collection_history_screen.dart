@@ -1371,7 +1371,10 @@ class _SalesCollectionHistoryScreenState
           ),
           child: ListTile(
             title: Text(c['customerName'] ?? '-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            subtitle: Text('Sales: ${_formatMoney(c['periodSales'])} | Col: ${_formatMoney(c['periodCollections'])}', style: const TextStyle(fontSize: 11)),
+            subtitle: Text(
+              'Sales: ${_formatMoney(c['periodSales'])} | Col: ${_formatMoney(c['periodCollections'])} | Manual: ${_formatMoney(c['periodManualOutstanding'])}',
+              style: const TextStyle(fontSize: 11),
+            ),
             trailing: Text(
               'Due: ${_formatMoney(c['currentOutstanding'])}',
               style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 12),
@@ -1693,7 +1696,10 @@ class _SalesmanDetailModalSheetState extends State<_SalesmanDetailModalSheet> wi
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: Color(0xFFE2E8F0))),
           child: ListTile(
             title: Text(c['customerName'] ?? '-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            subtitle: Text('Sales: ${widget.formatMoney(c['periodSales'])} | Col: ${widget.formatMoney(c['periodCollections'])}', style: const TextStyle(fontSize: 11)),
+            subtitle: Text(
+              'Sales: ${widget.formatMoney(c['periodSales'])} | Col: ${widget.formatMoney(c['periodCollections'])} | Manual: ${widget.formatMoney(c['periodManualOutstanding'])}',
+              style: const TextStyle(fontSize: 11),
+            ),
             trailing: Text('Due: ${widget.formatMoney(c['currentOutstanding'])}', style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 12)),
           ),
         );
