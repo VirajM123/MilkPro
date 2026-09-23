@@ -2407,6 +2407,26 @@ const Allocation = mongoose.model(
   "TRN_ALLOCATION"
 );
 // ======================================================
+// QUANTITY ROUNDING - ALWAYS 2 DECIMAL PLACES
+// Prevents floating point values like:
+// 0.009999999999999787 instead of 0.01
+// ======================================================
+
+function roundQty2(value) {
+  const num = Number(value);
+
+  if (!Number.isFinite(num)) {
+    return 0;
+  }
+
+  const rounded =
+    Math.round((num + Number.EPSILON) * 100) / 100;
+
+  return Object.is(rounded, -0)
+    ? 0
+    : rounded;
+}
+// ======================================================
 // HELPER
 // ======================================================
 
@@ -15130,15 +15150,15 @@ app.get(
                   .toUpperCase();
 
 
-              const allocatedQuantity =
-                Number(
-                  item.quantity
-                ) || 0;
+       const allocatedQuantity =
+  roundQty2(
+    item.quantity
+  );
 
-              const returnedQuantity =
-                Number(
-                  item.returnedQuantity
-                ) || 0;
+const returnedQuantity =
+  roundQty2(
+    item.returnedQuantity
+  );
 
 
               // ==================================================
@@ -15179,12 +15199,14 @@ app.get(
               }
 
 
-              const usableAllocated =
-                Math.max(
-                  0,
-                  allocatedQuantity -
-                  returnedQuantity
-                );
+           const usableAllocated =
+  roundQty2(
+    Math.max(
+      0,
+      allocatedQuantity -
+      returnedQuantity
+    )
+  );
 
 
               const key =
@@ -15197,11 +15219,13 @@ app.get(
                 ) || 0;
 
 
-              const soldQuantity =
-                Math.min(
-                  usableAllocated,
-                  remainingSold
-                );
+     const soldQuantity =
+  roundQty2(
+    Math.min(
+      usableAllocated,
+      remainingSold
+    )
+  );
 
 
               remainingSoldMap.set(
@@ -15331,13 +15355,15 @@ app.get(
               }
 
 
-              const remainingQuantity =
-                Math.max(
-                  0,
-                  allocatedQuantity -
-                  returnedQuantity -
-                  soldQuantity
-                );
+            const remainingQuantity =
+  roundQty2(
+    Math.max(
+      0,
+      allocatedQuantity -
+      returnedQuantity -
+      soldQuantity
+    )
+  );
 
 
               allocationSoldQuantity +=
@@ -15360,15 +15386,28 @@ app.get(
 
               allocationCreditSales +=
                 productCreditSales;
+return {
+  ...item,
 
-              return {
-                ...item,
+  quantity:
+    roundQty2(
+      allocatedQuantity
+    ),
 
-                soldQuantity:
-                  soldQuantity,
+  returnedQuantity:
+    roundQty2(
+      returnedQuantity
+    ),
 
-                remainingQuantity:
-                  remainingQuantity,
+  soldQuantity:
+    roundQty2(
+      soldQuantity
+    ),
+
+  remainingQuantity:
+    roundQty2(
+      remainingQuantity
+    ),
 
                 salesValue:
                   Number(
@@ -15842,14 +15881,15 @@ app.get(
           .trim()
           .toUpperCase();
 
-        const allocated =
-          Number(item.quantity) ||
-          0;
+    const allocated =
+  roundQty2(
+    item.quantity
+  );
 
-        const returned =
-          Number(
-            item.returnedQuantity
-          ) || 0;
+const returned =
+  roundQty2(
+    item.returnedQuantity
+  );
 
         const isCancelled =
           String(
@@ -15870,22 +15910,36 @@ app.get(
             );
 
 
-        return {
-          ...item,
+    return {
+  ...item,
 
-          soldQuantity:
-            sold,
+  quantity:
+    roundQty2(
+      allocated
+    ),
 
-          remainingQuantity:
-            isCancelled
-              ? 0
-              : Math.max(
-                0,
-                allocated -
-                returned -
-                sold
-              ),
-        };
+  returnedQuantity:
+    roundQty2(
+      returned
+    ),
+
+  soldQuantity:
+    roundQty2(
+      sold
+    ),
+
+  remainingQuantity:
+    isCancelled
+      ? 0
+      : roundQty2(
+          Math.max(
+            0,
+            allocated -
+            returned -
+            sold
+          )
+        ),
+};
       });
 
       return res
@@ -18516,14 +18570,14 @@ app.put(
               .toUpperCase();
 
 
-          const goodReturn =
-            Number(goodReturnQty) || 0;
+      const goodReturn =
+  roundQty2(goodReturnQty);
 
-          const damage =
-            Number(damageQty) || 0;
+const damage =
+  roundQty2(damageQty);
 
-          const shortExcess =
-            Number(shortExcessQty) || 0;
+const shortExcess =
+  roundQty2(shortExcessQty);
 
 
           // ==============================================
@@ -18704,17 +18758,17 @@ app.put(
           }
 
 
-          const allocatedQty =
-            Number(
-              allocationProduct.quantity
-            ) || 0;
+       const allocatedQty =
+  roundQty2(
+    allocationProduct.quantity
+  );
 
 
-          const alreadyReturnedQty =
-            Number(
-              allocationProduct
-                .returnedQuantity
-            ) || 0;
+const alreadyReturnedQty =
+  roundQty2(
+    allocationProduct
+      .returnedQuantity
+  );
 
 
           // ==============================================
@@ -18908,14 +18962,18 @@ app.put(
           // CURRENT UNSOLD / AVAILABLE QUANTITY
           // ==============================================
 
-          const availableQty =
-            Math.max(
-              0,
+   const availableQty =
+  roundQty2(
+    Math.max(
+      0,
 
-              allocatedQty -
-              alreadyReturnedQty -
-              soldForThisAllocation
-            );
+      allocatedQty -
+      alreadyReturnedQty -
+      roundQty2(
+        soldForThisAllocation
+      )
+    )
+  );
 
 
           // ==============================================
@@ -18927,35 +18985,39 @@ app.put(
           // SHORT/EXCESS IS RECONCILIATION ONLY.
           // ==============================================
 
-          const physicalReturnQty =
-            goodReturn +
-            damage;
+     const physicalReturnQty =
+  roundQty2(
+    goodReturn +
+    damage
+  );
 
 
           if (
-            physicalReturnQty >
-            availableQty
-          ) {
+  physicalReturnQty >
+  availableQty
+) {
 
-            const error =
-              new Error(
-                `Return quantity cannot exceed available quantity ${availableQty}.`
-              );
+  const error =
+    new Error(
+      `Return quantity cannot exceed available quantity ${availableQty.toFixed(2)}.`
+    );
 
-            error.statusCode = 400;
+  error.statusCode = 400;
 
-            throw error;
-          }
+  throw error;
+}
 
 
           // ==============================================
           // UPDATE ALLOCATION RETURNED QUANTITY
           // ==============================================
 
-          allocationProduct
-            .returnedQuantity =
-            alreadyReturnedQty +
-            physicalReturnQty;
+         allocationProduct
+  .returnedQuantity =
+  roundQty2(
+    alreadyReturnedQty +
+    physicalReturnQty
+  );
 
 
           allocation.updatedAt =
@@ -18965,15 +19027,21 @@ app.put(
           // If everything is now accounted for,
           // mark allocation RETURNED.
 
-          const newRemainingQty =
-            Math.max(
-              0,
+       const newRemainingQty =
+  roundQty2(
+    Math.max(
+      0,
 
-              allocatedQty -
-              soldForThisAllocation -
-              allocationProduct
-                .returnedQuantity
-            );
+      allocatedQty -
+      roundQty2(
+        soldForThisAllocation
+      ) -
+      roundQty2(
+        allocationProduct
+          .returnedQuantity
+      )
+    )
+  );
 
 
           // Keep allocation POSTED while individual products
