@@ -162,12 +162,9 @@ Future<void> _handleManualSync() async {
     }
   }
 }
-Map<String, String> get _apiHeaders {
-  return <String, String>{
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer ${ApiConfig.token}',
-  };
-}
+Map<String, String>
+    get _apiHeaders =>
+        ApiConfig.authHeaders;
   Future<void> _safeLoad(Future<void> Function() loader, String name) async {
     try {
       await loader();
@@ -408,9 +405,9 @@ Future<void> _loadCustomers() async {
   Future<void> _loadAllocations() async {
   final int requestToken = ++_allocationRequestToken;
 final Uri allocationUri =
-    Uri.parse(
-      '${ApiConfig.baseUrl}/api/allocations',
-    ).replace(
+   Uri.parse(
+  ApiConfig.allocations,
+).replace(
       queryParameters:
           <String, String>{
         'section':
@@ -598,12 +595,23 @@ final response =
 
 'returnedQty':
     _asDouble(
-      product['returnedQuantity'],
+      product[
+        'returnedQuantity'
+      ],
+    ),
+
+'reconciledQty':
+    _asDouble(
+      product[
+        'reconciledQuantity'
+      ],
     ),
 
 'remainingQty':
     _asDouble(
-      product['remainingQuantity'],
+      product[
+        'remainingQuantity'
+      ],
     ),
 
         'notes':
@@ -793,11 +801,41 @@ double get _totalReturned {
 
   return total;
 }
+double get _totalReconciled {
+  double total = 0;
 
-double get _totalPending =>
-    _totalAllocated -
-    _totalSold -
-    _totalReturned;
+  for (
+    final item
+    in _allocations
+  ) {
+    total +=
+        _asDouble(
+          item[
+            'reconciledQty'
+          ],
+        );
+  }
+
+  return total;
+}
+
+double get _totalPending {
+  double total = 0;
+
+  for (
+    final item
+    in _allocations
+  ) {
+    total +=
+        _asDouble(
+          item[
+            'remainingQty'
+          ],
+        );
+  }
+
+  return total;
+}
 
   int get _totalRoutes {
     return _allocations
@@ -1042,9 +1080,11 @@ Future<void> _deleteAllocation(
   try {
 final http.Response response =
     await http.delete(
-  Uri.parse(
-    '${ApiConfig.baseUrl}/api/allocations/$allocationId',
+ Uri.parse(
+  ApiConfig.allocationById(
+    allocationId,
   ),
+),
   headers: _apiHeaders,
   body: jsonEncode(
     <String, dynamic>{
@@ -1209,15 +1249,25 @@ Future<void> _openEditAllocation(
     _asDouble(
       item['soldQty'],
     ),
-
 'returnedQuantity':
     _asDouble(
-      item['returnedQty'],
+      item[
+        'returnedQty'
+      ],
+    ),
+
+'reconciledQuantity':
+    _asDouble(
+      item[
+        'reconciledQty'
+      ],
     ),
 
 'remainingQuantity':
     _asDouble(
-      item['remainingQty'],
+      item[
+        'remainingQty'
+      ],
     ),
                 };
               },
@@ -2090,6 +2140,7 @@ Widget _allocationSectionButton({
 double totalQty = 0;
 double soldQty = 0;
 double returnedQty = 0;
+double reconciledQty = 0;
 double remainingQty = 0;
 
 for (
@@ -2109,6 +2160,11 @@ for (
   returnedQty +=
       _asDouble(
         item['returnedQty'],
+      );
+
+  reconciledQty +=
+      _asDouble(
+        item['reconciledQty'],
       );
 
   remainingQty +=
@@ -2343,6 +2399,12 @@ leading: Container(
     ),
     const SizedBox(width: 5),
     _miniMetric(
+      label: 'Adjusted',
+      value: _formatQty(reconciledQty),
+      color: purple,
+    ),
+    const SizedBox(width: 5),
+    _miniMetric(
       label: 'Remaining',
      value:
     _formatQty(
@@ -2470,6 +2532,11 @@ final double returned =
       item['returnedQty'],
     );
 
+final double reconciled =
+    _asDouble(
+      item['reconciledQty'],
+    );
+
 final double remaining =
     _asDouble(
       item['remainingQty'],
@@ -2546,6 +2613,15 @@ Wrap(
      'Returned ${_formatQty(returned)} $unit',
       style: const TextStyle(
         color: orange,
+        fontSize: 8.5,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+
+    Text(
+     'Adjusted ${_formatQty(reconciled)} $unit',
+      style: const TextStyle(
+        color: purple,
         fontSize: 8.5,
         fontWeight: FontWeight.w700,
       ),
@@ -2830,6 +2906,16 @@ _summaryLine(
   _totalReturned,
 ),
   orange,
+),
+
+const SizedBox(height: 8),
+
+_summaryLine(
+  'Total Adjusted',
+ _formatQty(
+  _totalReconciled,
+),
+  purple,
 ),
 
 const SizedBox(height: 8),

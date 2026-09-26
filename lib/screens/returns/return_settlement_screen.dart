@@ -193,21 +193,8 @@ Future<void> _loadAllocations() async {
     final response =
         await http.get(
 
-      Uri.parse(
-        '${ApiConfig.baseUrl}/api/allocations',
-      ),
-
-      headers: {
-
-        'Content-Type':
-            'application/json',
-
-        if (ApiConfig.token != null &&
-            ApiConfig.token!.isNotEmpty)
-
-          'Authorization':
-              'Bearer ${ApiConfig.token}',
-      },
+      Uri.parse(ApiConfig.allocations),
+      headers: ApiConfig.authHeaders,
     );
 
 
@@ -381,6 +368,13 @@ Future<void> _loadAllocations() async {
       ],
     ),
 
+'reconciledQty':
+    _asDouble(
+      product[
+        'reconciledQuantity'
+      ],
+    ),
+
 'remainingQty':
     _asDouble(
       product[
@@ -489,6 +483,18 @@ Future<void> _loadAllocations() async {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0;
   }
+
+  static const int _quantityScale = 100;
+
+  int _quantityUnits(num value) =>
+      (value.toDouble() * _quantityScale).round();
+
+  double _normalizeQuantity(num value) =>
+      _quantityUnits(value) / _quantityScale;
+
+  bool _exceedsQuantity(double requested, double available) =>
+      _quantityUnits(requested) > _quantityUnits(available);
+
   String _formatQty(num value) {
   final double number =
       value.toDouble();
@@ -514,9 +520,7 @@ Future<void> _loadAllocations() async {
       );
 }
 
-bool get _isBalanced =>
-    _differenceQty.abs() <
-    0.001;
+bool get _isBalanced => _quantityUnits(_differenceQty) == 0;
 
   Map<String, dynamic>? get _settlement {
     final raw = _selectedAllocation?['settlement'];
@@ -526,45 +530,81 @@ bool get _isBalanced =>
   bool get _isEditing => _settlement != null;
 
 double get _allocatedQty =>
-    _asDouble(
+    _normalizeQuantity(
+      _asDouble(
       _selectedAllocation?[
         'qty'
       ],
+      ),
+    );
+
+double get _returnedQty =>
+    _normalizeQuantity(
+      _asDouble(
+        _selectedAllocation?[
+          'returnedQty'
+        ],
+      ),
+    );
+
+double get _reconciledQty =>
+    _normalizeQuantity(
+      _asDouble(
+        _selectedAllocation?[
+          'reconciledQty'
+        ],
+      ),
+    );
+
+double get _remainingQty =>
+    _normalizeQuantity(
+      _asDouble(
+        _selectedAllocation?[
+          'remainingQty'
+        ],
+      ),
     );
 
 double get _soldQty =>
-    _asDouble(
+    _normalizeQuantity(
+      _asDouble(
       soldController.text,
+      ),
     );
 
 double get _goodReturnQty =>
-    _asDouble(
+    _normalizeQuantity(
+      _asDouble(
       goodReturnController.text,
+      ),
     );
 
 double get _damageQty =>
-    _asDouble(
+    _normalizeQuantity(
+      _asDouble(
       damageController.text,
+      ),
     );
 
 double get _shortExcessQty =>
-    _asDouble(
+    _normalizeQuantity(
+      _asDouble(
       shortExcessController.text,
+      ),
     );
 
-double get _newReturnQty =>
-    _goodReturnQty +
-    _damageQty;
-
-double get _accountedQty =>
-    _soldQty +
+double get _settlementQty =>
+    _normalizeQuantity(
     _goodReturnQty +
     _damageQty +
-    _shortExcessQty;
+    _shortExcessQty,
+  );
 
 double get _differenceQty =>
-    _allocatedQty -
-    _accountedQty;
+    _normalizeQuantity(
+      _remainingQty -
+      _settlementQty,
+    );
 
 double get _salesValue =>
     _asDouble(
@@ -585,18 +625,6 @@ double get _salesValue =>
     final settlement = rawSettlement is Map<String, dynamic>
         ? rawSettlement
         : null;
-
-    final double qty =
-    _asDouble(
-      allocation['qty'],
-    );
-
-final double alreadyReturned =
-    _asDouble(
-      allocation[
-        'returnedQty'
-      ],
-    );
 
 selectedReturnType =
     _asInt(
@@ -627,13 +655,7 @@ damageController.text =
     '0';
 
 shortExcessController.text =
-    _formatQty(
-      _asDouble(
-        settlement?[
-          'shortExcessQty'
-        ],
-      ),
-    );
+    '0';
 
     reasonController.text = (settlement?['reason'] ?? '').toString();
     remarksController.text = (settlement?['remarks'] ?? '').toString();
@@ -996,7 +1018,8 @@ Widget _buildReturnListSummary(
 ) {
   double totalQty = 0;
   double returned = 0;
-  int settled = 0;
+  double adjusted = 0;
+  double remaining = 0;
 
   for (
     final item in items
@@ -1013,12 +1036,8 @@ Widget _buildReturnListSummary(
           ],
         );
 
-    if (
-      item['settlement'] !=
-      null
-    ) {
-      settled++;
-    }
+    adjusted += _asDouble(item['reconciledQty']);
+    remaining += _asDouble(item['remainingQty']);
   }
 
     return Row(
@@ -1054,10 +1073,19 @@ Widget _buildReturnListSummary(
         const SizedBox(width: 7),
         Expanded(
           child: _summaryMiniCard(
-            title: 'Settled',
-            value: '$settled',
+            title: 'Adjusted',
+            value: '${_formatQty(adjusted)} L',
             background: const Color(0xFFFFF4E6),
             foreground: const Color(0xFFB35A00),
+          ),
+        ),
+        const SizedBox(width: 7),
+        Expanded(
+          child: _summaryMiniCard(
+            title: 'Remaining',
+            value: '${_formatQty(remaining)} L',
+            background: const Color(0xFFF4F0FF),
+            foreground: darkBlue,
           ),
         ),
       ],
@@ -1082,6 +1110,13 @@ final double returned =
       ],
     );
 
+final double reconciled =
+    _asDouble(
+      item[
+        'reconciledQty'
+      ],
+    );
+
 final double balance =
     _asDouble(
       item[
@@ -1093,7 +1128,8 @@ final String unit =
     (item['unit'] ?? '')
         .toString();
 final hasSettlement =
-    returned > 0;
+    returned > 0 ||
+    reconciled > 0;
 
 final bool isCompleted =
     balance <= 0;
@@ -1168,18 +1204,26 @@ final bool isCompleted =
                    _statusPill(
   isCompleted
       ? 'Completed'
-      : returned > 0
-          ? 'Part Return'
+      : hasSettlement
+          ? 'Part Settlement'
           : 'Pending Return',
 
   isCompleted
       ? green
-      : returned > 0
+      : hasSettlement
           ? primaryBlue
           : orange,
 ),
                         _statusPill(
-                        'Balance ${_formatQty(balance)} $unit',
+                        'Returned ${_formatQty(returned)} $unit',
+                          green,
+                        ),
+                        _statusPill(
+                        'Adjusted ${_formatQty(reconciled)} $unit',
+                          orange,
+                        ),
+                        _statusPill(
+                        'Remaining ${_formatQty(balance)} $unit',
                           balance <= 0 ? green : primaryBlue,
                         ),
                       ],
@@ -1457,9 +1501,19 @@ final bool isCompleted =
               const SizedBox(width: 7),
               Expanded(
                 child: _summaryMiniCard(
-                  title: 'Return',
+                  title: 'Sold',
                 value:
-    '${_formatQty(_newReturnQty)} L',
+    '${_formatQty(_soldQty)} L',
+                  background: const Color(0xFFF2F7FF),
+                  foreground: darkBlue,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _summaryMiniCard(
+                  title: 'Returned',
+                value:
+    '${_formatQty(_returnedQty)} L',
                   background: const Color(0xFFE7FAF0),
                   foreground: green,
                 ),
@@ -1467,15 +1521,19 @@ final bool isCompleted =
               const SizedBox(width: 7),
               Expanded(
                 child: _summaryMiniCard(
-                  title: 'Difference',
-                value:
-    '${_formatQty(_differenceQty.abs())} L',
-                  background: _isBalanced
-                      ? const Color(0xFFE7FAF0)
-                      : const Color(0xFFFFEEEE),
-                  foreground: _isBalanced
-                      ? green
-                      : const Color(0xFFB42318),
+                  title: 'Adjusted',
+                  value: '${_formatQty(_reconciledQty)} L',
+                  background: const Color(0xFFFFF4E6),
+                  foreground: orange,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _summaryMiniCard(
+                  title: 'Remaining',
+                  value: '${_formatQty(_remainingQty)} L',
+                  background: const Color(0xFFF4F0FF),
+                  foreground: _remainingQty <= 0 ? green : darkBlue,
                 ),
               ),
             ],
@@ -1584,7 +1642,7 @@ final bool isCompleted =
               const SizedBox(width: 7),
               Expanded(
                 child: _qtyBox(
-                  label: 'Short / Excess',
+                  label: 'Short / Adjustment',
                   controller: shortExcessController,
                 ),
               ),
@@ -2014,28 +2072,22 @@ final data = [
     primaryBlue,
   ],
   [
-    'Good Return',
-    '${_formatQty(_goodReturnQty)} L',
+    'Returned',
+    '${_formatQty(_returnedQty)} L',
     Icons.keyboard_return,
     green,
   ],
   [
-    'Damage',
-    '${_formatQty(_damageQty)} L',
+    'Adjusted',
+    '${_formatQty(_reconciledQty)} L',
     Icons.warning_amber_outlined,
     orange,
   ],
   [
-    'Balance',
-    '${_formatQty(_differenceQty.abs())} L',
-    _isBalanced
-        ? Icons.check_circle
-        : Icons.warning,
-    _isBalanced
-        ? green
-        : const Color(
-            0xFFB10606,
-          ),
+    'Remaining',
+    '${_formatQty(_remainingQty)} L',
+    _remainingQty <= 0 ? Icons.check_circle : Icons.inventory_2_outlined,
+    _remainingQty <= 0 ? green : primaryBlue,
   ],
 ];
 
@@ -2236,25 +2288,6 @@ final data = [
     );
   }
 
-  Map<String, dynamic> _buildSettlementResult(String status) {
-    return {
-      'status': status,
-      'returnType': selectedReturnType,
-      'soldQty': _soldQty,
-      'goodReturnQty': _goodReturnQty,
-      'damageQty': _damageQty,
-      'shortExcessQty': _shortExcessQty,
-      'returnedQty': _newReturnQty,
-      'reason': reasonController.text.trim(),
-      'remarks': remarksController.text.trim(),
-      'cashReceived': _cashReceived,
-      'onlineReceived': _onlineReceived,
-      'creditSales': _creditSales,
-      'salesValue': _salesValue,
-      'updatedAt': DateTime.now(),
-    };
-  }
-
 Future<void> _saveSettlement({
   required bool completed,
 }) async {
@@ -2290,25 +2323,17 @@ Future<void> _saveSettlement({
     return;
   }
 
-final double returnQty =
-    _goodReturnQty +
-    _damageQty;
+  final double settlementQty = _settlementQty;
+  final double availableQty = _remainingQty;
 
-final double availableQty =
-    _asDouble(
-      allocation[
-        'remainingQty'
-      ],
-    );
-
-  if (returnQty <= 0) {
-    _showMessage('Please enter return quantity.');
+  if (_quantityUnits(settlementQty) <= 0) {
+    _showMessage('Please enter a return, damage, or adjustment quantity.');
     return;
   }
 
-  if (returnQty > availableQty) {
+  if (_exceedsQuantity(settlementQty, availableQty)) {
     _showMessage(
-      'Return quantity cannot exceed available quantity '
+      'Settlement quantity cannot exceed backend Remaining '
 '${_formatQty(availableQty)}.',
     );
     return;
@@ -2319,23 +2344,16 @@ final double availableQty =
   });
 
   try {
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/api/allocations/$allocationId/return',
-    );
+    final uri = Uri.parse(ApiConfig.allocationReturn(allocationId));
 
     final response = await http.put(
       uri,
-      headers: {
-        'Content-Type': 'application/json',
-        if (ApiConfig.token != null &&
-            ApiConfig.token!.isNotEmpty)
-          'Authorization': 'Bearer ${ApiConfig.token}',
-      },
+      headers: ApiConfig.authHeaders,
       body: jsonEncode({
         'productId': productId,
-        'goodReturnQty': _goodReturnQty,
-        'damageQty': _damageQty,
-        'shortExcessQty': _shortExcessQty,
+        'goodReturnQty': _normalizeQuantity(_goodReturnQty),
+        'damageQty': _normalizeQuantity(_damageQty),
+        'shortExcessQty': _normalizeQuantity(_shortExcessQty),
         'returnType': selectedReturnType,
         'reason': reasonController.text.trim(),
         'remarks': remarksController.text.trim(),
@@ -2375,25 +2393,20 @@ final double availableQty =
     // USE VALUES RETURNED BY BACKEND
     // =========================================================
 
-final double returnedQty =
-    _asDouble(
-      data[
-        'returnedQuantity'
-      ],
+    final double returnedQty = _normalizeQuantity(
+      _asDouble(data['returnedQuantity']),
     );
 
-final double soldQty =
-    _asDouble(
-      data[
-        'soldQuantity'
-      ],
+    final double reconciledQty = _normalizeQuantity(
+      _asDouble(data['reconciledQuantity']),
     );
 
-final double remainingQty =
-    _asDouble(
-      data[
-        'remainingQuantity'
-      ],
+    final double soldQty = _normalizeQuantity(
+      _asDouble(data['soldQuantity']),
+    );
+
+    final double remainingQty = _normalizeQuantity(
+      _asDouble(data['remainingQuantity']),
     );
 
     final result = <String, dynamic>{
@@ -2429,6 +2442,9 @@ final double remainingQty =
       'returnedQty':
           returnedQty,
 
+      'reconciledQty':
+          reconciledQty,
+
       'remainingQty':
           remainingQty,
 
@@ -2456,19 +2472,12 @@ final double remainingQty =
 
     if (!mounted) return;
 
-    setState(() {
-      allocation['soldQty'] =
-          soldQty;
+    // Reload rather than patching cached allocation totals.  SalesScreen
+    // listens to this event and reloads My Stock when a salesman is active.
+    await _loadAllocations();
+    DataSyncService.instance.notifyReturnChanged();
 
-      allocation['returnedQty'] =
-          returnedQty;
-
-      allocation['remainingQty'] =
-          remainingQty;
-
-      allocation['settlement'] =
-          result;
-    });
+    if (!mounted) return;
 
     // Opened from Allocation screen
     if (widget.allocation != null) {
@@ -2489,9 +2498,6 @@ final double remainingQty =
     setState(() {
       _selectedAllocation = null;
     });
-
-    await _loadAllocations();
-    DataSyncService.instance.notifyReturnChanged();
   } catch (error) {
     if (!mounted) return;
 
@@ -2514,9 +2520,9 @@ final double remainingQty =
 void _completeSettlement() {
   if (!_isBalanced) {
     _showMessage(
-      'Allocation is not balanced. Difference is '
+      'The entered settlement does not match backend Remaining. Difference is '
       '${_formatQty(_differenceQty.abs())} L. '
-      'Correct Sold / Return / Damage / Short-Excess before completing.',
+      'Correct Good Return, Damage, or Short / Adjustment before completing.',
     );
 
     return;

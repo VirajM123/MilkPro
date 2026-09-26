@@ -1,18 +1,42 @@
 class ApiConfig {
-//   static const String baseUrl =
-//       'http://localhost:5000';
+  // ============================================================
+  // BASE URL
+  // ============================================================
 
-static const String baseUrl =
-      'https://milkpro.onrender.com';
+  // Local development:
+  static const String baseUrl = 'http://localhost:5000';
 
-  // Authentication
+  // Production:
+  // static const String baseUrl =
+  //     'https://milkpro.onrender.com';
+
+
+  // ============================================================
+  // AUTHENTICATION
+  // ============================================================
+
   static const String register =
       '$baseUrl/api/auth/register';
 
   static const String login =
       '$baseUrl/api/auth/login';
 
-  // Customer
+
+  // ============================================================
+  // CURRENT USER PROFILE
+  // ============================================================
+
+  static const String profile =
+      '$baseUrl/api/profile';
+
+  static const String profilePassword =
+      '$baseUrl/api/profile/password';
+
+
+  // ============================================================
+  // CUSTOMERS
+  // ============================================================
+
   static const String customers =
       '$baseUrl/api/customers';
 
@@ -21,66 +45,143 @@ static const String baseUrl =
   ) =>
       '$customers/$id';
 
-  // Routes
+
+  // ============================================================
+  // ROUTES
+  // ============================================================
+
   static const String routes =
       '$baseUrl/api/routes';
-      static String routeById(
-  String id,
-) =>
-    '$routes/$id';
 
-  // Salesmen
-// Salesmen
-static const String salesmen =
-    '$baseUrl/api/salesmen';
+  static String routeById(
+    String id,
+  ) =>
+      '$routes/$id';
 
-static String salesmanById(
-  String salesmanId,
-) =>
-    '$salesmen/$salesmanId';
 
-// Current User Profile
-static const String profile =
-    '$baseUrl/api/profile';
+  // ============================================================
+  // SALESMEN
+  // ============================================================
 
-static const String profilePassword =
-    '$baseUrl/api/profile/password';
+  static const String salesmen =
+      '$baseUrl/api/salesmen';
 
-  // Products
+  static String salesmanById(
+    String salesmanId,
+  ) =>
+      '$salesmen/$salesmanId';
+
+
+  // ============================================================
+  // PRODUCTS
+  // ============================================================
+
   static const String products =
       '$baseUrl/api/products';
 
-static String productById(
-  String id,
-) =>
-    '$products/$id';
-  // Suppliers
+  static String productById(
+    String id,
+  ) =>
+      '$products/$id';
+
+
+  // ============================================================
+  // SUPPLIERS
+  // ============================================================
+
   static const String suppliers =
       '$baseUrl/api/suppliers';
 
-  // Purchases
+
+  // ============================================================
+  // PURCHASES
+  // ============================================================
+
   static const String purchases =
       '$baseUrl/api/purchases';
 
-  // Stock
+
+  // ============================================================
+  // STOCK
+  // ============================================================
+
   static const String stock =
       '$baseUrl/api/stock';
 
-  // Customer Rates
+
+  // ============================================================
+  // CUSTOMER RATES
+  // ============================================================
+
   static const String customerRates =
       '$baseUrl/api/customer-rates';
 
-  // Sales
+
+  // ============================================================
+  // SALES
+  // ============================================================
+
   static const String sales =
       '$baseUrl/api/sales';
 
-  // Collections
+  static String saleById(
+    String saleId,
+  ) =>
+      '$sales/$saleId';
+
+
+  // ============================================================
+  // SALESMAN STOCK
+  // IMPORTANT:
+  // This now represents current business-day allocation stock.
+  // ============================================================
+
+  static const String salesmanStockMy =
+      '$baseUrl/api/salesman-stock/my';
+
+
+  // ============================================================
+  // ALLOCATIONS
+  // ============================================================
+
+  static const String allocations =
+      '$baseUrl/api/allocations';
+
+  static String allocationById(
+    String allocationId,
+  ) =>
+      '$allocations/$allocationId';
+
+  static String allocationCancel(
+    String allocationId,
+  ) =>
+      '$allocations/$allocationId/cancel';
+
+  static String allocationReturn(
+    String allocationId,
+  ) =>
+      '$allocations/$allocationId/return';
+
+
+  // ============================================================
+  // COLLECTIONS
+  // ============================================================
+
   static const String collections =
       '$baseUrl/api/collections';
 
-  // Ledger
+
+  // ============================================================
+  // LEDGER
+  // ============================================================
+
   static const String ledger =
       '$baseUrl/api/ledger';
+
+
+  // ============================================================
+  // CUSTOMER RELATED TRANSACTIONS
+  // ============================================================
 
   static String customerSales(
     String customerId,
@@ -97,21 +198,47 @@ static String productById(
   ) =>
       '$ledger?type=customer&partyId=$customerId';
 
-  // Allocations
-  static const String allocations =
-      '$baseUrl/api/allocations';
 
-  // Common Salesman Permissions
+  // ============================================================
+  // SALESMAN DEFAULT PERMISSIONS
+  // ============================================================
+
   static const String salesmanDefaultPermissions =
       '$baseUrl/api/settings/salesman-permissions';
 
-  // History
+
+  // ============================================================
+  // SALES & COLLECTION HISTORY
+  // ============================================================
+
   static const String historySummary =
       '$baseUrl/api/history/sales-collection-summary';
+
   static const String historySalesmanDetails =
       '$baseUrl/api/history/salesman-details';
 
-  // Current session
+
+  // ============================================================
+  // CURRENT SESSION
+  // ============================================================
+
   static String token = '';
+
   static String farmId = '';
+
+
+  // ============================================================
+  // COMMON AUTH HEADERS
+  //
+  // Use this instead of repeating Authorization + Content-Type
+  // throughout every screen.
+  // ============================================================
+
+  static Map<String, String> get authHeaders =>
+      <String, String>{
+        'Content-Type': 'application/json',
+        if (token.trim().isNotEmpty)
+          'Authorization':
+              'Bearer ${token.trim()}',
+      };
 }

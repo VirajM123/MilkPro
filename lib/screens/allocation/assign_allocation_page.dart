@@ -75,29 +75,48 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
         .replaceFirst(RegExp(r'\.$'), '');
   }
 
-  bool get _hasExistingActivity {
-    final dynamic rawProducts = widget.existingAllocation?['products'];
+bool get _hasExistingActivity {
+  final dynamic rawProducts =
+      widget.existingAllocation?['products'];
 
-    if (rawProducts is! List) {
-      return false;
-    }
-
-    for (final dynamic raw in rawProducts) {
-      if (raw is! Map) {
-        continue;
-      }
-
-      final double sold = _asDouble(raw['soldQuantity']);
-
-      final double returned = _asDouble(raw['returnedQuantity']);
-
-      if (sold > 0 || returned > 0) {
-        return true;
-      }
-    }
-
+  if (rawProducts is! List) {
     return false;
   }
+
+  for (final dynamic raw in rawProducts) {
+    if (raw is! Map) {
+      continue;
+    }
+
+    final double sold =
+        _asDouble(
+          raw['soldQuantity'],
+        );
+
+    final double returned =
+        _asDouble(
+          raw['returnedQuantity'],
+        );
+
+    final double reconciled =
+        _asDouble(
+          raw['reconciledQuantity'],
+        );
+
+    if (
+      sold > 0 ||
+      returned > 0 ||
+      reconciled > 0
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+bool get _isEditLocked =>
+    _isEditing &&
+    _hasExistingActivity;
 
   double _oldAllocatedQuantity(String productId) {
     final dynamic rawProducts = widget.existingAllocation?['products'];
@@ -139,11 +158,24 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
         continue;
       }
 
-      final double sold = _asDouble(raw['soldQuantity']);
+final double sold =
+    _asDouble(
+      raw['soldQuantity'],
+    );
 
-      final double returned = _asDouble(raw['returnedQuantity']);
+final double returned =
+    _asDouble(
+      raw['returnedQuantity'],
+    );
 
-      return sold + returned;
+final double reconciled =
+    _asDouble(
+      raw['reconciledQuantity'],
+    );
+
+return sold +
+    returned +
+    reconciled;
     }
 
     return 0;
@@ -488,6 +520,13 @@ class _AssignAllocationPageState extends State<AssignAllocationPage> {
       return;
     }
 
+    if (_isEditLocked) {
+      _message(
+        'This allocation already has sales, return or adjustment activity and cannot be edited. Create another allocation if additional stock is required.',
+      );
+      return;
+    }
+
     if (_routeId == null || _routeId!.trim().isEmpty) {
       _message('Route is required.');
       return;
@@ -591,14 +630,20 @@ if (assignedSalesmanId !=
     });
 
     try {
-      final Uri uri = _isEditing
-          ? Uri.parse(
-              '${ApiConfig.baseUrl}/api/allocations/$_editingAllocationId',
+final Uri uri =
+    Uri.parse(
+      _isEditing
+          ? ApiConfig.allocationById(
+              _editingAllocationId,
             )
-          : Uri.parse('${ApiConfig.baseUrl}/api/allocations');
+          : ApiConfig.allocations,
+    );
 
       final Map<String, dynamic> body = <String, dynamic>{
-        'allocationDate': _date.toIso8601String(),
+      'allocationDate':
+    _formatApiDate(
+      _date,
+    ),
 
         'routeId': _routeId,
 
@@ -614,21 +659,15 @@ if (assignedSalesmanId !=
       if (_isEditing) {
         response = await http.put(
           uri,
-          headers: <String, String>{
-            'Content-Type': 'application/json',
-
-            'Authorization': 'Bearer ${ApiConfig.token}',
-          },
+    headers:
+    ApiConfig.authHeaders,
           body: jsonEncode(body),
         );
       } else {
         response = await http.post(
           uri,
-          headers: <String, String>{
-            'Content-Type': 'application/json',
-
-            'Authorization': 'Bearer ${ApiConfig.token}',
-          },
+       headers:
+    ApiConfig.authHeaders,
           body: jsonEncode(body),
         );
       }
@@ -701,6 +740,48 @@ if (assignedSalesmanId !=
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
           _detailsCard(),
+          if (_isEditLocked) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF4E5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.warning),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(
+                    Icons.lock_outline_rounded,
+                    color: AppColors.warning,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'This allocation already has sales, return or adjustment activity and cannot be edited. Create another allocation if additional stock is required.',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextButton.icon(
+                          onPressed: _saving ? null : _startAnotherAllocation,
+                          icon: const Icon(Icons.add_circle_outline_rounded),
+                          label: const Text('Create another allocation'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           AppSectionTitle(
             title: 'Products & Quantity',
@@ -709,7 +790,10 @@ if (assignedSalesmanId !=
             action: _selectedProductIds.isEmpty
                 ? null
                 : TextButton(
-                    onPressed: _saving ? null : _clearAll,
+onPressed:
+    _saving || _isEditLocked
+        ? null
+        : _clearAll,
                     child: const Text('Clear'),
                   ),
           ),
@@ -721,7 +805,10 @@ if (assignedSalesmanId !=
           // ============================================================
           InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: _saving ? null : _openProductPicker,
+           onTap:
+    _saving || _isEditLocked
+        ? null
+        : _openProductPicker,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -912,7 +999,10 @@ if (assignedSalesmanId !=
           const AppSectionTitle(title: 'Allocation Details'),
           const SizedBox(height: 14),
           InkWell(
-            onTap: _saving ? null : _pickDate,
+           onTap:
+    _saving || _isEditLocked
+        ? null
+        : _pickDate,
             child: InputDecorator(
               decoration: const InputDecoration(
                 labelText: 'Date',
@@ -1467,9 +1557,14 @@ if (assignedSalesmanId !=
               children: [
                 Checkbox(
                   value: selected,
-                  onChanged: _saving
-                      ? null
-                      : (value) => _toggleProduct(product, value ?? false),
+               onChanged:
+    _saving || _isEditLocked
+        ? null
+        : (value) =>
+            _toggleProduct(
+              product,
+              value ?? false,
+            ),
                 ),
                 Container(
                   height: 46,
@@ -1523,7 +1618,9 @@ if (assignedSalesmanId !=
                           Expanded(
                             child: TextField(
                               controller: _quantities[productId],
-                              enabled: !_saving,
+                             enabled:
+    !_saving &&
+    !_isEditLocked,
                               textAlign: TextAlign.center,
                               keyboardType:
                                   const TextInputType.numberWithOptions(
@@ -1573,7 +1670,10 @@ if (assignedSalesmanId !=
   Widget _stepButton(IconData icon, VoidCallback onTap) => SizedBox.square(
     dimension: 48,
     child: OutlinedButton(
-      onPressed: _saving ? null : onTap,
+     onPressed:
+    _saving || _isEditLocked
+        ? null
+        : onTap,
       style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
       child: Icon(icon),
     ),
@@ -1619,7 +1719,10 @@ if (assignedSalesmanId !=
           ),
           const SizedBox(width: 12),
           ElevatedButton(
-            onPressed: _saving ? null : _save,
+         onPressed:
+    _saving || _isEditLocked
+        ? null
+        : _save,
             child: _saving
                 ? const SizedBox(
                     width: 20,
@@ -1647,6 +1750,18 @@ if (assignedSalesmanId !=
     });
   }
 
+  void _startAnotherAllocation() {
+    Navigator.of(context).pushReplacement<dynamic, dynamic>(
+      MaterialPageRoute<dynamic>(
+        builder: (_) => AssignAllocationPage(
+          routes: widget.routes,
+          salesmen: widget.salesmen,
+          products: widget.products,
+        ),
+      ),
+    );
+  }
+
   // ============================================================
   // MESSAGE
   // ============================================================
@@ -1666,4 +1781,29 @@ if (assignedSalesmanId !=
   String _formatDate(DateTime date) =>
       '${date.day.toString().padLeft(2, '0')}/'
       '${date.month.toString().padLeft(2, '0')}/${date.year}';
+      String _formatApiDate(
+  DateTime date,
+) {
+  final String year =
+      date.year
+          .toString();
+
+  final String month =
+      date.month
+          .toString()
+          .padLeft(
+            2,
+            '0',
+          );
+
+  final String day =
+      date.day
+          .toString()
+          .padLeft(
+            2,
+            '0',
+          );
+
+  return '$year-$month-$day';
+}
 }

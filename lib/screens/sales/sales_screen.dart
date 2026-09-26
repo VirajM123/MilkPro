@@ -4,6 +4,7 @@ import '../common/access_denied_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import '../../config/api_config.dart';
 import '../../theme/app_colors.dart';
 
@@ -77,6 +78,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   bool _loadingProducts = false;
   bool _loadingSales = false;
   bool _savingSale = false;
+  String? _clientRequestId;
   bool _syncing = false;
   Timer? _pollTimer;
   int _salesRequestToken = 0;
@@ -365,6 +367,26 @@ Future<void> _handleManualSync() async {
     return double.tryParse(value?.toString().trim() ?? '') ?? 0.0;
   }
 
+  static const int _quantityScale = 100;
+
+  int _quantityUnits(num value) =>
+      (value.toDouble() * _quantityScale).round();
+
+  double _normalizeQuantity(num value) =>
+      _quantityUnits(value) / _quantityScale;
+
+  double? _parseQuantity(String value) {
+    final double? parsed = double.tryParse(value.trim());
+    if (parsed == null || !parsed.isFinite) {
+      return null;
+    }
+
+    return _normalizeQuantity(parsed);
+  }
+
+  bool _exceedsQuantity(double requested, double available) =>
+      _quantityUnits(requested) > _quantityUnits(available);
+
   bool _sameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
@@ -378,6 +400,16 @@ Future<void> _handleManualSync() async {
   }
 
   double _availableFor(Map<String, dynamic> allocation) {
+    if (_isSalesman) {
+      // The current business-day load API is authoritative.  The only local
+      // subtraction happens below for items already added to this draft bill.
+      final double available = _normalizeQuantity(
+        _asDouble(allocation['availableQty'] ?? allocation['available']),
+      );
+
+      return available < 0 ? 0.0 : available;
+    }
+
     final double value =
         _asDouble(allocation['qty']) -
         _asDouble(allocation['returnedQty']) -
@@ -396,7 +428,7 @@ Future<void> _handleManualSync() async {
     final double remaining =
         _availableFor(allocation) - _cartQuantityFor(allocation);
 
-    return remaining < 0 ? 0.0 : remaining;
+    return remaining < 0 ? 0.0 : _normalizeQuantity(remaining);
   }
 
   double get _availableToAdd {
@@ -718,6 +750,9 @@ Future<void> _handleManualSync() async {
     setState(() {
       _selectedDate = date;
       _cart.clear();
+      if (_isSalesman && !_isEditingSale) {
+        _clientRequestId = null;
+      }
     });
   }
 
@@ -1578,12 +1613,8 @@ if (selectedCustomerId.isNotEmpty) {
       // ==========================================================
 
       final http.Response stockResponse = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/api/salesman-stock/my'),
-        headers: <String, String>{
-          'Content-Type': 'application/json',
-
-          'Authorization': 'Bearer ${ApiConfig.token}',
-        },
+        Uri.parse(ApiConfig.salesmanStockMy),
+        headers: ApiConfig.authHeaders,
       );
 
       final dynamic stockDecoded = jsonDecode(stockResponse.body);
@@ -1616,18 +1647,9 @@ if (selectedCustomerId.isNotEmpty) {
       // ==========================================================
       // WHEN EDITING A SALE
       //
-      // /salesman-stock/my has already deducted the existing
-      // sale quantity.
-      //
-      // We must temporarily add the quantity of the bill being
-      // edited back to the allowed quantity.
-      //
-      // Example:
-      //
-      // Allocation remaining after sale = 5
-      // Existing bill qty              = 10
-      //
-      // During edit maximum allowed    = 15
+      // The API remains the stock source even while editing.  We only keep
+      // original bill products that the API no longer returns so the user can
+      // retain or reduce an existing line; backend validation remains final.
       // ==========================================================
 
       final Map<String, double> editingOriginalQty = <String, double>{};
@@ -1677,13 +1699,11 @@ if (selectedCustomerId.isNotEmpty) {
           continue;
         }
 
-        final double available = _asDouble(stock['available']);
+        final double available = _normalizeQuantity(
+          _asDouble(stock['available']),
+        );
 
-        final double oldEditQuantity = editingOriginalQty[productId] ?? 0;
-
-        final double allowedQuantity = available + oldEditQuantity;
-
-        if (allowedQuantity <= 0) {
+        if (available <= 0) {
           continue;
         }
 
@@ -1711,8 +1731,8 @@ if (selectedCustomerId.isNotEmpty) {
           // IMPORTANT:
           // This is NOT warehouse stock.
           //
-          // qty = salesman remaining allocation.
-          'qty': allowedQuantity,
+          // All stock values below are returned by /salesman-stock/my.
+          'qty': available,
 
           // Already accounted by backend stock API.
           'returnedQty': 0,
@@ -1740,11 +1760,21 @@ if (selectedCustomerId.isNotEmpty) {
           'salesman': (stockData['salesmanName'] ?? '').toString(),
 
           // Optional display/debug values
-          'allocatedQty': _asDouble(stock['allocated']),
+          'allocatedQty': _normalizeQuantity(
+            _asDouble(stock['totalAllocated'] ?? stock['allocated']),
+          ),
 
-          'actualSoldQty': _asDouble(stock['sold']),
+          'actualSoldQty': _normalizeQuantity(
+            _asDouble(stock['totalSold'] ?? stock['sold']),
+          ),
 
-          'actualReturnedQty': _asDouble(stock['returned']),
+          'actualReturnedQty': _normalizeQuantity(
+            _asDouble(stock['totalReturned'] ?? stock['returned']),
+          ),
+
+          'actualReconciledQty': _normalizeQuantity(
+            _asDouble(stock['totalReconciled'] ?? stock['reconciled']),
+          ),
 
           'availableQty': available,
         });
@@ -1799,9 +1829,10 @@ if (selectedCustomerId.isNotEmpty) {
 
             'unit': (rate['unit'] ?? 'Pcs').toString(),
 
-            // Existing bill quantity can at least
-            // remain unchanged.
-            'qty': entry.value,
+            // There is no current server availability for this product.
+            // Keeping the line visible lets backend-controlled edit handling
+            // decide whether the unchanged quantity is still valid.
+            'qty': 0,
 
             'returnedQty': 0,
 
@@ -1823,11 +1854,13 @@ if (selectedCustomerId.isNotEmpty) {
 
             'salesman': (stockData['salesmanName'] ?? '').toString(),
 
-            'allocatedQty': entry.value,
+            'allocatedQty': 0,
 
-            'actualSoldQty': entry.value,
+            'actualSoldQty': 0,
 
             'actualReturnedQty': 0,
+
+            'actualReconciledQty': 0,
 
             'availableQty': 0,
           });
@@ -1879,7 +1912,7 @@ if (selectedCustomerId.isNotEmpty) {
     }
 
     return number
-        .toStringAsFixed(3)
+        .toStringAsFixed(2)
         .replaceFirst(RegExp(r'0+$'), '')
         .replaceFirst(RegExp(r'\.$'), '');
   }
@@ -1887,7 +1920,7 @@ if (selectedCustomerId.isNotEmpty) {
   void _addProductToSale() {
     final allocation = _selectedAllocation;
 
-    final double? quantity = double.tryParse(_quantityController.text.trim());
+    final double? quantity = _parseQuantity(_quantityController.text);
 
     final double? rate = double.tryParse(_rateController.text.trim());
 
@@ -1901,7 +1934,7 @@ if (selectedCustomerId.isNotEmpty) {
       return;
     }
 
-    if (quantity > _availableToAdd + 0.000001) {
+    if (_exceedsQuantity(quantity, _availableToAdd)) {
       _showMessage(
         'Only ${_formatQuantity(_availableToAdd)} more of this product is available.',
       );
@@ -1914,7 +1947,11 @@ if (selectedCustomerId.isNotEmpty) {
     }
 
     _cart.add(
-      _SaleLineDraft(allocation: allocation, quantity: quantity, rate: rate),
+      _SaleLineDraft(
+        allocation: allocation,
+        quantity: quantity,
+        rate: rate,
+      ),
     );
 
     _quantityController.clear();
@@ -1974,8 +2011,19 @@ if (selectedCustomerId.isNotEmpty) {
       // REQUEST
       // ============================================================
 
-      final requestBody = jsonEncode({
-        'saleDate': _selectedDate.toIso8601String(),
+      final String? clientRequestId = _isEditingSale
+          ? null
+          : (_clientRequestId ??= Uuid().v4());
+
+      final String saleDate = _isSalesman
+          ? DateTime.now().toUtc().toIso8601String()
+          : _selectedDate.toIso8601String();
+
+      final Map<String, dynamic> requestPayload = <String, dynamic>{
+        // Salesman business timestamps are assigned by the backend.  Keep
+        // this compatibility field as a real UTC instant, never a fake IST
+        // conversion.  Admin backdated sales retain their selected date.
+        'saleDate': saleDate,
 
         'customerId': customerId,
 
@@ -2000,16 +2048,18 @@ if (selectedCustomerId.isNotEmpty) {
           return {
             'productId': line.allocation['productId']?.toString() ?? '',
 
-            'quantity': line.quantity,
+            'quantity': _normalizeQuantity(line.quantity),
           };
         }).toList(),
-      });
-
-      final headers = <String, String>{
-        'Content-Type': 'application/json',
-
-        'Authorization': 'Bearer ${ApiConfig.token}',
       };
+
+      if (clientRequestId != null) {
+        requestPayload['clientRequestId'] = clientRequestId;
+      }
+
+      final String requestBody = jsonEncode(requestPayload);
+
+      final Map<String, String> headers = ApiConfig.authHeaders;
 
       late http.Response response;
 
@@ -2020,7 +2070,7 @@ if (selectedCustomerId.isNotEmpty) {
       if (_isEditingSale) {
         response = await http.put(
           Uri.parse(
-            '${ApiConfig.sales}/${Uri.encodeComponent(_editingSaleId!)}',
+            ApiConfig.saleById(_editingSaleId!),
           ),
           headers: headers,
           body: requestBody,
@@ -2051,7 +2101,7 @@ if (selectedCustomerId.isNotEmpty) {
 
       final successStatus = _isEditingSale
           ? response.statusCode == 200
-          : response.statusCode == 201;
+          : response.statusCode == 201 || response.statusCode == 200;
 
       if (successStatus &&
           data is Map<String, dynamic> &&
@@ -2094,6 +2144,13 @@ if (selectedCustomerId.isNotEmpty) {
           _selectedAllocation = null;
 
           _isEditingSale = false;
+
+          if (!wasEditing) {
+            // The backend confirmed this logical bill.  The next new bill
+            // must get a fresh idempotency key; retries before this point
+            // intentionally keep the same key.
+            _clientRequestId = null;
+          }
 
           _editingSaleId = null;
 
@@ -2382,6 +2439,8 @@ if (selectedCustomerId.isNotEmpty) {
                       _isCreatingSale = false;
 
                       _isEditingSale = false;
+
+                      _clientRequestId = null;
 
                       _editingSaleId = null;
 
@@ -3773,6 +3832,8 @@ if (selectedCustomerId.isNotEmpty) {
     setState(() {
       _isEditingSale = true;
 
+      _clientRequestId = null;
+
       _editingSaleId = sale.id;
 
       _editingSaleNo = sale.id;
@@ -3901,6 +3962,8 @@ if (selectedCustomerId.isNotEmpty) {
       // ==========================================================
 
       _isEditingSale = false;
+
+      _clientRequestId = null;
 
       _editingSaleId = null;
 
@@ -4317,6 +4380,10 @@ if (selectedCustomerId.isNotEmpty) {
                       _saleProducts.clear();
 
                       _cart.clear();
+
+                      if (!_isEditingSale) {
+                        _clientRequestId = null;
+                      }
 
                       _customerController.text =
                           customer['name']?.toString() ?? '';
@@ -5273,14 +5340,14 @@ if (selectedCustomerId.isNotEmpty) {
                 decimal: true,
               ),
               inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}')),
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
               ],
               decoration: const InputDecoration(
                 labelText: 'Quantity',
                 suffixText: 'Units',
               ),
               onSubmitted: (value) {
-                final double? parsed = double.tryParse(value.trim());
+                final double? parsed = _parseQuantity(value);
 
                 if (parsed != null) {
                   Navigator.pop(dialogContext, parsed);
@@ -5296,7 +5363,7 @@ if (selectedCustomerId.isNotEmpty) {
           ),
           ElevatedButton.icon(
             onPressed: () {
-              final double? parsed = double.tryParse(controller.text.trim());
+              final double? parsed = _parseQuantity(controller.text);
 
               if (parsed != null) {
                 Navigator.pop(dialogContext, parsed);
@@ -5315,7 +5382,7 @@ if (selectedCustomerId.isNotEmpty) {
       return;
     }
 
-    if (quantity <= 0 || quantity > available + 0.000001) {
+    if (quantity <= 0 || _exceedsQuantity(quantity, available)) {
       _showMessage(
         'Enter a quantity greater than 0 and up to ${_formatQuantity(available)}.',
       );
@@ -5328,7 +5395,9 @@ if (selectedCustomerId.isNotEmpty) {
 
     setState(() {
       if (existing.isNotEmpty) {
-        existing.first.quantity += quantity;
+        existing.first.quantity = _normalizeQuantity(
+          existing.first.quantity + quantity,
+        );
       } else {
         _cart.add(
           _SaleLineDraft(
@@ -5529,7 +5598,7 @@ if (selectedCustomerId.isNotEmpty) {
 
                   inputFormatters: <TextInputFormatter>[
                     FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d*\.?\d{0,3}'),
+                      RegExp(r'^\d*\.?\d{0,2}'),
                     ),
                   ],
                   decoration: _referenceInputDecoration(
@@ -5824,19 +5893,21 @@ if (selectedCustomerId.isNotEmpty) {
   }
 
   void _changeCartQuantity(_SaleLineDraft line, double change) {
-    if (change > 0 && _remainingFor(line.allocation) <= 0) {
+    if (change > 0 && _quantityUnits(_remainingFor(line.allocation)) <= 0) {
       _showMessage('No more allotted quantity is available.');
       return;
     }
 
-    final double nextQuantity = line.quantity + change;
+    final double nextQuantity = _normalizeQuantity(line.quantity + change);
 
     if (nextQuantity <= 0) {
       return;
     }
 
-    if (nextQuantity >
-        line.quantity + _remainingFor(line.allocation) + 0.000001) {
+    if (_exceedsQuantity(
+      nextQuantity,
+      line.quantity + _remainingFor(line.allocation),
+    )) {
       return;
     }
 
@@ -5867,7 +5938,7 @@ if (selectedCustomerId.isNotEmpty) {
                 decimal: true,
               ),
               inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,3}')),
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
               ],
               decoration: InputDecoration(
                 labelText: 'Quantity',
@@ -5875,7 +5946,7 @@ if (selectedCustomerId.isNotEmpty) {
                 helperText: 'Maximum available: ${_formatQuantity(maximum)}',
               ),
               onSubmitted: (value) {
-                final double? entered = double.tryParse(value.trim());
+                final double? entered = _parseQuantity(value);
 
                 if (entered != null) {
                   Navigator.pop(dialogContext, entered);
@@ -5891,7 +5962,7 @@ if (selectedCustomerId.isNotEmpty) {
           ),
           ElevatedButton(
             onPressed: () {
-              final double? entered = double.tryParse(controller.text.trim());
+              final double? entered = _parseQuantity(controller.text);
 
               if (entered != null) {
                 Navigator.pop(dialogContext, entered);
@@ -5909,7 +5980,7 @@ if (selectedCustomerId.isNotEmpty) {
       return;
     }
 
-    if (quantity <= 0 || quantity > maximum + 0.000001) {
+    if (quantity <= 0 || _exceedsQuantity(quantity, maximum)) {
       _showMessage(
         'Enter a quantity greater than 0 and up to ${_formatQuantity(maximum)}.',
       );
@@ -6081,7 +6152,7 @@ if (selectedCustomerId.isNotEmpty) {
                   ),
                   inputFormatters: <TextInputFormatter>[
                     FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d*\.?\d{0,3}'),
+                      RegExp(r'^\d*\.?\d{0,2}'),
                     ),
                   ],
                   decoration: _referenceInputDecoration(
@@ -6598,7 +6669,7 @@ if (selectedCustomerId.isNotEmpty) {
 
                   inputFormatters: <TextInputFormatter>[
                     FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d*\.?\d{0,3}'),
+                      RegExp(r'^\d*\.?\d{0,2}'),
                     ),
                   ],
                   decoration: _inputDecoration(

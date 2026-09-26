@@ -1467,6 +1467,22 @@ saleSchema.index(
     unique: true,
   }
 );
+saleSchema.index(
+  {
+    farmId: 1,
+    clientRequestId: 1,
+  },
+  {
+    unique: true,
+
+    partialFilterExpression: {
+      clientRequestId: {
+        $type: "string",
+        $gt: "",
+      },
+    },
+  }
+);
 
 
 const Sale = mongoose.model(
@@ -1514,6 +1530,11 @@ const allocationProductSchema = new mongoose.Schema(
     },
 
     returnedQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    reconciledQuantity: {
       type: Number,
       default: 0,
       min: 0,
@@ -7916,6 +7937,7 @@ app.post(
               rate,
 
               amount,
+
             });
 
             totalQuantity +=
@@ -9663,61 +9685,72 @@ async function getPreviousPendingAllocation({
       .trim()
       .toUpperCase();
 
+
   if (!normalizedSalesmanId) {
     return null;
   }
 
 
-  // ------------------------------------------------------
-  // NORMALIZE CURRENT BUSINESS DATE
-  // ------------------------------------------------------
+  // ======================================================
+  // CURRENT BUSINESS DATE
+  // ======================================================
 
-  const currentDate =
-    businessDate
-      ? new Date(businessDate)
-      : new Date();
+  const businessDateText =
+    businessDate !== undefined &&
+      businessDate !== null
+      ? businessDate
+        .toString()
+        .trim()
+      : "";
 
 
-  if (
-    Number.isNaN(
-      currentDate.getTime()
+  const currentBusinessDate =
+    /^\d{4}-\d{2}-\d{2}$/.test(
+      businessDateText
     )
-  ) {
+      ? businessDateText
+      : getISTBusinessDateKey(
+        businessDate ||
+        new Date()
+      );
+
+
+  if (!currentBusinessDate) {
 
     const error =
       new Error(
-        "Invalid sale date."
+        "Invalid business date."
       );
 
-    error.statusCode = 400;
+    error.statusCode =
+      400;
 
     throw error;
   }
 
 
-  const currentDayStart =
-    new Date(currentDate);
-
-  currentDayStart.setHours(
-    0,
-    0,
-    0,
-    0
-  );
+  const currentAllocationDate =
+    parseAllocationBusinessDate(
+      currentBusinessDate
+    );
 
 
-  // ------------------------------------------------------
-  // LOAD ALL ACTIVE / RETURNED ALLOCATIONS
-  // OLDEST FIRST
-  // ------------------------------------------------------
+  // ======================================================
+  // ONLY OLDER ALLOCATIONS
+  // ======================================================
 
-  const allocationQuery =
+  let allocationQuery =
     Allocation.find({
 
       farmId,
 
       salesmanId:
         normalizedSalesmanId,
+
+      allocationDate: {
+        $lt:
+          currentAllocationDate,
+      },
 
       status: {
         $in: [
@@ -9735,9 +9768,11 @@ async function getPreviousPendingAllocation({
 
 
   if (session) {
-    allocationQuery.session(
-      session
-    );
+
+    allocationQuery =
+      allocationQuery.session(
+        session
+      );
   }
 
 
@@ -9745,165 +9780,38 @@ async function getPreviousPendingAllocation({
     await allocationQuery;
 
 
-  if (
-    allocations.length === 0
-  ) {
-    return null;
-  }
-
-
-  // ------------------------------------------------------
-  // LOAD ALL POSTED SALESMAN SALES
-  //
-  // We intentionally use the same FIFO logic as the
-  // allocation API so calculated balances remain identical.
-  // ------------------------------------------------------
-
-  const salesQuery =
-    Sale.find({
-
-      farmId,
-
-      salesmanId:
-        normalizedSalesmanId,
-
-      createdRole:
-        "salesman",
-
-      status:
-        "POSTED",
-
-    })
-      .select(
-        "products saleDate createdAt"
-      )
-      .sort({
-        saleDate: 1,
-        createdAt: 1,
-      })
-      .lean();
-
-
-  if (session) {
-    salesQuery.session(
-      session
-    );
-  }
-
-
-  const sales =
-    await salesQuery;
-
-
-  // ------------------------------------------------------
-  // TOTAL SOLD PRODUCT-WISE
-  // ------------------------------------------------------
-
-  const remainingSoldMap =
-    new Map();
-
+  // ======================================================
+  // CHECK EACH ALLOCATION USING ITS OWN BUSINESS DATE
+  // ======================================================
 
   for (
-    const sale of sales
+    const allocation of
+    allocations
   ) {
 
-    const saleProducts =
-      Array.isArray(
-        sale.products
-      )
-        ? sale.products
-        : [];
+    const soldMap =
+      await getSoldQuantityForAllocation({
+
+        farmId,
+
+        salesmanId:
+          normalizedSalesmanId,
+
+        allocationId:
+          allocation.allocationId,
+
+        session,
+
+      });
 
 
     for (
-      const item of saleProducts
-    ) {
-
-      const productId =
-        (
-          item.productId ||
-          ""
-        )
-          .toString()
-          .trim()
-          .toUpperCase();
-
-
-      if (!productId) {
-        continue;
-      }
-
-
-      const quantity =
-        Number(
-          item.quantity
-        ) || 0;
-
-
-      remainingSoldMap.set(
-
-        productId,
-
-        (
-          remainingSoldMap.get(
-            productId
-          ) || 0
-        ) +
-        quantity
-
-      );
-    }
-  }
-
-
-  // ------------------------------------------------------
-  // CONSUME SALES AGAINST ALLOCATIONS FIFO
-  // AND FIND AN OLDER ALLOCATION WITH PENDING STOCK
-  // ------------------------------------------------------
-
-  for (
-    const allocation of allocations
-  ) {
-
-    const allocationDate =
-      new Date(
-        allocation.allocationDate ||
-        allocation.createdAt
-      );
-
-
-    if (
-      Number.isNaN(
-        allocationDate.getTime()
-      )
-    ) {
-      continue;
-    }
-
-
-    const allocationDay =
-      new Date(
-        allocationDate
-      );
-
-    allocationDay.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-
-    const products =
+      const item of
       Array.isArray(
         allocation.products
       )
         ? allocation.products
-        : [];
-
-
-    for (
-      const item of products
+        : []
     ) {
 
       const productId =
@@ -9922,67 +9830,45 @@ async function getPreviousPendingAllocation({
 
 
       const allocatedQty =
-        Number(
+        roundQty2(
           item.quantity
-        ) || 0;
+        );
+
+
+      const soldQty =
+        roundQty2(
+          soldMap.get(
+            productId
+          ) || 0
+        );
 
 
       const returnedQty =
-        Number(
+        roundQty2(
           item.returnedQuantity
-        ) || 0;
-
-
-      const usableQty =
-        Math.max(
-          0,
-          allocatedQty -
-          returnedQty
         );
 
 
-      const remainingSold =
-        remainingSoldMap.get(
-          productId
-        ) || 0;
-
-
-      const soldForAllocation =
-        Math.min(
-          usableQty,
-          remainingSold
+      const reconciledQty =
+        roundQty2(
+          item.reconciledQuantity
         );
-
-
-      remainingSoldMap.set(
-
-        productId,
-
-        Math.max(
-          0,
-          remainingSold -
-          soldForAllocation
-        )
-
-      );
 
 
       const remainingQty =
-        Math.max(
-          0,
-          allocatedQty -
-          returnedQty -
-          soldForAllocation
+        roundQty2(
+          Math.max(
+            0,
+
+            allocatedQty -
+            soldQty -
+            returnedQty -
+            reconciledQty
+          )
         );
 
 
-      // --------------------------------------------------
-      // ONLY BLOCK IF ALLOCATION IS BEFORE CURRENT SALE DAY
-      // --------------------------------------------------
-
       if (
-        allocationDay <
-        currentDayStart &&
         remainingQty >
         0.000001
       ) {
@@ -9990,24 +9876,19 @@ async function getPreviousPendingAllocation({
         return {
 
           allocationId:
-            allocation
-              .allocationId,
+            allocation.allocationId,
 
           allocationNo:
-            allocation
-              .allocationNo,
+            allocation.allocationNo,
 
           allocationDate:
-            allocation
-              .allocationDate,
+            allocation.allocationDate,
 
           salesmanId:
-            allocation
-              .salesmanId,
+            allocation.salesmanId,
 
           salesmanName:
-            allocation
-              .salesmanName,
+            allocation.salesmanName,
 
           productId,
 
@@ -10020,13 +9901,13 @@ async function getPreviousPendingAllocation({
 
           allocatedQty,
 
-          soldQty:
-            soldForAllocation,
+          soldQty,
 
           returnedQty,
 
-          remainingQty,
+          reconciledQty,
 
+          remainingQty,
         };
       }
     }
@@ -10268,6 +10149,49 @@ app.post(
             products,
             godown,
           } = req.body;
+          // ======================================================
+          // FINAL SALE DATE
+          //
+          // SALESMAN:
+          // Use server timestamp.
+          // Never trust mobile local-time conversion.
+          //
+          // ADMIN:
+          // Allow supplied date for backdated/admin billing.
+          // ======================================================
+
+          let finalSaleDate;
+
+          if (role === "salesman") {
+
+            finalSaleDate =
+              new Date();
+
+          } else {
+
+            finalSaleDate =
+              saleDate
+                ? new Date(saleDate)
+                : new Date();
+
+
+            if (
+              Number.isNaN(
+                finalSaleDate.getTime()
+              )
+            ) {
+
+              const error =
+                new Error(
+                  "Invalid sale date."
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+          }
 
 
           // ==================================================
@@ -10483,10 +10407,8 @@ app.post(
 
                 salesmanId:
                   salesman.salesmanId,
-
                 businessDate:
-                  saleDate ||
-                  new Date(),
+                  finalSaleDate,
 
                 session,
 
@@ -10542,224 +10464,55 @@ app.post(
           // - RETURNED
           // - POSTED SALESMAN SALES
           // ==================================================
+          // ==================================================
+          // BUILD SALESMAN STOCK MAP
+          //
+          // IMPORTANT:
+          // Only allocation + sales from THIS BUSINESS DATE
+          // are allowed to affect today's salesman stock.
+          // ==================================================
 
-          const salesmanStockMap =
+          let salesmanStockMap =
             new Map();
 
 
           if (role === "salesman") {
 
-            // ----------------------------------------------
-            // LOAD SALESMAN ALLOCATIONS
-            // ----------------------------------------------
+            const dayStock =
+              await getSalesmanBusinessDayStockMap({
 
-            const allocations =
-              await Allocation.find({
-                farmId:
-                  farmId,
+                farmId,
 
                 salesmanId:
                   salesman.salesmanId,
 
-                status: {
-                  $in: [
-                    "POSTED",
-                    "RETURNED",
-                  ],
-                },
-              })
-                .session(session)
-                .lean();
+                businessDate:
+                  finalSaleDate,
+
+                session,
+
+              });
 
 
-            for (
-              const allocation of
-              allocations
+            if (
+              dayStock.allocations.length === 0
             ) {
 
-              const allocationProducts =
-                Array.isArray(
-                  allocation.products
-                )
-                  ? allocation.products
-                  : [];
+              const error =
+                new Error(
+                  "No allocation found for today's business date."
+                );
 
+              error.statusCode =
+                409;
 
-              for (
-                const item of
-                allocationProducts
-              ) {
-
-                const productId =
-                  (
-                    item.productId ||
-                    ""
-                  )
-                    .toString()
-                    .trim()
-                    .toUpperCase();
-
-
-                if (!productId) {
-                  continue;
-                }
-
-
-                if (
-                  !salesmanStockMap.has(
-                    productId
-                  )
-                ) {
-
-                  salesmanStockMap.set(
-                    productId,
-                    {
-                      allocated: 0,
-                      returned: 0,
-                      sold: 0,
-                      available: 0,
-                    }
-                  );
-                }
-
-
-                const stockRow =
-                  salesmanStockMap.get(
-                    productId
-                  );
-
-
-                stockRow.allocated +=
-                  Number(
-                    item.quantity
-                  ) || 0;
-
-
-                stockRow.returned +=
-                  Number(
-                    item.returnedQuantity
-                  ) || 0;
-              }
+              throw error;
             }
 
 
-            // ----------------------------------------------
-            // LOAD EXISTING POSTED SALESMAN SALES
-            // ----------------------------------------------
-
-            const existingSales =
-              await Sale.find({
-                farmId:
-                  farmId,
-
-                status:
-                  "POSTED",
-
-                createdRole:
-                  "salesman",
-
-                $or: [
-                  {
-                    salesmanId:
-                      salesman.salesmanId,
-                  },
-                  {
-                    createdBy:
-                      userId,
-                  },
-                ],
-              })
-                .session(session)
-                .lean();
-
-
-            for (
-              const existingSale of
-              existingSales
-            ) {
-
-              const saleProducts =
-                Array.isArray(
-                  existingSale.products
-                )
-                  ? existingSale.products
-                  : [];
-
-
-              for (
-                const item of
-                saleProducts
-              ) {
-
-                const productId =
-                  (
-                    item.productId ||
-                    ""
-                  )
-                    .toString()
-                    .trim()
-                    .toUpperCase();
-
-
-                if (!productId) {
-                  continue;
-                }
-
-
-                if (
-                  !salesmanStockMap.has(
-                    productId
-                  )
-                ) {
-
-                  salesmanStockMap.set(
-                    productId,
-                    {
-                      allocated: 0,
-                      returned: 0,
-                      sold: 0,
-                      available: 0,
-                    }
-                  );
-                }
-
-
-                const stockRow =
-                  salesmanStockMap.get(
-                    productId
-                  );
-
-
-                stockRow.sold +=
-                  Number(
-                    item.quantity
-                  ) || 0;
-              }
-            }
-
-
-            // ----------------------------------------------
-            // CALCULATE AVAILABLE
-            // ----------------------------------------------
-
-            for (
-              const stockRow of
-              salesmanStockMap.values()
-            ) {
-
-              stockRow.available =
-                stockRow.allocated -
-                stockRow.returned -
-                stockRow.sold;
-
-              if (
-                stockRow.available < 0
-              ) {
-                stockRow.available = 0;
-              }
-            }
+            salesmanStockMap =
+              dayStock.stockMap;
           }
-
 
           // ==================================================
           // VERIFY PRODUCTS + RATES
@@ -10943,8 +10696,11 @@ app.post(
 
               // Prevent another product line in the
               // same transaction from reusing stock.
-              stockRow.available -=
-                quantity;
+              stockRow.available =
+                roundQty2(
+                  stockRow.available -
+                  quantity
+                );
             }
 
 
@@ -11405,11 +11161,7 @@ app.post(
                     saleNo,
 
                   saleDate:
-                    saleDate
-                      ? new Date(
-                        saleDate
-                      )
-                      : new Date(),
+                    finalSaleDate,
 
                   customerId:
                     customer.customerId,
@@ -11849,6 +11601,29 @@ app.put(
             throw error;
           }
 
+
+          // ==================================================
+          // ORIGINAL STOCK SOURCE
+          //
+          // IMPORTANT:
+          // Stock handling during edit must follow where this
+          // sale originally consumed stock from.
+          //
+          // Do NOT decide stock logic from the role of the user
+          // who is editing the bill.
+          // ==================================================
+
+          const isSalesmanAllocationSale =
+            (
+              sale.stockSource ===
+              "SALESMAN_ALLOCATION"
+            ) ||
+            (
+              sale.createdRole ===
+              "salesman"
+            );
+
+
           // ==============================================
           // CANCELLED SALE CANNOT BE EDITED
           // ==============================================
@@ -12183,184 +11958,127 @@ app.put(
           }
 
           // ==============================================
-          // SALESMAN AVAILABLE STOCK
+          // SALESMAN ALLOCATION AVAILABLE STOCK
           //
-          // Exclude current sale because it is being edited.
+          // Exclude the current sale because it is being edited.
+          //
+          // IMPORTANT:
+          // - Same business date only
+          // - Multiple same-day allocations are combined
+          // - Returned/reconciled quantities are deducted
           // ==============================================
 
-          const salesmanAvailableMap =
+          let salesmanAvailableMap =
             new Map();
 
-          let salesman = null;
 
           if (
-            role === "salesman"
+            isSalesmanAllocationSale
           ) {
-            salesman =
-              await Salesman.findOne({
-                _id:
-                  userId,
-                farmId,
-                isActive: true,
-              })
-                .session(session)
-                .lean();
 
-            if (!salesman) {
+            let allocationSalesmanId =
+              (
+                sale.salesmanId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            // Legacy protection:
+            // if an old salesman sale is missing salesmanId,
+            // resolve it from createdBy.
+            if (
+              !allocationSalesmanId &&
+              sale.createdBy
+            ) {
+
+              const ownerSalesman =
+                await Salesman.findOne({
+                  _id:
+                    sale.createdBy,
+
+                  farmId,
+
+                  isActive:
+                    true,
+                })
+                  .select(
+                    "salesmanId"
+                  )
+                  .session(session)
+                  .lean();
+
+
+              allocationSalesmanId =
+                (
+                  ownerSalesman
+                    ?.salesmanId ||
+                  ""
+                )
+                  .toString()
+                  .trim()
+                  .toUpperCase();
+            }
+
+
+            if (
+              !allocationSalesmanId
+            ) {
+
               const error =
                 new Error(
-                  "Salesman account not found."
+                  "Salesman ID is missing from this allocation sale."
                 );
 
-              error.statusCode = 404;
+              error.statusCode =
+                409;
 
               throw error;
             }
 
-            const allocations =
-              await Allocation.find({
+
+            const dayStock =
+              await getSalesmanBusinessDayStockMap({
+
                 farmId,
+
                 salesmanId:
-                  salesman.salesmanId,
+                  allocationSalesmanId,
 
-                status: {
-                  $in: [
-                    "POSTED",
-                    "RETURNED",
-                  ],
-                },
-              })
-                .session(session)
-                .lean();
+                businessDate:
+                  sale.saleDate,
 
-            for (
-              const allocation of
-              allocations
+                excludeSaleMongoId:
+                  sale._id,
+
+                session,
+
+              });
+
+
+            if (
+              dayStock.allocations.length ===
+              0
             ) {
-              for (
-                const item of
-                allocation.products || []
-              ) {
-                const productId =
-                  (
-                    item.productId ||
-                    ""
-                  )
-                    .toString()
-                    .trim()
-                    .toUpperCase();
 
-                if (!productId) {
-                  continue;
-                }
+              const error =
+                new Error(
+                  "No allocation found for this sale's business date."
+                );
 
-                if (
-                  !salesmanAvailableMap
-                    .has(productId)
-                ) {
-                  salesmanAvailableMap
-                    .set(
-                      productId,
-                      {
-                        allocated: 0,
-                        returned: 0,
-                        sold: 0,
-                      }
-                    );
-                }
+              error.statusCode =
+                409;
 
-                const row =
-                  salesmanAvailableMap
-                    .get(productId);
-
-                row.allocated +=
-                  Number(
-                    item.quantity
-                  ) || 0;
-
-                row.returned +=
-                  Number(
-                    item.returnedQuantity
-                  ) || 0;
-              }
+              throw error;
             }
 
-            // Other posted sales only.
-            // Current bill is excluded.
-            const otherSales =
-              await Sale.find({
-                farmId,
 
-                status:
-                  "POSTED",
-
-                createdRole:
-                  "salesman",
-
-                _id: {
-                  $ne:
-                    sale._id,
-                },
-
-                $or: [
-                  {
-                    salesmanId:
-                      salesman.salesmanId,
-                  },
-                  {
-                    createdBy:
-                      userId,
-                  },
-                ],
-              })
-                .session(session)
-                .lean();
-
-            for (
-              const otherSale of
-              otherSales
-            ) {
-              for (
-                const item of
-                otherSale.products || []
-              ) {
-                const productId =
-                  (
-                    item.productId ||
-                    ""
-                  )
-                    .toString()
-                    .trim()
-                    .toUpperCase();
-
-                if (!productId) {
-                  continue;
-                }
-
-                if (
-                  !salesmanAvailableMap
-                    .has(productId)
-                ) {
-                  salesmanAvailableMap
-                    .set(
-                      productId,
-                      {
-                        allocated: 0,
-                        returned: 0,
-                        sold: 0,
-                      }
-                    );
-                }
-
-                salesmanAvailableMap
-                  .get(productId)
-                  .sold +=
-                  Number(
-                    item.quantity
-                  ) || 0;
-              }
-            }
+            salesmanAvailableMap =
+              dayStock.stockMap;
           }
+
 
           // ==============================================
           // VERIFY NEW PRODUCTS
@@ -12529,7 +12247,7 @@ app.put(
             // ADMIN:
             // Only additional quantity needs more stock.
             if (
-              role === "admin" &&
+              !isSalesmanAllocationSale &&
               difference > 0
             ) {
               const availableStock =
@@ -12555,7 +12273,7 @@ app.put(
             // SALESMAN:
             // Current sale was excluded from sold quantity.
             if (
-              role === "salesman"
+              isSalesmanAllocationSale
             ) {
               const stockRow =
                 salesmanAvailableMap
@@ -12563,20 +12281,8 @@ app.put(
 
               const available =
                 stockRow
-                  ? (
-                    Number(
-                      stockRow.allocated
-                    ) || 0
-                  ) -
-                  (
-                    Number(
-                      stockRow.returned
-                    ) || 0
-                  ) -
-                  (
-                    Number(
-                      stockRow.sold
-                    ) || 0
+                  ? roundQty2(
+                    stockRow.available
                   )
                   : 0;
 
@@ -12918,7 +12624,7 @@ app.put(
           // ==============================================
 
           if (
-            role === "admin"
+            !isSalesmanAllocationSale
           ) {
             const newQuantityMap =
               new Map();
@@ -13204,12 +12910,48 @@ app.put(
           // UPDATE SALE DOCUMENT
           // ==============================================
 
-          sale.saleDate =
+          // ==================================================
+          // SALE DATE
+          //
+          // SALESMAN_ALLOCATION:
+          // Keep original business date fixed.
+          //
+          // MAIN_GODOWN:
+          // Admin may change sale date if valid.
+          // ==================================================
+
+          if (
+            !isSalesmanAllocationSale &&
             saleDate
-              ? new Date(
+          ) {
+
+            const editedSaleDate =
+              new Date(
                 saleDate
+              );
+
+
+            if (
+              Number.isNaN(
+                editedSaleDate.getTime()
               )
-              : sale.saleDate;
+            ) {
+
+              const error =
+                new Error(
+                  "Invalid sale date."
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+
+            sale.saleDate =
+              editedSaleDate;
+          }
 
           sale.customerId =
             customer.customerId;
@@ -14263,28 +14005,85 @@ app.put(
 // Returns:
 // Map<productId, soldQuantityForTargetAllocation>
 // ======================================================
-
 async function getSoldQuantityForAllocation({
   farmId,
   salesmanId,
   allocationId,
   session = null,
 }) {
-  const normalizedSalesmanId = (
-    salesmanId || ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
 
-  const normalizedAllocationId = (
-    allocationId || ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
-  const salesQuery =
+  const normalizedSalesmanId =
+    (salesmanId || "")
+      .toString()
+      .trim()
+      .toUpperCase();
+
+  const normalizedAllocationId =
+    (allocationId || "")
+      .toString()
+      .trim()
+      .toUpperCase();
+
+
+  // ======================================================
+  // TARGET ALLOCATION
+  // ======================================================
+
+  let targetQuery =
+    Allocation.findOne({
+      farmId,
+      salesmanId:
+        normalizedSalesmanId,
+      allocationId:
+        normalizedAllocationId,
+    }).lean();
+
+
+  if (session) {
+    targetQuery =
+      targetQuery.session(
+        session
+      );
+  }
+
+
+  const targetAllocation =
+    await targetQuery;
+
+
+  if (!targetAllocation) {
+    return new Map();
+  }
+
+
+  const allocationBusinessDate =
+    getAllocationDateKey(
+      targetAllocation.allocationDate ||
+      targetAllocation.createdAt
+    );
+
+
+  if (!allocationBusinessDate) {
+    return new Map();
+  }
+
+
+  const {
+    start: dayStart,
+    end: dayEnd,
+  } =
+    getAllocationBusinessDayRange(
+      allocationBusinessDate
+    );
+
+
+  // ======================================================
+  // ONLY SALES OF THIS BUSINESS DATE
+  // ======================================================
+
+  let salesQuery =
     Sale.find({
+
       farmId,
 
       salesmanId:
@@ -14293,14 +14092,18 @@ async function getSoldQuantityForAllocation({
       status:
         "POSTED",
 
+      saleDate: {
+        $gte: dayStart,
+        $lt: dayEnd,
+      },
+
       $or: [
-        // New records
+
         {
           stockSource:
             "SALESMAN_ALLOCATION",
         },
 
-        // Old records without stockSource
         {
           stockSource: {
             $exists: false,
@@ -14320,65 +14123,123 @@ async function getSoldQuantityForAllocation({
           createdRole:
             "salesman",
         },
+
       ],
+
     })
       .select(
-        "products"
+        "products saleDate createdAt"
       )
+      .sort({
+        saleDate: 1,
+        createdAt: 1,
+      })
       .lean();
 
+
   if (session) {
-    salesQuery.session(session);
+    salesQuery =
+      salesQuery.session(
+        session
+      );
   }
 
-  const postedSales =
+
+  const sales =
     await salesQuery;
 
-  // --------------------------------------------------
-  // TOTAL SALESMAN SOLD PRODUCT-WISE
-  // --------------------------------------------------
 
-  const totalSoldMap =
+  // ======================================================
+  // PRODUCT-WISE SALES FOR THIS DAY
+  // ======================================================
+
+  const remainingSoldMap =
     new Map();
 
-  for (const sale of postedSales) {
+
+  for (const sale of sales) {
+
     for (
       const item of
       Array.isArray(sale.products)
         ? sale.products
         : []
     ) {
-      const productId = (
-        item.productId || ""
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
+
+      const productId =
+        (
+          item.productId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
 
       if (!productId) {
         continue;
       }
 
-      totalSoldMap.set(
+
+      const quantity =
+        roundQty2(
+          item.quantity
+        );
+
+
+      remainingSoldMap.set(
+
         productId,
-        (
-          totalSoldMap.get(productId) ||
-          0
-        ) +
-        (Number(item.quantity) || 0)
+
+        roundQty2(
+          (
+            remainingSoldMap.get(
+              productId
+            ) || 0
+          ) +
+          quantity
+        )
+
       );
     }
   }
 
-  // --------------------------------------------------
-  // ALL ACTIVE/RETURNED ALLOCATIONS OLDEST FIRST
-  // --------------------------------------------------
 
-  const allocationQuery =
+  // ======================================================
+  // SAME-DAY ALLOCATIONS ONLY
+  //
+  // If more than one allocation exists on the same date,
+  // consume same-day sales FIFO.
+  // ======================================================
+
+  const allocationDateStart =
+    parseAllocationBusinessDate(
+      allocationBusinessDate
+    );
+
+  const allocationDateEnd =
+    new Date(
+      allocationDateStart
+        .getTime() +
+      24 * 60 * 60 * 1000
+    );
+
+
+  let allocationQuery =
     Allocation.find({
+
       farmId,
+
       salesmanId:
         normalizedSalesmanId,
+
+      allocationDate: {
+        $gte:
+          allocationDateStart,
+
+        $lt:
+          allocationDateEnd,
+      },
 
       status: {
         $in: [
@@ -14386,6 +14247,7 @@ async function getSoldQuantityForAllocation({
           "RETURNED",
         ],
       },
+
     })
       .sort({
         allocationDate: 1,
@@ -14393,25 +14255,28 @@ async function getSoldQuantityForAllocation({
       })
       .lean();
 
+
   if (session) {
-    allocationQuery.session(
-      session
-    );
+    allocationQuery =
+      allocationQuery.session(
+        session
+      );
   }
+
 
   const allocations =
     await allocationQuery;
 
-  const remainingSoldMap =
-    new Map(totalSoldMap);
 
   const targetSoldMap =
     new Map();
+
 
   for (
     const allocation of
     allocations
   ) {
+
     const isTarget =
       (
         allocation.allocationId ||
@@ -14422,6 +14287,7 @@ async function getSoldQuantityForAllocation({
         .toUpperCase() ===
       normalizedAllocationId;
 
+
     for (
       const item of
       Array.isArray(
@@ -14430,64 +14296,98 @@ async function getSoldQuantityForAllocation({
         ? allocation.products
         : []
     ) {
-      const productId = (
-        item.productId || ""
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
+
+      const productId =
+        (
+          item.productId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
 
       if (!productId) {
         continue;
       }
 
-      const allocatedQty =
-        Number(item.quantity) || 0;
 
-      const returnedQty =
-        Number(
-          item.returnedQuantity
-        ) || 0;
-
-      const usableQty =
-        Math.max(
-          0,
-          allocatedQty -
-          returnedQty
+      const allocated =
+        roundQty2(
+          item.quantity
         );
+
+      const returned =
+        roundQty2(
+          item.returnedQuantity
+        );
+
+
+      const reconciled =
+        roundQty2(
+          item.reconciledQuantity
+        );
+
+
+      const usable =
+        roundQty2(
+          Math.max(
+            0,
+
+            allocated -
+            returned -
+            reconciled
+          )
+        );
+
 
       const remainingSold =
-        remainingSoldMap.get(
-          productId
-        ) || 0;
-
-      const consumedQty =
-        Math.min(
-          usableQty,
-          remainingSold
+        roundQty2(
+          remainingSoldMap.get(
+            productId
+          ) || 0
         );
 
+
+      const consumed =
+        roundQty2(
+          Math.min(
+            usable,
+            remainingSold
+          )
+        );
+
+
       if (isTarget) {
+
         targetSoldMap.set(
           productId,
-          consumedQty
+          consumed
         );
       }
 
+
       remainingSoldMap.set(
+
         productId,
-        Math.max(
-          0,
-          remainingSold -
-          consumedQty
+
+        roundQty2(
+          Math.max(
+            0,
+            remainingSold -
+            consumed
+          )
         )
+
       );
     }
+
 
     if (isTarget) {
       break;
     }
   }
+
 
   return targetSoldMap;
 }
@@ -14627,6 +14527,72 @@ function getAllocationBusinessDayRange(
       )}`,
   };
 }
+function getISTBusinessDateKey(value) {
+
+  if (!value) {
+    return "";
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  const IST_OFFSET_MS =
+    5.5 * 60 * 60 * 1000;
+
+  const istDate =
+    new Date(
+      date.getTime() +
+      IST_OFFSET_MS
+    );
+
+  const year =
+    istDate.getUTCFullYear();
+
+  const month =
+    String(
+      istDate.getUTCMonth() + 1
+    ).padStart(2, "0");
+
+  const day =
+    String(
+      istDate.getUTCDate()
+    ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+
+function getAllocationDateKey(value) {
+
+  if (!value) {
+    return "";
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  // Allocation date is stored as
+  // YYYY-MM-DDT00:00:00.000Z
+  return date
+    .toISOString()
+    .slice(0, 10);
+}
 // ======================================================
 // ALLOCATION BUSINESS DATE PARSER
 //
@@ -14692,6 +14658,389 @@ function parseAllocationBusinessDate(value) {
 
   return parsedDate;
 }
+
+
+async function getSalesmanBusinessDayStockMap({
+  farmId,
+  salesmanId,
+  businessDate,
+  excludeSaleMongoId = null,
+  session = null,
+}) {
+
+  const normalizedSalesmanId =
+    (salesmanId || "")
+      .toString()
+      .trim()
+      .toUpperCase();
+
+  const businessDateKey =
+    /^\d{4}-\d{2}-\d{2}$/.test(
+      (businessDate || "")
+        .toString()
+        .trim()
+    )
+      ? businessDate
+        .toString()
+        .trim()
+      : getISTBusinessDateKey(
+        businessDate || new Date()
+      );
+
+  if (!normalizedSalesmanId) {
+    throw new Error(
+      "Salesman ID is required."
+    );
+  }
+
+  if (!businessDateKey) {
+    throw new Error(
+      "Invalid business date."
+    );
+  }
+
+
+  // ==============================================
+  // ALLOCATION BUSINESS DATE RANGE
+  // ==============================================
+
+  const allocationStart =
+    parseAllocationBusinessDate(
+      businessDateKey
+    );
+
+  const allocationEnd =
+    new Date(
+      allocationStart.getTime() +
+      24 * 60 * 60 * 1000
+    );
+
+
+  // ==============================================
+  // SALE IST BUSINESS DATE RANGE
+  // ==============================================
+
+  const {
+    start: saleDayStart,
+    end: saleDayEnd,
+  } =
+    getAllocationBusinessDayRange(
+      businessDateKey
+    );
+
+
+  // ==============================================
+  // SAME-DAY ALLOCATIONS ONLY
+  // ==============================================
+
+  let allocationQuery =
+    Allocation.find({
+      farmId,
+
+      salesmanId:
+        normalizedSalesmanId,
+
+      allocationDate: {
+        $gte: allocationStart,
+        $lt: allocationEnd,
+      },
+
+      status: {
+        $in: [
+          "POSTED",
+          "RETURNED",
+        ],
+      },
+    }).lean();
+
+
+  if (session) {
+    allocationQuery =
+      allocationQuery.session(
+        session
+      );
+  }
+
+
+  const allocations =
+    await allocationQuery;
+
+
+  const stockMap =
+    new Map();
+
+
+  const getRow =
+    (
+      productId,
+      item = {}
+    ) => {
+
+      if (
+        !stockMap.has(
+          productId
+        )
+      ) {
+
+        stockMap.set(
+          productId,
+          {
+            productId,
+
+            productName:
+              item.productName || "",
+
+            variant:
+              item.variant || "",
+
+            unit:
+              item.unit || "",
+
+            allocated: 0,
+            returned: 0,
+            reconciled: 0,
+            sold: 0,
+            available: 0,
+          }
+        );
+      }
+
+      return stockMap.get(
+        productId
+      );
+    };
+
+
+  // ==============================================
+  // ALLOCATED / RETURNED / RECONCILED
+  // ==============================================
+
+  for (
+    const allocation of
+    allocations
+  ) {
+
+    for (
+      const item of
+      Array.isArray(
+        allocation.products
+      )
+        ? allocation.products
+        : []
+    ) {
+
+      const productId =
+        (
+          item.productId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
+
+      if (!productId) {
+        continue;
+      }
+
+
+      const row =
+        getRow(
+          productId,
+          item
+        );
+
+
+      row.allocated =
+        roundQty2(
+          row.allocated +
+          roundQty2(
+            item.quantity
+          )
+        );
+
+
+      row.returned =
+        roundQty2(
+          row.returned +
+          roundQty2(
+            item.returnedQuantity
+          )
+        );
+
+
+      row.reconciled =
+        roundQty2(
+          row.reconciled +
+          roundQty2(
+            item.reconciledQuantity
+          )
+        );
+    }
+  }
+
+
+  // ==============================================
+  // SAME-DAY SALESMAN SALES ONLY
+  // ==============================================
+
+  const saleFilter = {
+
+    farmId,
+
+    salesmanId:
+      normalizedSalesmanId,
+
+    status:
+      "POSTED",
+
+    saleDate: {
+      $gte: saleDayStart,
+      $lt: saleDayEnd,
+    },
+
+    $or: [
+      {
+        stockSource:
+          "SALESMAN_ALLOCATION",
+      },
+
+      {
+        stockSource: {
+          $exists: false,
+        },
+
+        createdRole:
+          "salesman",
+      },
+
+      {
+        stockSource: null,
+
+        createdRole:
+          "salesman",
+      },
+
+      {
+        stockSource: "",
+
+        createdRole:
+          "salesman",
+      },
+    ],
+  };
+
+
+  if (excludeSaleMongoId) {
+
+    saleFilter._id = {
+      $ne:
+        excludeSaleMongoId,
+    };
+  }
+
+
+  let salesQuery =
+    Sale.find(
+      saleFilter
+    )
+      .select(
+        "products"
+      )
+      .lean();
+
+
+  if (session) {
+    salesQuery =
+      salesQuery.session(
+        session
+      );
+  }
+
+
+  const sales =
+    await salesQuery;
+
+
+  for (
+    const sale of sales
+  ) {
+
+    for (
+      const item of
+      Array.isArray(
+        sale.products
+      )
+        ? sale.products
+        : []
+    ) {
+
+      const productId =
+        (
+          item.productId ||
+          ""
+        )
+          .toString()
+          .trim()
+          .toUpperCase();
+
+
+      if (!productId) {
+        continue;
+      }
+
+
+      const row =
+        getRow(
+          productId,
+          item
+        );
+
+
+      row.sold =
+        roundQty2(
+          row.sold +
+          roundQty2(
+            item.quantity
+          )
+        );
+    }
+  }
+
+
+  // ==============================================
+  // FINAL AVAILABLE PRODUCT-WISE
+  // ==============================================
+
+  for (
+    const row of
+    stockMap.values()
+  ) {
+
+    row.available =
+      roundQty2(
+        Math.max(
+          0,
+
+          row.allocated -
+          row.returned -
+          row.reconciled -
+          row.sold
+        )
+      );
+  }
+
+
+  return {
+    businessDate:
+      businessDateKey,
+
+    allocations,
+
+    stockMap,
+  };
+}
+
 // ======================================================
 // ALLOCATION
 // TRN_ALLOCATION
@@ -14941,8 +15290,17 @@ app.get(
             ) || 0;
 
 
+          const saleBusinessDate =
+            getISTBusinessDateKey(
+              sale.saleDate
+            );
+
+          if (!saleBusinessDate) {
+            continue;
+          }
+
           const key =
-            `${salesmanId}|${productId}`;
+            `${salesmanId}|${saleBusinessDate}|${productId}`;
 
 
           const oldSold =
@@ -15121,6 +15479,9 @@ app.get(
         let allocationReturnedQuantity =
           0;
 
+        let allocationReconciledQuantity =
+          0;
+
         let allocationRemainingQuantity =
           0;
         let allocationSalesValue =
@@ -15150,15 +15511,20 @@ app.get(
                   .toUpperCase();
 
 
-       const allocatedQuantity =
-  roundQty2(
-    item.quantity
-  );
+              const allocatedQuantity =
+                roundQty2(
+                  item.quantity
+                );
 
-const returnedQuantity =
-  roundQty2(
-    item.returnedQuantity
-  );
+              const returnedQuantity =
+                roundQty2(
+                  item.returnedQuantity
+                );
+
+              const reconciledQuantity =
+                roundQty2(
+                  item.reconciledQuantity
+                );
 
 
               // ==================================================
@@ -15175,8 +15541,21 @@ const returnedQuantity =
                 allocationReturnedQuantity +=
                   returnedQuantity;
 
+                allocationReconciledQuantity +=
+                  reconciledQuantity;
+
                 return {
                   ...item,
+
+                  returnedQuantity:
+                    roundQty2(
+                      returnedQuantity
+                    ),
+
+                  reconciledQuantity:
+                    roundQty2(
+                      reconciledQuantity
+                    ),
 
                   soldQuantity:
                     0,
@@ -15199,18 +15578,25 @@ const returnedQuantity =
               }
 
 
-           const usableAllocated =
-  roundQty2(
-    Math.max(
-      0,
-      allocatedQuantity -
-      returnedQuantity
-    )
-  );
+              const usableAllocated =
+                roundQty2(
+                  Math.max(
+                    0,
+                    allocatedQuantity -
+                    returnedQuantity -
+                    reconciledQuantity
+                  )
+                );
 
+
+              const allocationBusinessDate =
+                getAllocationDateKey(
+                  allocation.allocationDate ||
+                  allocation.createdAt
+                );
 
               const key =
-                `${salesmanId}|${productId}`;
+                `${salesmanId}|${allocationBusinessDate}|${productId}`;
 
 
               const remainingSold =
@@ -15219,13 +15605,13 @@ const returnedQuantity =
                 ) || 0;
 
 
-     const soldQuantity =
-  roundQty2(
-    Math.min(
-      usableAllocated,
-      remainingSold
-    )
-  );
+              const soldQuantity =
+                roundQty2(
+                  Math.min(
+                    usableAllocated,
+                    remainingSold
+                  )
+                );
 
 
               remainingSoldMap.set(
@@ -15355,15 +15741,16 @@ const returnedQuantity =
               }
 
 
-            const remainingQuantity =
-  roundQty2(
-    Math.max(
-      0,
-      allocatedQuantity -
-      returnedQuantity -
-      soldQuantity
-    )
-  );
+              const remainingQuantity =
+                roundQty2(
+                  Math.max(
+                    0,
+                    allocatedQuantity -
+                    returnedQuantity -
+                    reconciledQuantity -
+                    soldQuantity
+                  )
+                );
 
 
               allocationSoldQuantity +=
@@ -15371,6 +15758,9 @@ const returnedQuantity =
 
               allocationReturnedQuantity +=
                 returnedQuantity;
+
+              allocationReconciledQuantity +=
+                reconciledQuantity;
 
               allocationRemainingQuantity +=
                 remainingQuantity;
@@ -15386,28 +15776,33 @@ const returnedQuantity =
 
               allocationCreditSales +=
                 productCreditSales;
-return {
-  ...item,
+              return {
+                ...item,
 
-  quantity:
-    roundQty2(
-      allocatedQuantity
-    ),
+                quantity:
+                  roundQty2(
+                    allocatedQuantity
+                  ),
 
-  returnedQuantity:
-    roundQty2(
-      returnedQuantity
-    ),
+                returnedQuantity:
+                  roundQty2(
+                    returnedQuantity
+                  ),
 
-  soldQuantity:
-    roundQty2(
-      soldQuantity
-    ),
+                reconciledQuantity:
+                  roundQty2(
+                    reconciledQuantity
+                  ),
 
-  remainingQuantity:
-    roundQty2(
-      remainingQuantity
-    ),
+                soldQuantity:
+                  roundQty2(
+                    soldQuantity
+                  ),
+
+                remainingQuantity:
+                  roundQty2(
+                    remainingQuantity
+                  ),
 
                 salesValue:
                   Number(
@@ -15449,7 +15844,14 @@ return {
             allocationSoldQuantity,
 
           returnedQuantity:
-            allocationReturnedQuantity,
+            roundQty2(
+              allocationReturnedQuantity
+            ),
+
+          reconciledQuantity:
+            roundQty2(
+              allocationReconciledQuantity
+            ),
 
           remainingQuantity:
             allocationRemainingQuantity,
@@ -15744,6 +16146,7 @@ return {
   }
 );
 
+
 // ======================================================
 // GET SINGLE ALLOCATION
 //
@@ -15753,6 +16156,7 @@ return {
 // SALESMAN
 // -> Can view only own allocation
 // ======================================================
+
 
 app.get(
   "/api/allocations/:allocationId",
@@ -15881,15 +16285,20 @@ app.get(
           .trim()
           .toUpperCase();
 
-    const allocated =
-  roundQty2(
-    item.quantity
-  );
+        const allocated =
+          roundQty2(
+            item.quantity
+          );
 
-const returned =
-  roundQty2(
-    item.returnedQuantity
-  );
+        const returned =
+          roundQty2(
+            item.returnedQuantity
+          );
+
+        const reconciled =
+          roundQty2(
+            item.reconciledQuantity
+          );
 
         const isCancelled =
           String(
@@ -15910,36 +16319,42 @@ const returned =
             );
 
 
-    return {
-  ...item,
+        return {
+          ...item,
 
-  quantity:
-    roundQty2(
-      allocated
-    ),
+          quantity:
+            roundQty2(
+              allocated
+            ),
 
-  returnedQuantity:
-    roundQty2(
-      returned
-    ),
+          returnedQuantity:
+            roundQty2(
+              returned
+            ),
 
-  soldQuantity:
-    roundQty2(
-      sold
-    ),
+          reconciledQuantity:
+            roundQty2(
+              reconciled
+            ),
 
-  remainingQuantity:
-    isCancelled
-      ? 0
-      : roundQty2(
-          Math.max(
-            0,
-            allocated -
-            returned -
-            sold
-          )
-        ),
-};
+          soldQuantity:
+            roundQty2(
+              sold
+            ),
+
+          remainingQuantity:
+            isCancelled
+              ? 0
+              : roundQty2(
+                Math.max(
+                  0,
+                  allocated -
+                  returned -
+                  reconciled -
+                  sold
+                )
+              ),
+        };
       });
 
       return res
@@ -16358,6 +16773,9 @@ app.post(
               returnedQuantity:
                 0,
 
+              reconciledQuantity:
+                0,
+
               rate:
                 Number(
                   product.price
@@ -16388,6 +16806,47 @@ app.post(
               allocationDate ||
               getAllocationBusinessDayRange().date
             );
+
+
+          // ============================================
+          // BLOCK ONLY IF AN OLDER BUSINESS DATE
+          // IS STILL UNSETTLED.
+          //
+          // IMPORTANT:
+          // MULTIPLE ALLOCATIONS ON THE SAME DATE
+          // ARE ALLOWED.
+          // ============================================
+
+          const previousPendingAllocation =
+            await getPreviousPendingAllocation({
+              farmId,
+              salesmanId:
+                normalizedSalesmanId,
+              businessDate:
+                getAllocationDateKey(
+                  finalAllocationDate
+                ),
+              session,
+            });
+
+
+          if (previousPendingAllocation) {
+
+            const error =
+              new Error(
+                `Previous day's allocation is not settled. ` +
+                `${previousPendingAllocation.productName} has ` +
+                `${previousPendingAllocation.remainingQty} ` +
+                `${previousPendingAllocation.unit || ""} pending ` +
+                `from allocation ${previousPendingAllocation.allocationNo}. ` +
+                `Complete return/reconciliation before creating a new day's allocation.`
+              );
+
+            error.statusCode =
+              409;
+
+            throw error;
+          }
 
 
           // ============================================
@@ -16441,6 +16900,9 @@ app.post(
                           line.quantity,
 
                         returnedQuantity:
+                          0,
+
+                        reconciledQuantity:
                           0,
                       })
                     ),
@@ -16837,9 +17299,16 @@ app.put(
                   .returnedQuantity
               ) || 0;
 
+            const reconciled =
+              Number(
+                item
+                  .reconciledQuantity
+              ) || 0;
+
             if (
               sold > 0 ||
-              returned > 0
+              returned > 0 ||
+              reconciled > 0
             ) {
               hasActivity =
                 true;
@@ -16848,6 +17317,36 @@ app.put(
             }
           }
 
+          // ==============================================
+          // LOCK ALLOCATION AFTER TRANSACTION ACTIVITY
+          //
+          // Once any quantity has been SOLD or RETURNED,
+          // allocation becomes transaction-history data.
+          //
+          // DO NOT ALLOW:
+          // - Date change
+          // - Salesman change
+          // - Route change
+          // - Product add/remove
+          // - Quantity change
+          // - Notes change
+          //
+          // Correct flow:
+          // allocation -> sale -> return/reconcile
+          // ==============================================
+
+          if (hasActivity) {
+
+            const error =
+              new Error(
+                "This allocation cannot be edited because sales, return or reconciliation activity has already occurred against it."
+              );
+
+            error.statusCode =
+              409;
+
+            throw error;
+          }
           // ==============================================
           // SALESMAN
           // ==============================================
@@ -16942,46 +17441,7 @@ app.put(
           // SALESMAN / ROUTE CANNOT BE CHANGED
           // ==============================================
 
-          if (hasActivity) {
-            if (
-              normalizedSalesmanId !==
-              allocation.salesmanId
-                .toString()
-                .trim()
-                .toUpperCase()
-            ) {
-              const error =
-                new Error(
-                  "Salesman cannot be changed after sales or return activity."
-                );
 
-              error.statusCode =
-                400;
-
-              throw error;
-            }
-
-            if (
-              normalizedRouteId !==
-              (
-                allocation.routeId ||
-                ""
-              )
-                .toString()
-                .trim()
-                .toUpperCase()
-            ) {
-              const error =
-                new Error(
-                  "Route cannot be changed after sales or return activity."
-                );
-
-              error.statusCode =
-                400;
-
-              throw error;
-            }
-          }
 
           // ==============================================
           // OLD PRODUCT MAP
@@ -17012,6 +17472,12 @@ app.put(
                   Number(
                     oldItem
                       .returnedQuantity
+                  ) || 0,
+
+                reconciledQuantity:
+                  Number(
+                    oldItem
+                      .reconciledQuantity
                   ) || 0,
 
                 productName:
@@ -17141,6 +17607,13 @@ app.put(
                 0
               );
 
+            const reconciledQty =
+              Number(
+                oldRow
+                  ?.reconciledQuantity ||
+                0
+              );
+
             const soldQty =
               Number(
                 soldMap.get(
@@ -17150,7 +17623,8 @@ app.put(
 
             const minimumQty =
               soldQty +
-              returnedQty;
+              returnedQty +
+              reconciledQty;
 
             if (
               quantity <
@@ -17158,7 +17632,7 @@ app.put(
             ) {
               const error =
                 new Error(
-                  `${product.productName} cannot be reduced below ${minimumQty}. Sold: ${soldQty}, Returned: ${returnedQty}.`
+                  `${product.productName} cannot be reduced below ${minimumQty}. Sold: ${soldQty}, Returned: ${returnedQty}, Reconciled: ${reconciledQty}.`
                 );
 
               error.statusCode =
@@ -17186,6 +17660,9 @@ app.put(
 
               returnedQuantity:
                 returnedQty,
+
+              reconciledQuantity:
+                reconciledQty,
             });
 
             newProductMap.set(
@@ -17232,13 +17709,20 @@ app.put(
                   .returnedQuantity
               ) || 0;
 
+            const reconciledQty =
+              Number(
+                oldRow
+                  .reconciledQuantity
+              ) || 0;
+
             if (
               soldQty > 0 ||
-              returnedQty > 0
+              returnedQty > 0 ||
+              reconciledQty > 0
             ) {
               const error =
                 new Error(
-                  `${oldRow.productName} cannot be removed because sales/returns already exist.`
+                  `${oldRow.productName} cannot be removed because sales/returns/reconciliation already exist.`
                 );
 
               error.statusCode =
@@ -17768,6 +18252,12 @@ app.put(
                   .returnedQuantity
               ) || 0;
 
+            const reconciledQty =
+              Number(
+                item
+                  .reconciledQuantity
+              ) || 0;
+
             if (
               soldQty > 0
             ) {
@@ -17788,6 +18278,20 @@ app.put(
               const error =
                 new Error(
                   `${item.productName} already has return activity. Allocation cannot be cancelled.`
+                );
+
+              error.statusCode =
+                400;
+
+              throw error;
+            }
+
+            if (
+              reconciledQty > 0
+            ) {
+              const error =
+                new Error(
+                  `${item.productName} already has reconciliation activity. Allocation cannot be cancelled.`
                 );
 
               error.statusCode =
@@ -17973,7 +18477,6 @@ app.put(
     }
   }
 );
-
 // ======================================================
 // DELETE ALLOCATION
 // DELETE /api/allocations/:allocationId
@@ -18209,6 +18712,12 @@ app.delete(
                     .returnedQuantity
                 ) || 0;
 
+              const reconciledQty =
+                Number(
+                  item
+                    .reconciledQuantity
+                ) || 0;
+
 
               if (
                 soldQty > 0
@@ -18233,6 +18742,22 @@ app.delete(
                 const error =
                   new Error(
                     `${item.productName} already has return activity. Delete is not allowed.`
+                  );
+
+                error.statusCode =
+                  400;
+
+                throw error;
+              }
+
+
+              if (
+                reconciledQty > 0
+              ) {
+
+                const error =
+                  new Error(
+                    `${item.productName} already has reconciliation activity. Delete is not allowed.`
                   );
 
                 error.statusCode =
@@ -18570,14 +19095,14 @@ app.put(
               .toUpperCase();
 
 
-      const goodReturn =
-  roundQty2(goodReturnQty);
+          const goodReturn =
+            roundQty2(goodReturnQty);
 
-const damage =
-  roundQty2(damageQty);
+          const damage =
+            roundQty2(damageQty);
 
-const shortExcess =
-  roundQty2(shortExcessQty);
+          const shortExcess =
+            roundQty2(shortExcessQty);
 
 
           // ==============================================
@@ -18758,222 +19283,65 @@ const shortExcess =
           }
 
 
-       const allocatedQty =
-  roundQty2(
-    allocationProduct.quantity
-  );
+          const allocatedQty =
+            roundQty2(
+              allocationProduct.quantity
+            );
 
 
-const alreadyReturnedQty =
-  roundQty2(
-    allocationProduct
-      .returnedQuantity
-  );
+          const alreadyReturnedQty =
+            roundQty2(
+              allocationProduct
+                .returnedQuantity
+            );
+
+          const alreadyReconciledQty =
+            roundQty2(
+              allocationProduct
+                .reconciledQuantity
+            );
 
 
-          // ==============================================
-          // GET ACTUAL SOLD QUANTITY
-          // FROM POSTED SALESMAN SALES
-          // ==============================================
+          const soldMap =
+            await getSoldQuantityForAllocation({
 
-          const salesmanId =
-            allocation.salesmanId
-              .toString()
-              .trim()
-              .toUpperCase();
-
-
-          const postedSales =
-            await Sale.find({
-              farmId:
-                farmId,
+              farmId,
 
               salesmanId:
-                salesmanId,
+                allocation.salesmanId,
 
-              createdRole:
-                "salesman",
+              allocationId:
+                allocation.allocationId,
 
-              status:
-                "POSTED",
-            })
-              .select("products")
-              .session(session)
-              .lean();
+              session,
+
+            });
 
 
-          let totalSoldQty = 0;
-
-
-          for (
-            const sale of postedSales
-          ) {
-
-            const saleProducts =
-              Array.isArray(
-                sale.products
-              )
-                ? sale.products
-                : [];
-
-
-            for (
-              const saleItem of
-              saleProducts
-            ) {
-
-              const saleProductId =
-                (
-                  saleItem.productId ||
-                  ""
-                )
-                  .toString()
-                  .trim()
-                  .toUpperCase();
-
-
-              if (
-                saleProductId ===
+          const soldForThisAllocation =
+            roundQty2(
+              soldMap.get(
                 normalizedProductId
-              ) {
-
-                totalSoldQty +=
-                  Number(
-                    saleItem.quantity
-                  ) || 0;
-              }
-            }
-          }
-
-
-          // ==============================================
-          // FIND SOLD QUANTITY BELONGING TO THIS
-          // PARTICULAR ALLOCATION
-          //
-          // SAME FIFO LOGIC AS GET /api/allocations
-          // ==============================================
-
-          const salesmanAllocations =
-            await Allocation.find({
-
-              farmId:
-                farmId,
-
-              salesmanId:
-                salesmanId,
-
-              status: {
-                $in: [
-                  "POSTED",
-                  "RETURNED",
-                ],
-              },
-
-              "products.productId":
-                normalizedProductId,
-            })
-              .sort({
-                allocationDate: 1,
-                createdAt: 1,
-              })
-              .session(session)
-              .lean();
-
-
-          let soldRemaining =
-            totalSoldQty;
-
-          let soldForThisAllocation =
-            0;
-
-
-          for (
-            const alloc of
-            salesmanAllocations
-          ) {
-
-            const product =
-              alloc.products.find(
-                (item) =>
-                  item.productId
-                    .toString()
-                    .trim()
-                    .toUpperCase() ===
-                  normalizedProductId
-              );
-
-
-            if (!product) {
-              continue;
-            }
-
-
-            const qty =
-              Number(
-                product.quantity
-              ) || 0;
-
-
-            const returned =
-              Number(
-                product.returnedQuantity
-              ) || 0;
-
-
-            const usableQty =
-              Math.max(
-                0,
-                qty - returned
-              );
-
-
-            const consumed =
-              Math.min(
-                usableQty,
-                soldRemaining
-              );
-
-
-            if (
-              alloc.allocationId
-                .toString()
-                .trim()
-                .toUpperCase() ===
-              allocationId
-            ) {
-
-              soldForThisAllocation =
-                consumed;
-
-              break;
-            }
-
-
-            soldRemaining =
-              Math.max(
-                0,
-                soldRemaining -
-                consumed
-              );
-          }
-
+              ) || 0
+            );
 
           // ==============================================
           // CURRENT UNSOLD / AVAILABLE QUANTITY
           // ==============================================
 
-   const availableQty =
-  roundQty2(
-    Math.max(
-      0,
+          const availableQty =
+            roundQty2(
+              Math.max(
+                0,
 
-      allocatedQty -
-      alreadyReturnedQty -
-      roundQty2(
-        soldForThisAllocation
-      )
-    )
-  );
+                allocatedQty -
+                alreadyReturnedQty -
+                alreadyReconciledQty -
+                roundQty2(
+                  soldForThisAllocation
+                )
+              )
+            );
 
 
           // ==============================================
@@ -18985,39 +19353,53 @@ const alreadyReturnedQty =
           // SHORT/EXCESS IS RECONCILIATION ONLY.
           // ==============================================
 
-     const physicalReturnQty =
-  roundQty2(
-    goodReturn +
-    damage
-  );
+          const physicalReturnQty =
+            roundQty2(
+              goodReturn +
+              damage
+            );
+
+          const settlementQty =
+            roundQty2(
+              goodReturn +
+              damage +
+              shortExcess
+            );
 
 
           if (
-  physicalReturnQty >
-  availableQty
-) {
+            settlementQty >
+            availableQty
+          ) {
 
-  const error =
-    new Error(
-      `Return quantity cannot exceed available quantity ${availableQty.toFixed(2)}.`
-    );
+            const error =
+              new Error(
+                `Settlement quantity cannot exceed available quantity ${availableQty.toFixed(2)}.`
+              );
 
-  error.statusCode = 400;
+            error.statusCode = 400;
 
-  throw error;
-}
+            throw error;
+          }
 
 
           // ==============================================
           // UPDATE ALLOCATION RETURNED QUANTITY
           // ==============================================
 
-         allocationProduct
-  .returnedQuantity =
-  roundQty2(
-    alreadyReturnedQty +
-    physicalReturnQty
-  );
+          allocationProduct
+            .returnedQuantity =
+            roundQty2(
+              alreadyReturnedQty +
+              physicalReturnQty
+            );
+
+          allocationProduct
+            .reconciledQuantity =
+            roundQty2(
+              alreadyReconciledQty +
+              shortExcess
+            );
 
 
           allocation.updatedAt =
@@ -19027,30 +19409,131 @@ const alreadyReturnedQty =
           // If everything is now accounted for,
           // mark allocation RETURNED.
 
-       const newRemainingQty =
-  roundQty2(
-    Math.max(
-      0,
+          const newRemainingQty =
+            roundQty2(
+              Math.max(
+                0,
 
-      allocatedQty -
-      roundQty2(
-        soldForThisAllocation
-      ) -
-      roundQty2(
-        allocationProduct
-          .returnedQuantity
-      )
-    )
-  );
+                allocatedQty -
+                roundQty2(
+                  soldForThisAllocation
+                ) -
+                roundQty2(
+                  allocationProduct
+                    .returnedQuantity
+                ) -
+                roundQty2(
+                  allocationProduct
+                    .reconciledQuantity
+                )
+              )
+            );
 
 
-          // Keep allocation POSTED while individual products
-          // are being settled.
+          // ======================================================
+          // CHECK WHETHER ENTIRE ALLOCATION IS NOW SETTLED
           //
-          // We will mark the whole allocation RETURNED only
-          // after every product is fully reconciled.
+          // An allocation becomes RETURNED only when every product
+          // has:
+          //
+          // Allocated
+          // - Sold
+          // - Returned
+          // - Reconciled
+          // = 0
+          // ======================================================
+
+          const latestSoldMap =
+            await getSoldQuantityForAllocation({
+
+              farmId,
+
+              salesmanId:
+                allocation.salesmanId,
+
+              allocationId:
+                allocation.allocationId,
+
+              session,
+
+            });
+
+
+          let allocationFullySettled =
+            true;
+
+
+          for (
+            const item of
+            allocation.products
+          ) {
+
+            const itemProductId =
+              (
+                item.productId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            const itemAllocated =
+              roundQty2(
+                item.quantity
+              );
+
+
+            const itemSold =
+              roundQty2(
+                latestSoldMap.get(
+                  itemProductId
+                ) || 0
+              );
+
+
+            const itemReturned =
+              roundQty2(
+                item.returnedQuantity
+              );
+
+
+            const itemReconciled =
+              roundQty2(
+                item.reconciledQuantity
+              );
+
+
+            const itemRemaining =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  itemAllocated -
+                  itemSold -
+                  itemReturned -
+                  itemReconciled
+                )
+              );
+
+
+            if (
+              itemRemaining >
+              0.000001
+            ) {
+
+              allocationFullySettled =
+                false;
+
+              break;
+            }
+          }
+
+
           allocation.status =
-            "POSTED";
+            allocationFullySettled
+              ? "RETURNED"
+              : "POSTED";
 
 
           await allocation.save({
@@ -19230,6 +19713,9 @@ const alreadyReturnedQty =
             previousReturnedQuantity:
               alreadyReturnedQty,
 
+            previousReconciledQuantity:
+              alreadyReconciledQty,
+
             goodReturnQuantity:
               goodReturn,
 
@@ -19239,6 +19725,10 @@ const alreadyReturnedQty =
             returnedQuantity:
               allocationProduct
                 .returnedQuantity,
+
+            reconciledQuantity:
+              allocationProduct
+                .reconciledQuantity,
 
             remainingQuantity:
               newRemainingQty,
@@ -19319,7 +19809,6 @@ const alreadyReturnedQty =
 // SALESMAN MY STOCK / MY LOAD
 // GET LOGGED-IN SALESMAN ALLOCATED STOCK
 // ======================================================
-
 app.get(
   "/api/salesman-stock/my",
   authenticateToken,
@@ -19333,7 +19822,10 @@ app.get(
       // ONLY SALESMAN CAN USE MY STOCK
       // ==================================================
 
-      if (req.user.role !== "salesman") {
+      if (
+        req.user.role !==
+        "salesman"
+      ) {
 
         return res.status(403).json({
           success: false,
@@ -19352,15 +19844,19 @@ app.get(
 
       // ==================================================
       // FIND LOGGED-IN SALESMAN
-      // JWT CONTAINS MONGODB USER ID
       // ==================================================
 
       const salesman =
         await Salesman.findOne({
-          _id: userId,
-          farmId: farmId,
-          isActive: true,
-        });
+          _id:
+            userId,
+
+          farmId:
+            farmId,
+
+          isActive:
+            true,
+        }).lean();
 
 
       if (!salesman) {
@@ -19378,276 +19874,161 @@ app.get(
 
 
       // ==================================================
-      // GET ACTIVE ALLOCATIONS FOR THIS SALESMAN
+      // TODAY'S AUTHORITATIVE SALESMAN STOCK
+      //
+      // IMPORTANT:
+      // - Multiple allocations on the SAME date are combined.
+      // - Older/future allocations do not affect today's stock.
+      // - Returned and reconciled quantities are deducted.
+      // - Only same-day posted salesman sales are deducted.
       // ==================================================
+
+      const dayStock =
+        await getSalesmanBusinessDayStockMap({
+
+          farmId,
+
+          salesmanId,
+
+          businessDate:
+            new Date(),
+
+        });
+
 
       const allocations =
-        await Allocation.find({
-
-          farmId:
-            farmId,
-
-          salesmanId:
-            salesmanId,
-
-          status: {
-            $in: [
-              "POSTED",
-              "RETURNED",
-            ],
-          },
-
-        })
-          .sort({
-            allocationDate: -1,
-            createdAt: -1,
-          })
-          .lean();
-
-
-      // ==================================================
-      // PRODUCT-WISE STOCK SUMMARY
-      // ==================================================
-
-      const productMap =
-        new Map();
-
-
-      let totalAllocated = 0;
-      let totalReturned = 0;
-
-
-      for (const allocation of allocations) {
-
-        const products =
-          Array.isArray(allocation.products)
-            ? allocation.products
-            : [];
-
-
-        for (const item of products) {
-
-          const productId =
-            (item.productId || "")
-              .toString()
-              .trim()
-              .toUpperCase();
-
-
-          if (!productId) {
-            continue;
-          }
-
-
-          const allocatedQty =
-            Number(item.quantity) || 0;
-
-
-          const returnedQty =
-            Number(item.returnedQuantity) || 0;
-
-
-          totalAllocated +=
-            allocatedQty;
-
-
-          totalReturned +=
-            returnedQty;
-
-
-          if (!productMap.has(productId)) {
-
-            productMap.set(
-              productId,
-              {
-                productId:
-                  productId,
-
-                productName:
-                  item.productName || "",
-
-                variant:
-                  item.variant || "",
-
-                unit:
-                  item.unit || "",
-
-                allocated:
-                  0,
-
-                sold:
-                  0,
-
-                returned:
-                  0,
-
-                available:
-                  0,
-              }
-            );
-          }
-
-
-          const row =
-            productMap.get(productId);
-
-
-          row.allocated +=
-            allocatedQty;
-
-
-          row.returned +=
-            returnedQty;
-        }
-      }
-
-
-      // ==================================================
-      // SALESMAN POSTED SALES
-      //
-      // ONLY SALES CREATED BY THIS SALESMAN
-      // CANCELLED SALES ARE NOT INCLUDED
-      // ADMIN SALES ARE NOT INCLUDED
-      // ==================================================
-
-      const salesmanSales =
-        await Sale.find({
-          farmId: farmId,
-
-          salesmanId:
-            salesmanId,
-
-          createdRole:
-            "salesman",
-
-          status:
-            "POSTED",
-        })
-          .select(
-            "products"
-          )
-          .lean();
-
-
-      // ==================================================
-      // ADD SOLD QUANTITY PRODUCT-WISE
-      // ==================================================
-
-      for (
-        const sale of
-        salesmanSales
-      ) {
-        const saleProducts =
-          Array.isArray(
-            sale.products
-          )
-            ? sale.products
-            : [];
-
-        for (
-          const item of
-          saleProducts
-        ) {
-          const productId =
-            (
-              item.productId ||
-              ""
-            )
-              .toString()
-              .trim()
-              .toUpperCase();
-
-          if (!productId) {
-            continue;
-          }
-
-          // ------------------------------------------------
-          // Product was sold but allocation record may
-          // no longer appear in current productMap.
-          // This should normally not happen, but keep the
-          // API safe.
-          // ------------------------------------------------
-
-          if (
-            !productMap.has(
-              productId
-            )
-          ) {
-            continue;
-          }
-
-          const soldQty =
-            Number(
-              item.quantity
-            ) || 0;
-
-          productMap
-            .get(productId)
-            .sold +=
-            soldQty;
-        }
-      }
-
-
-      // ==================================================
-      // TOTAL SOLD
-      // ==================================================
-
-      let totalSold = 0;
-
-
-      // ==================================================
-      // CALCULATE AVAILABLE STOCK
-      // ==================================================
-
-      const products = [];
-
-
-      for (const row of productMap.values()) {
-
-        row.available =
-          Math.max(
-            0,
-            row.allocated -
-            row.returned -
-            row.sold
+        [...dayStock.allocations]
+          .sort(
+            (a, b) => {
+
+              const aTime =
+                new Date(
+                  a.createdAt ||
+                  a.allocationDate ||
+                  0
+                ).getTime();
+
+              const bTime =
+                new Date(
+                  b.createdAt ||
+                  b.allocationDate ||
+                  0
+                ).getTime();
+
+              return (
+                bTime -
+                aTime
+              );
+            }
           );
 
 
-        totalSold +=
-          row.sold;
-
-        if (
-          row.available > 0
-        ) {
-          products.push(row);
-        }
-      }
-
-
-      // ==================================================
-      // SORT PRODUCT NAME
-      // ==================================================
-
-      products.sort(
-        (a, b) =>
-          a.productName.localeCompare(
-            b.productName
-          )
-      );
-
-
-      const totalAvailable =
-        Math.max(
-          0,
-          totalAllocated -
-          totalReturned -
-          totalSold
+      const allProducts =
+        Array.from(
+          dayStock.stockMap.values()
         );
 
 
+      let totalAllocated = 0;
+      let totalSold = 0;
+      let totalReturned = 0;
+      let totalReconciled = 0;
+      let totalAvailable = 0;
+
+
+      for (
+        const row of
+        allProducts
+      ) {
+
+        totalAllocated =
+          roundQty2(
+            totalAllocated +
+            row.allocated
+          );
+
+        totalSold =
+          roundQty2(
+            totalSold +
+            row.sold
+          );
+
+        totalReturned =
+          roundQty2(
+            totalReturned +
+            row.returned
+          );
+
+        totalReconciled =
+          roundQty2(
+            totalReconciled +
+            row.reconciled
+          );
+
+        totalAvailable =
+          roundQty2(
+            totalAvailable +
+            row.available
+          );
+      }
+
+
+      const products =
+        allProducts
+          .filter(
+            (row) =>
+              row.available > 0
+          )
+          .map(
+            (row) => ({
+              productId:
+                row.productId,
+
+              productName:
+                row.productName,
+
+              variant:
+                row.variant || "",
+
+              unit:
+                row.unit || "",
+
+              allocated:
+                roundQty2(
+                  row.allocated
+                ),
+
+              sold:
+                roundQty2(
+                  row.sold
+                ),
+
+              returned:
+                roundQty2(
+                  row.returned
+                ),
+
+              reconciled:
+                roundQty2(
+                  row.reconciled
+                ),
+
+              available:
+                roundQty2(
+                  row.available
+                ),
+            })
+          )
+          .sort(
+            (a, b) =>
+              a.productName.localeCompare(
+                b.productName
+              )
+          );
+
+
       // ==================================================
-      // CURRENT / LATEST ROUTE
+      // CURRENT / LATEST SAME-DAY ROUTE
       // ==================================================
 
       const latestAllocation =
@@ -19657,11 +20038,13 @@ app.get(
 
 
       const routeId =
-        latestAllocation?.routeId || "";
+        latestAllocation?.routeId ||
+        "";
 
 
       const routeName =
-        latestAllocation?.routeName || "";
+        latestAllocation?.routeName ||
+        "";
 
 
       // ==================================================
@@ -19670,9 +20053,13 @@ app.get(
 
       return res.status(200).json({
 
-        success: true,
+        success:
+          true,
 
         data: {
+
+          businessDate:
+            dayStock.businessDate,
 
           salesmanId:
             salesman.salesmanId,
@@ -19680,26 +20067,37 @@ app.get(
           salesmanName:
             salesman.name,
 
-          routeId:
-            routeId,
+          routeId,
 
-          routeName:
-            routeName,
+          routeName,
 
           totalAllocations:
             allocations.length,
 
           totalAllocated:
-            totalAllocated,
+            roundQty2(
+              totalAllocated
+            ),
 
           totalSold:
-            totalSold,
+            roundQty2(
+              totalSold
+            ),
 
           totalReturned:
-            totalReturned,
+            roundQty2(
+              totalReturned
+            ),
+
+          totalReconciled:
+            roundQty2(
+              totalReconciled
+            ),
 
           totalAvailable:
-            totalAvailable,
+            roundQty2(
+              totalAvailable
+            ),
 
           products:
             products,
@@ -19715,72 +20113,22 @@ app.get(
       );
 
 
-      return res.status(500).json({
+      return res.status(
+        error.statusCode ||
+        500
+      ).json({
 
-        success: false,
+        success:
+          false,
 
         message:
+          error.message ||
           "Unable to load salesman stock.",
-
-        error:
-          error.message,
       });
     }
   }
 );
 
-// ======================================================
-// GET STOCK
-// ======================================================
-
-app.get(
-  "/api/stock",
-  authenticateToken,
-  loadAccessContext,
-  requireAnyPermission(
-    "productsView",
-    "allocationView",
-    "salesView",
-    "salesCreate",
-    "returnsManage",
-    "purchaseView"
-  ),
-  async (req, res) => {
-    try {
-      const stock =
-        await Product.find({
-          farmId:
-            req.user.farmId,
-        })
-          .select(
-            "_id productId productName variant unit stock price isActive"
-          )
-          .sort({
-            productName: 1,
-          });
-
-      return res.status(200).json({
-        success: true,
-        count:
-          stock.length,
-        data:
-          stock,
-      });
-
-    } catch (error) {
-      console.error(
-        "GET STOCK ERROR:",
-        error
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Unable to load stock.",
-      });
-    }
-  }
-);
 // ======================================================
 // MANUAL CUSTOMER OUTSTANDING
 // TRN_CUSTOMER_OUTSTANDING
@@ -23099,57 +23447,57 @@ app.post(
             error.statusCode = 403;
             throw error;
           }
-// ==================================================
-// CONCURRENCY TOKEN / LOCK
-// Supports old customers where collectionRevision
-// does not yet physically exist in MongoDB.
-// ==================================================
+          // ==================================================
+          // CONCURRENCY TOKEN / LOCK
+          // Supports old customers where collectionRevision
+          // does not yet physically exist in MongoDB.
+          // ==================================================
 
-const currentRevision =
-  Number(customer.collectionRevision || 0);
+          const currentRevision =
+            Number(customer.collectionRevision || 0);
 
-let revisionFilter;
+          let revisionFilter;
 
-if (currentRevision === 0) {
-  revisionFilter = {
-    _id: customer._id,
-    $or: [
-      { collectionRevision: 0 },
-      { collectionRevision: { $exists: false } },
-      { collectionRevision: null },
-    ],
-  };
-} else {
-  revisionFilter = {
-    _id: customer._id,
-    collectionRevision: currentRevision,
-  };
-}
+          if (currentRevision === 0) {
+            revisionFilter = {
+              _id: customer._id,
+              $or: [
+                { collectionRevision: 0 },
+                { collectionRevision: { $exists: false } },
+                { collectionRevision: null },
+              ],
+            };
+          } else {
+            revisionFilter = {
+              _id: customer._id,
+              collectionRevision: currentRevision,
+            };
+          }
 
-const lockedCustomer =
-  await Customer.findOneAndUpdate(
-    revisionFilter,
-    {
-      $inc: {
-        collectionRevision: 1,
-      },
-      $set: {
-        updatedAt: new Date(),
-      },
-    },
-    {
-      session,
-      returnDocument: "after",
-    }
-  );
+          const lockedCustomer =
+            await Customer.findOneAndUpdate(
+              revisionFilter,
+              {
+                $inc: {
+                  collectionRevision: 1,
+                },
+                $set: {
+                  updatedAt: new Date(),
+                },
+              },
+              {
+                session,
+                returnDocument: "after",
+              }
+            );
 
-if (!lockedCustomer) {
-  const error = new Error(
-    "Outstanding position has changed. Refresh the customer bills and try again."
-  );
-  error.statusCode = 409;
-  throw error;
-}
+          if (!lockedCustomer) {
+            const error = new Error(
+              "Outstanding position has changed. Refresh the customer bills and try again."
+            );
+            error.statusCode = 409;
+            throw error;
+          }
 
           // LOAD POSTED SALES
           const saleFilter = {
@@ -26820,8 +27168,8 @@ app.get(
         for (const sale of sales) {
           const products = includeProduct
             ? (sale.products || []).filter((product) =>
-                !productId || String(product.productId || "").toUpperCase() === productId
-              )
+              !productId || String(product.productId || "").toUpperCase() === productId
+            )
             : [null];
 
           for (const product of products) {
@@ -30775,7 +31123,7 @@ app.get(
             let remainingReceipt = Math.max(
               0,
               Number(collection.appliedAmount ?? collection.amount ?? 0) -
-                Math.max(0, Number(collection.advanceAmount ?? 0))
+              Math.max(0, Number(collection.advanceAmount ?? 0))
             );
             const receiptDate = collection.collectionDate
               ? new Date(collection.collectionDate)
@@ -35126,66 +35474,339 @@ app.get(
           ],
         }).select("salesmanId createdBy saleDate createdAt paymentMode products").lean();
 
-        const soldMap = new Map();
-        for (const sale of allSalesmanSales) {
-          const sId = (sale.salesmanId || "").toString().trim().toUpperCase();
-          if (!sId) continue;
-          for (const item of (sale.products || [])) {
-            const pId = (item.productId || "").toString().trim().toUpperCase();
-            if (!pId) continue;
-            const qty = Number(item.quantity) || 0;
-            const key = `${sId}|${pId}`;
-            soldMap.set(key, (soldMap.get(key) || 0) + qty);
+        const soldMap =
+          new Map();
+
+
+        // ======================================================
+        // SALES PRODUCT-WISE + BUSINESS-DATE-WISE
+        //
+        // KEY:
+        // salesmanId|YYYY-MM-DD|productId
+        // ======================================================
+
+        for (
+          const sale of
+          allSalesmanSales
+        ) {
+
+          const sId =
+            (
+              sale.salesmanId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+
+          const saleBusinessDate =
+            getISTBusinessDateKey(
+              sale.saleDate ||
+              sale.createdAt
+            );
+
+
+          if (
+            !sId ||
+            !saleBusinessDate
+          ) {
+            continue;
+          }
+
+
+          for (
+            const item of
+            sale.products || []
+          ) {
+
+            const pId =
+              (
+                item.productId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            if (!pId) {
+              continue;
+            }
+
+
+            const qty =
+              roundQty2(
+                item.quantity
+              );
+
+
+            const key =
+              `${sId}|${saleBusinessDate}|${pId}`;
+
+
+            soldMap.set(
+              key,
+
+              roundQty2(
+                (
+                  soldMap.get(
+                    key
+                  ) || 0
+                ) +
+                qty
+              )
+            );
           }
         }
 
-        const allocationStatsBySalesman = new Map();
-        for (const sm of salesmenList) {
-          allocationStatsBySalesman.set(sm.salesmanId, {
-            allocatedQty: 0,
-            returnedQty: 0,
-            soldQty: 0,
-            remainingQty: 0,
-          });
-        }
 
-        const sortedAllocations = [...allocations].sort((a, b) => {
-          const dateA = new Date(a.allocationDate || a.createdAt || 0).getTime();
-          const dateB = new Date(b.allocationDate || b.createdAt || 0).getTime();
-          return dateA - dateB;
-        });
+        // ======================================================
+        // ALLOCATION SUMMARY
+        // ======================================================
 
-        const remainingSoldMap = new Map(soldMap);
+        const allocationStatsBySalesman =
+          new Map();
 
-        for (const alloc of sortedAllocations) {
-          const sId = (alloc.salesmanId || "").toString().trim();
-          if (!allocationStatsBySalesman.has(sId)) {
-            allocationStatsBySalesman.set(sId, {
+
+        for (
+          const sm of
+          salesmenList
+        ) {
+
+          const sId =
+            (
+              sm.salesmanId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+
+          allocationStatsBySalesman.set(
+            sId,
+            {
               allocatedQty: 0,
               returnedQty: 0,
               soldQty: 0,
               remainingQty: 0,
-            });
+            }
+          );
+        }
+
+
+        const sortedAllocations =
+          [...allocations]
+            .sort(
+              (a, b) => {
+
+                const dateA =
+                  new Date(
+                    a.allocationDate ||
+                    a.createdAt ||
+                    0
+                  ).getTime();
+
+                const dateB =
+                  new Date(
+                    b.allocationDate ||
+                    b.createdAt ||
+                    0
+                  ).getTime();
+
+                return (
+                  dateA -
+                  dateB
+                );
+              }
+            );
+
+
+        const remainingSoldMap =
+          new Map(
+            soldMap
+          );
+
+
+        for (
+          const alloc of
+          sortedAllocations
+        ) {
+
+          const sId =
+            (
+              alloc.salesmanId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
+
+
+          if (!sId) {
+            continue;
           }
-          const stats = allocationStatsBySalesman.get(sId);
 
-          for (const p of (alloc.products || [])) {
-            const pId = (p.productId || "").toString().trim().toUpperCase();
-            const allocQty = Number(p.quantity) || 0;
-            const retQty = Number(p.returnedQuantity) || 0;
-            const key = `${sId.toUpperCase()}|${pId}`;
 
-            const unconsumedSold = remainingSoldMap.get(key) || 0;
-            const netAllocated = Math.max(0, allocQty - retQty);
-            const soldForThis = Math.min(netAllocated, unconsumedSold);
-            remainingSoldMap.set(key, Math.max(0, unconsumedSold - soldForThis));
+          const allocationBusinessDate =
+            getAllocationDateKey(
+              alloc.allocationDate ||
+              alloc.createdAt
+            );
 
-            const remForThis = Math.max(0, netAllocated - soldForThis);
 
-            stats.allocatedQty += allocQty;
-            stats.returnedQty += retQty;
-            stats.soldQty += soldForThis;
-            stats.remainingQty += remForThis;
+          if (!allocationBusinessDate) {
+            continue;
+          }
+
+
+          if (
+            !allocationStatsBySalesman.has(
+              sId
+            )
+          ) {
+
+            allocationStatsBySalesman.set(
+              sId,
+              {
+                allocatedQty: 0,
+                returnedQty: 0,
+                soldQty: 0,
+                remainingQty: 0,
+              }
+            );
+          }
+
+
+          const stats =
+            allocationStatsBySalesman.get(
+              sId
+            );
+
+
+          for (
+            const p of
+            alloc.products || []
+          ) {
+
+            const pId =
+              (
+                p.productId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            if (!pId) {
+              continue;
+            }
+
+
+            const allocQty =
+              roundQty2(
+                p.quantity
+              );
+
+
+            const retQty =
+              roundQty2(
+                p.returnedQuantity
+              );
+
+
+            const reconciledQty =
+              roundQty2(
+                p.reconciledQuantity
+              );
+
+
+            const key =
+              `${sId}|${allocationBusinessDate}|${pId}`;
+
+
+            const unconsumedSold =
+              roundQty2(
+                remainingSoldMap.get(
+                  key
+                ) || 0
+              );
+
+
+            const netAllocated =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  allocQty -
+                  retQty -
+                  reconciledQty
+                )
+              );
+
+
+            const soldForThis =
+              roundQty2(
+                Math.min(
+                  netAllocated,
+                  unconsumedSold
+                )
+              );
+
+
+            remainingSoldMap.set(
+              key,
+
+              roundQty2(
+                Math.max(
+                  0,
+
+                  unconsumedSold -
+                  soldForThis
+                )
+              )
+            );
+
+
+            const remForThis =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  netAllocated -
+                  soldForThis
+                )
+              );
+
+
+            stats.allocatedQty =
+              roundQty2(
+                stats.allocatedQty +
+                allocQty
+              );
+
+
+            stats.returnedQty =
+              roundQty2(
+                stats.returnedQty +
+                retQty
+              );
+
+
+            stats.soldQty =
+              roundQty2(
+                stats.soldQty +
+                soldForThis
+              );
+
+
+            stats.remainingQty =
+              roundQty2(
+                stats.remainingQty +
+                remForThis
+              );
           }
         }
 
@@ -36045,254 +36666,366 @@ app.get(
         0;
 
 
-      if (salesman) {
+      
 
         // ==================================================
         // ALL SALESMAN SALES
         // ==================================================
 
-        const salesmanSalesForQty =
-          await Sale.find({
-            farmId,
+        if (salesman) {
 
-            salesmanId:
-              salesman.salesmanId,
+          // ==================================================
+          // SALESMAN SALES
+          //
+          // IMPORTANT:
+          // Stock consumption is BUSINESS-DATE-WISE.
+          // One day's sales must never consume another day's
+          // allocation.
+          // ==================================================
 
-            createdRole:
-              "salesman",
+          const salesmanSalesForQty =
+            await Sale.find({
 
-            status:
-              "POSTED",
-          })
-            .select(
-              "products"
-            )
-            .lean();
+              farmId,
+
+              salesmanId:
+                salesman.salesmanId,
+
+              status:
+                "POSTED",
+
+              $or: [
+
+                {
+                  stockSource:
+                    "SALESMAN_ALLOCATION",
+                },
+
+                {
+                  stockSource: {
+                    $exists: false,
+                  },
+
+                  createdRole:
+                    "salesman",
+                },
+
+                {
+                  stockSource:
+                    null,
+
+                  createdRole:
+                    "salesman",
+                },
+
+                {
+                  stockSource:
+                    "",
+
+                  createdRole:
+                    "salesman",
+                },
+
+              ],
+
+            })
+              .select(
+                "products saleDate createdAt"
+              )
+              .lean();
 
 
-        // ==================================================
-        // PRODUCT -> TOTAL SOLD
-        // ==================================================
+          // ==================================================
+          // KEY:
+          // YYYY-MM-DD|PRODUCT
+          // ==================================================
 
-        const remainingSoldMap =
-          new Map();
+          const remainingSoldMap =
+            new Map();
 
-
-        for (
-          const sale
-          of salesmanSalesForQty
-        ) {
 
           for (
-            const product
-            of sale.products ||
-            []
+            const sale of
+            salesmanSalesForQty
           ) {
 
-            const productId =
-              (
-                product.productId ||
-                ""
-              )
-                .toString()
-                .trim()
-                .toUpperCase();
+            const saleBusinessDate =
+              getISTBusinessDateKey(
+                sale.saleDate ||
+                sale.createdAt
+              );
 
 
-            if (!productId) {
-
+            if (!saleBusinessDate) {
               continue;
             }
 
 
-            const quantity =
-              Math.max(
-                0,
+            for (
+              const product of
+              sale.products || []
+            ) {
 
-                Number(
-                  product.quantity ||
-                  0
+              const productId =
+                (
+                  product.productId ||
+                  ""
+                )
+                  .toString()
+                  .trim()
+                  .toUpperCase();
+
+
+              if (!productId) {
+                continue;
+              }
+
+
+              const quantity =
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    Number(
+                      product.quantity ||
+                      0
+                    )
+                  )
+                );
+
+
+              const key =
+                `${saleBusinessDate}|${productId}`;
+
+
+              remainingSoldMap.set(
+                key,
+
+                roundQty2(
+                  (
+                    remainingSoldMap.get(
+                      key
+                    ) || 0
+                  ) +
+                  quantity
                 )
               );
+            }
+          }
 
 
-            remainingSoldMap.set(
-              productId,
+          // ==================================================
+          // ALLOCATION POSITION
+          //
+          // Same business date only.
+          //
+          // Remaining =
+          // Allocated
+          // - Sold
+          // - Returned
+          // - Reconciled
+          // ==================================================
 
-              (
-                remainingSoldMap.get(
-                  productId
-                ) ||
+          for (
+            const allocation of
+            allRelevantAllocations
+          ) {
+
+            const allocationDate =
+              new Date(
+                allocation.allocationDate ||
+                allocation.createdAt ||
                 0
-              ) +
-              quantity
-            );
-          }
-        }
+              );
 
 
-        // ==================================================
-        // FIFO:
-        //
-        // Old allocation sales consumed first.
-        // ==================================================
-
-        for (
-          const allocation
-          of allRelevantAllocations
-        ) {
-
-          const allocationDate =
-            new Date(
-              allocation
-                .allocationDate ||
-
-              allocation
-                .createdAt ||
-
-              0
-            );
+            const allocationBusinessDate =
+              getAllocationDateKey(
+                allocation.allocationDate ||
+                allocation.createdAt
+              );
 
 
-          const isPreviousAllocation =
-            allocationDate <
-            todayStart;
-
-
-          for (
-            const product
-            of allocation.products ||
-            []
-          ) {
-
-            const productId =
-              (
-                product.productId ||
-                ""
-              )
-                .toString()
-                .trim()
-                .toUpperCase();
-
-
-            if (!productId) {
-
+            if (!allocationBusinessDate) {
               continue;
             }
 
 
-            const allocatedQuantity =
-              Math.max(
-                0,
+            const isPreviousAllocation =
+              allocationDate <
+              todayStart;
 
-                Number(
-                  product.quantity ||
-                  0
+
+            for (
+              const product of
+              allocation.products || []
+            ) {
+
+              const productId =
+                (
+                  product.productId ||
+                  ""
+                )
+                  .toString()
+                  .trim()
+                  .toUpperCase();
+
+
+              if (!productId) {
+                continue;
+              }
+
+
+              const allocatedQuantity =
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    Number(
+                      product.quantity ||
+                      0
+                    )
+                  )
+                );
+
+
+              const returnedQuantity =
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    Number(
+                      product
+                        .returnedQuantity ||
+                      0
+                    )
+                  )
+                );
+
+
+              const reconciledQuantity =
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    Number(
+                      product
+                        .reconciledQuantity ||
+                      0
+                    )
+                  )
+                );
+
+
+              const usableAllocated =
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    allocatedQuantity -
+                    returnedQuantity -
+                    reconciledQuantity
+                  )
+                );
+
+
+              const key =
+                `${allocationBusinessDate}|${productId}`;
+
+
+              const remainingSold =
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    Number(
+                      remainingSoldMap.get(
+                        key
+                      ) || 0
+                    )
+                  )
+                );
+
+
+              const soldAgainstAllocation =
+                roundQty2(
+                  Math.min(
+                    usableAllocated,
+                    remainingSold
+                  )
+                );
+
+
+              remainingSoldMap.set(
+                key,
+
+                roundQty2(
+                  Math.max(
+                    0,
+
+                    remainingSold -
+                    soldAgainstAllocation
+                  )
                 )
               );
 
 
-            const returnedQuantity =
-              Math.max(
-                0,
+              const remainingQuantity =
+                roundQty2(
+                  Math.max(
+                    0,
 
-                Number(
-                  product
-                    .returnedQuantity ||
-                  0
-                )
-              );
-
-
-            const usableAllocated =
-              Math.max(
-                0,
-
-                allocatedQuantity -
-                returnedQuantity
-              );
+                    usableAllocated -
+                    soldAgainstAllocation
+                  )
+                );
 
 
-            const remainingSold =
-              Math.max(
-                0,
-
-                Number(
-                  remainingSoldMap.get(
-                    productId
-                  ) ||
-                  0
-                )
-              );
+              if (
+                remainingQuantity <=
+                0.001
+              ) {
+                continue;
+              }
 
 
-            const soldAgainstAllocation =
-              Math.min(
-                usableAllocated,
-                remainingSold
-              );
+              if (
+                isPreviousAllocation
+              ) {
+
+                pendingReturnQuantity =
+                  roundQty2(
+                    pendingReturnQuantity +
+                    remainingQuantity
+                  );
+              }
+
+              else {
+
+                pendingDeliveryQuantity =
+                  roundQty2(
+                    pendingDeliveryQuantity +
+                    remainingQuantity
+                  );
+              }
+            }
+          }
 
 
-            remainingSoldMap.set(
-              productId,
-
-              Math.max(
-                0,
-
-                remainingSold -
-                soldAgainstAllocation
-              )
+          pendingDeliveryQuantity =
+            roundQty2(
+              pendingDeliveryQuantity
             );
 
 
-            const remainingQuantity =
-              Math.max(
-                0,
-
-                usableAllocated -
-                soldAgainstAllocation
-              );
-
-
-            if (
-              remainingQuantity <=
-              0.001
-            ) {
-
-              continue;
-            }
-
-
-            if (
-              isPreviousAllocation
-            ) {
-
-              pendingReturnQuantity +=
-                remainingQuantity;
-            }
-
-            else {
-
-              pendingDeliveryQuantity +=
-                remainingQuantity;
-            }
-          }
+          pendingReturnQuantity =
+            roundQty2(
+              pendingReturnQuantity
+            );
         }
+      
 
 
-        pendingDeliveryQuantity =
-          Number(
-            pendingDeliveryQuantity
-              .toFixed(2)
-          );
-
-
-        pendingReturnQuantity =
-          Number(
-            pendingReturnQuantity
-              .toFixed(2)
-          );
-      }
 
 
       // ==================================================
@@ -39829,60 +40562,60 @@ app.get(
             )
             .lean(),
 
-      Allocation.find({
-  farmId,
+          Allocation.find({
+            farmId,
 
-  allocationDate: {
-    $lt: todayEnd,
-  },
+            allocationDate: {
+              $lt: todayEnd,
+            },
 
-  status: {
-    $in: [
-      "POSTED",
-      "RETURNED",
-    ],
-  },
-})
-  .select(
-    [
-      // ================================================
-      // ALLOCATION IDENTITY
-      // ================================================
-      "allocationId",
-      "allocationNo",
-      "allocationDate",
+            status: {
+              $in: [
+                "POSTED",
+                "RETURNED",
+              ],
+            },
+          })
+            .select(
+              [
+                // ================================================
+                // ALLOCATION IDENTITY
+                // ================================================
+                "allocationId",
+                "allocationNo",
+                "allocationDate",
 
-      // ================================================
-      // ROUTE
-      // ================================================
-      "routeId",
-      "routeName",
+                // ================================================
+                // ROUTE
+                // ================================================
+                "routeId",
+                "routeName",
 
-      // ================================================
-      // SALESMAN
-      // ================================================
-      "salesmanId",
-      "salesmanName",
+                // ================================================
+                // SALESMAN
+                // ================================================
+                "salesmanId",
+                "salesmanName",
 
-      // ================================================
-      // ALLOCATION PRODUCTS / QUANTITY
-      // ================================================
-      "products",
-      "totalQuantity",
+                // ================================================
+                // ALLOCATION PRODUCTS / QUANTITY
+                // ================================================
+                "products",
+                "totalQuantity",
 
-      // ================================================
-      // STATUS / FIFO DATE FALLBACK
-      // ================================================
-      "status",
-      "createdAt",
-      "updatedAt",
-    ].join(" ")
-  )
-  .sort({
-    allocationDate: 1,
-    createdAt: 1,
-  })
-  .lean(),
+                // ================================================
+                // STATUS / FIFO DATE FALLBACK
+                // ================================================
+                "status",
+                "createdAt",
+                "updatedAt",
+              ].join(" ")
+            )
+            .sort({
+              allocationDate: 1,
+              createdAt: 1,
+            })
+            .lean(),
 
           Sale.find({
             farmId,
@@ -39925,30 +40658,30 @@ app.get(
               },
             ],
           })
-     .select(
-  [
-    "saleId",
-    "saleNo",
-    "saleDate",
+            .select(
+              [
+                "saleId",
+                "saleNo",
+                "saleDate",
 
-    "salesmanId",
-    "salesmanName",
+                "salesmanId",
+                "salesmanName",
 
-    "products",
-    "totalQuantity",
-    "grandTotal",
+                "products",
+                "totalQuantity",
+                "grandTotal",
 
-    // Payment breakup required by dashboard
-    "paymentMode",
-    "payments",
-    "paidAmount",
-    "cashAmount",
-    "upiAmount",
-    "bankTransferAmount",
+                // Payment breakup required by dashboard
+                "paymentMode",
+                "payments",
+                "paidAmount",
+                "cashAmount",
+                "upiAmount",
+                "bankTransferAmount",
 
-    "createdAt",
-  ].join(" ")
-)
+                "createdAt",
+              ].join(" ")
+            )
             .lean(),
 
           Collection.find({
@@ -40100,6 +40833,11 @@ app.get(
           totalSoldBySalesman.get(
             salesmanId
           );
+        const saleBusinessDate =
+          getISTBusinessDateKey(
+            sale.saleDate ||
+            sale.createdAt
+          );
 
         let saleQuantity =
           0;
@@ -40129,14 +40867,25 @@ app.get(
           saleQuantity +=
             quantity;
 
-          salesmanProductMap.set(
-            productId,
-            (
-              salesmanProductMap.get(
-                productId
-              ) || 0
-            ) + quantity
-          );
+          if (saleBusinessDate) {
+
+            const soldKey =
+              `${saleBusinessDate}|${productId}`;
+
+
+            salesmanProductMap.set(
+              soldKey,
+
+              roundQty2(
+                (
+                  salesmanProductMap.get(
+                    soldKey
+                  ) || 0
+                ) +
+                quantity
+              )
+            );
+          }
         }
 
         // ----------------------------------------------
@@ -40378,6 +41127,17 @@ app.get(
             allocation.allocationDate ||
             allocation.createdAt
           );
+        const allocationBusinessDate =
+          getAllocationDateKey(
+            allocation.allocationDate ||
+            allocation.createdAt
+          );
+
+
+        if (!allocationBusinessDate) {
+          continue;
+        }
+
 
         const isToday =
           allocationDate >=
@@ -40420,25 +41180,39 @@ app.get(
             ) || 0;
 
           const returned =
-            Number(
+            roundQty2(
               product.returnedQuantity
-            ) || 0;
-
-          // Saleable quantity still belonging
-          // to this allocation before FIFO sales.
-          const usableAllocated =
-            Math.max(
-              0,
-              allocated -
-              returned
             );
 
-          const soldAvailable =
-            Number(
-              remainingSoldMap.get(
-                productId
+
+          const reconciled =
+            roundQty2(
+              product.reconciledQuantity
+            );
+
+
+          const usableAllocated =
+            roundQty2(
+              Math.max(
+                0,
+
+                allocated -
+                returned -
+                reconciled
               )
-            ) || 0;
+            );
+
+
+          const soldKey =
+            `${allocationBusinessDate}|${productId}`;
+
+
+          const soldAvailable =
+            roundQty2(
+              remainingSoldMap.get(
+                soldKey
+              ) || 0
+            );
 
           const consumed =
             Math.min(
@@ -40471,6 +41245,18 @@ app.get(
               0,
               soldAvailable -
               consumed
+            )
+          );
+          remainingSoldMap.set(
+            soldKey,
+
+            roundQty2(
+              Math.max(
+                0,
+
+                soldAvailable -
+                consumed
+              )
             )
           );
         }
@@ -41452,10 +42238,24 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
     }
   }
 
-  // Default: Current Month in IST
+  // ======================================================
+  // DEFAULT DATE RANGE = TODAY ONLY (IST)
+  //
+  // If frontend does not send startDate / endDate,
+  // Sales & Collection History must show today's data only.
+  // ======================================================
+
   if (!rangeStart) {
     rangeStart = new Date(
-      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0) -
+      Date.UTC(
+        istNow.getUTCFullYear(),
+        istNow.getUTCMonth(),
+        istNow.getUTCDate(),
+        0,
+        0,
+        0,
+        0
+      ) -
       HISTORY_IST_OFFSET_MS
     );
   }
@@ -41470,7 +42270,8 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
         59,
         59,
         999
-      ) - HISTORY_IST_OFFSET_MS
+      ) -
+      HISTORY_IST_OFFSET_MS
     );
   }
 
