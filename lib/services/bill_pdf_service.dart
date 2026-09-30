@@ -141,7 +141,7 @@ abstract final class BillPdfService {
                   'INVOICE DETAILS',
                   [
                     'Bill No: ${sale.id}',
-                    'Date: ${_date(sale.date)}',
+                    'Date: ${_date(sale.businessDay)}',
                     'Salesman: ${sale.salesman}',
                     'Payment: ${sale.paymentMode}',
                   ],

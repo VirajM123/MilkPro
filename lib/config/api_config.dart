@@ -4,11 +4,11 @@ class ApiConfig {
   // ============================================================
 
   // Local development:
-  static const String baseUrl = 'http://localhost:5000';
+  // static const String baseUrl = 'http://localhost:5000';
 
   // Production:
-  // static const String baseUrl =
-  //     'https://milkpro.onrender.com';
+  static const String baseUrl =
+      'https://milkpro.onrender.com';
 
 
   // ============================================================

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
@@ -42,9 +43,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
 
   bool _isLoading = false;
 
-  bool _isSaving = false;
+ bool _isSaving = false;
 
-  String _loadError = '';
+String? _paymentRequestId;
+String? _paymentRequestPayloadSignature;
+DateTime? _paymentRequestDate;
+
+String _loadError = '';
 
   @override
   void initState() {
@@ -232,59 +237,56 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           );
 
           loadedSuppliers.add(
-            _SupplierOutstanding(
-              supplierId:
-                  (
-                    map['supplierId'] ??
-                    ''
-                  ).toString(),
+  _SupplierOutstanding(
+    supplierId:
+        (map['supplierId'] ?? '')
+            .toString(),
 
-              supplierName:
-                  (
-                    map['supplierName'] ??
-                    ''
-                  ).toString(),
+    supplierName:
+        (map['supplierName'] ?? '')
+            .toString(),
 
-              totalCreditPurchases:
-                  _asDouble(
-                map[
-                    'totalCreditPurchases'],
-              ),
+    openingBalance:
+        _asDouble(
+      map['openingBalance'],
+    ),
 
-              totalPaid:
-                  _asDouble(
-                map['totalPaid'],
-              ),
+    totalCreditPurchases:
+        _asDouble(
+      map['totalCreditPurchases'],
+    ),
 
-              outstanding:
-                  _asDouble(
-                map['outstanding'],
-              ),
+    totalPayable:
+        _asDouble(
+      map['totalPayable'],
+    ),
 
-              purchaseCount:
-                  int.tryParse(
-                    (
-                      map['purchaseCount'] ??
-                      0
-                    ).toString(),
-                  ) ??
-                  0,
+    totalPaid:
+        _asDouble(
+      map['totalPaid'],
+    ),
 
-              status:
-                  (
-                    map['status'] ??
-                    'DUE'
-                  ).toString(),
+    outstanding:
+        _asDouble(
+      map['outstanding'],
+    ),
 
-              lastPaymentMode:
-                  (
-                    map[
-                          'lastPaymentMode'
-                        ] ??
-                        ''
-                  ).toString(),
-            ),
-          );
+    purchaseCount:
+        int.tryParse(
+          (map['purchaseCount'] ?? 0)
+              .toString(),
+        ) ??
+        0,
+
+    status:
+        (map['status'] ?? 'DUE')
+            .toString(),
+
+    lastPaymentMode:
+        (map['lastPaymentMode'] ?? '')
+            .toString(),
+  ),
+);
         }
       }
 
@@ -511,38 +513,83 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     });
 
     try {
-      final response =
-          await http.post(
-        Uri.parse(
-          '${ApiConfig.baseUrl}'
-          '/api/payments',
-        ),
-        headers: _headers,
-        body: jsonEncode({
-          'supplierId':
-              supplier.supplierId,
+   final Map<String, dynamic>
+    requestPayload =
+    <String, dynamic>{
 
-          'amount':
-              amount,
+  'supplierId':
+      supplier.supplierId,
 
-          'paymentMode':
-              _mode,
+  'amount':
+      amount,
 
-          'referenceNo':
-              _referenceController
-                  .text
-                  .trim(),
+  'paymentMode':
+      _mode,
 
-          'remarks':
-              _remarksController
-                  .text
-                  .trim(),
+  'referenceNo':
+      _referenceController
+          .text
+          .trim(),
 
-          'paymentDate':
-              DateTime.now()
-                  .toIso8601String(),
-        }),
-      );
+  'remarks':
+      _remarksController
+          .text
+          .trim(),
+
+'paymentDate':
+    (_paymentRequestDate ??=
+            DateTime.now())
+        .toIso8601String(),
+};
+
+
+// ============================================================
+// SUPPLIER PAYMENT IDEMPOTENCY
+//
+// Exact retry:
+// -> same clientRequestId
+//
+// Payload changed:
+// -> fresh clientRequestId
+// ============================================================
+
+final String payloadSignature =
+    jsonEncode(
+      requestPayload,
+    );
+
+
+if (_paymentRequestId == null ||
+    _paymentRequestPayloadSignature !=
+        payloadSignature) {
+
+  _paymentRequestId =
+      const Uuid().v4();
+
+  _paymentRequestPayloadSignature =
+      payloadSignature;
+}
+
+
+requestPayload['clientRequestId'] =
+    _paymentRequestId;
+
+
+final response =
+    await http.post(
+  Uri.parse(
+    '${ApiConfig.baseUrl}'
+    '/api/payments',
+  ),
+
+  headers:
+      _headers,
+
+  body:
+      jsonEncode(
+        requestPayload,
+      ),
+);
 
       final decoded =
           jsonDecode(
@@ -564,6 +611,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               : 'Unable to save payment.',
         );
       }
+      // ============================================================
+// BACKEND CONFIRMED THIS LOGICAL PAYMENT
+// ============================================================
+
+_paymentRequestId = null;
+_paymentRequestPayloadSignature = null;
+_paymentRequestDate = null;
 
       final data =
           decoded['data'];
@@ -579,6 +633,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       _amountController.clear();
       _referenceController.clear();
       _remarksController.clear();
+      _paymentRequestId = null;
+_paymentRequestPayloadSignature = null;
+_paymentRequestDate = null;
 
       if (!mounted) {
         return;
@@ -885,13 +942,21 @@ Future<void> _cancelPayment(_PaymentEntry payment) async {
                         );
                       },
                     ).toList(),
+onChanged: (value) {
+  setState(() {
+    _selectedSupplierId =
+        value;
 
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedSupplierId =
-                            value;
-                      });
-                    },
+    _paymentRequestId =
+        null;
+
+    _paymentRequestPayloadSignature =
+        null;
+
+    _paymentRequestDate =
+        null;
+  });
+},
 
                     validator: (value) {
                       if (
@@ -983,17 +1048,50 @@ Future<void> _cancelPayment(_PaymentEntry payment) async {
                             height: 8,
                           ),
 
-                          Text(
-                            'Credit Purchases ₹${_selectedSupplier!.totalCreditPurchases.toStringAsFixed(2)}'
-                            '  •  Paid ₹${_selectedSupplier!.totalPaid.toStringAsFixed(2)}',
-                            style:
-                                const TextStyle(
-                              color:
-                                  moduleMuted,
-                              fontSize:
-                                  10,
-                            ),
-                          ),
+                      Column(
+  crossAxisAlignment:
+      CrossAxisAlignment.start,
+  children: [
+    Text(
+      'Opening Balance  ₹${_selectedSupplier!.openingBalance.toStringAsFixed(2)}',
+      style: const TextStyle(
+        color: moduleMuted,
+        fontSize: 10,
+      ),
+    ),
+
+    const SizedBox(height: 3),
+
+    Text(
+      'Credit Purchases  ₹${_selectedSupplier!.totalCreditPurchases.toStringAsFixed(2)}',
+      style: const TextStyle(
+        color: moduleMuted,
+        fontSize: 10,
+      ),
+    ),
+
+    const SizedBox(height: 3),
+
+    Text(
+      'Total Payable  ₹${_selectedSupplier!.totalPayable.toStringAsFixed(2)}',
+      style: const TextStyle(
+        color: moduleMuted,
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+
+    const SizedBox(height: 3),
+
+    Text(
+      'Paid  ₹${_selectedSupplier!.totalPaid.toStringAsFixed(2)}',
+      style: const TextStyle(
+        color: moduleMuted,
+        fontSize: 10,
+      ),
+    ),
+  ],
+),
                         ],
                       ),
                     ),
@@ -1370,7 +1468,9 @@ class _SupplierOutstanding {
   const _SupplierOutstanding({
     required this.supplierId,
     required this.supplierName,
+    required this.openingBalance,
     required this.totalCreditPurchases,
+    required this.totalPayable,
     required this.totalPaid,
     required this.outstanding,
     required this.purchaseCount,
@@ -1381,7 +1481,9 @@ class _SupplierOutstanding {
   final String supplierId;
   final String supplierName;
 
+  final double openingBalance;
   final double totalCreditPurchases;
+  final double totalPayable;
   final double totalPaid;
   final double outstanding;
 
@@ -1390,7 +1492,6 @@ class _SupplierOutstanding {
   final String status;
   final String lastPaymentMode;
 }
-
 class _PaymentEntry {
   const _PaymentEntry({
     required this.paymentId,

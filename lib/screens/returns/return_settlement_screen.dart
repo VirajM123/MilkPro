@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-
+import '../../utils/india_business_date.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
@@ -40,9 +41,12 @@ class _ReturnSettlementScreenState extends State<ReturnSettlementScreen>
 Map<String, dynamic>? _selectedAllocation;
 
 DateTime _listDate =
-    DateTime.now();
+    IndiaBusinessDate.today();
 
 bool _isSaving = false;
+String? _settlementRequestId;
+String? _settlementRequestPayloadSignature;  
+
 
 bool _isLoadingAllocations = false;
 bool _isSyncing = false;
@@ -270,22 +274,22 @@ Future<void> _loadAllocations() async {
                 .toString();
 
 
-        DateTime allocationDate =
-            DateTime.now();
+       final Object? rawBusinessDate =
+    allocation['businessDate'] ??
+    allocation['allocationDate'];
 
+final DateTime allocationDate =
+    IndiaBusinessDate.dateFromApi(
+      rawBusinessDate,
+    );
 
-        final rawDate =
-            allocation['allocationDate'];
-
-
-        if (rawDate != null) {
-
-          allocationDate =
-              DateTime.tryParse(
-                rawDate.toString(),
-              ) ??
-              DateTime.now();
-        }
+final String businessDate =
+    IndiaBusinessDate.apiDateKey(
+          rawBusinessDate,
+        ) ??
+        IndiaBusinessDate.toDateKey(
+          allocationDate,
+        );
 
 
         final products =
@@ -320,6 +324,8 @@ Future<void> _loadAllocations() async {
 
             'date':
                 allocationDate,
+                'businessDate':
+    businessDate,
 
             'salesmanId':
                 salesmanId,
@@ -2184,7 +2190,7 @@ final data = [
       },
               icon: const Icon(Icons.save_outlined),
               label: Text(
-                _isEditing ? 'Update Return' : 'Save Return',
+                'Save Return',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
@@ -2323,6 +2329,7 @@ Future<void> _saveSettlement({
     return;
   }
 
+
   final double settlementQty = _settlementQty;
   final double availableQty = _remainingQty;
 
@@ -2344,21 +2351,95 @@ Future<void> _saveSettlement({
   });
 
   try {
-    final uri = Uri.parse(ApiConfig.allocationReturn(allocationId));
-
-    final response = await http.put(
-      uri,
-      headers: ApiConfig.authHeaders,
-      body: jsonEncode({
-        'productId': productId,
-        'goodReturnQty': _normalizeQuantity(_goodReturnQty),
-        'damageQty': _normalizeQuantity(_damageQty),
-        'shortExcessQty': _normalizeQuantity(_shortExcessQty),
-        'returnType': selectedReturnType,
-        'reason': reasonController.text.trim(),
-        'remarks': remarksController.text.trim(),
-      }),
+    final uri =
+    Uri.parse(
+      ApiConfig.allocationReturn(
+        allocationId,
+      ),
     );
+
+
+final Map<String, dynamic>
+    requestPayload =
+    <String, dynamic>{
+
+  'productId':
+      productId,
+
+  'goodReturnQty':
+      _normalizeQuantity(
+        _goodReturnQty,
+      ),
+
+  'damageQty':
+      _normalizeQuantity(
+        _damageQty,
+      ),
+
+  'shortExcessQty':
+      _normalizeQuantity(
+        _shortExcessQty,
+      ),
+
+  'returnType':
+      selectedReturnType,
+
+  'reason':
+      reasonController
+          .text
+          .trim(),
+
+  'remarks':
+      remarksController
+          .text
+          .trim(),
+};
+
+
+// ============================================================
+// RETURN SETTLEMENT IDEMPOTENCY
+//
+// Exact retry:
+// -> same clientRequestId
+//
+// Changed quantities / type / reason / remarks:
+// -> fresh clientRequestId
+// ============================================================
+
+final String payloadSignature =
+    jsonEncode(
+      requestPayload,
+    );
+
+
+if (_settlementRequestId == null ||
+    _settlementRequestPayloadSignature !=
+        payloadSignature) {
+
+  _settlementRequestId =
+      const Uuid().v4();
+
+  _settlementRequestPayloadSignature =
+      payloadSignature;
+}
+
+
+requestPayload['clientRequestId'] =
+    _settlementRequestId;
+
+
+final response =
+    await http.put(
+  uri,
+
+  headers:
+      ApiConfig.authHeaders,
+
+  body:
+      jsonEncode(
+        requestPayload,
+      ),
+);
 
     Map<String, dynamic> body = {};
 
@@ -2479,6 +2560,11 @@ Future<void> _saveSettlement({
 
     if (!mounted) return;
 
+// The previous settlement is now confirmed
+// and fresh backend data has been loaded.
+// A future settlement must use a new request ID.
+_settlementRequestId = null;
+_settlementRequestPayloadSignature = null;
     // Opened from Allocation screen
     if (widget.allocation != null) {
       Navigator.pop<Map<String, dynamic>>(

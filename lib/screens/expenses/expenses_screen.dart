@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:uuid/uuid.dart';
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
@@ -34,13 +35,17 @@ class _ExpensesScreenState
       _expenses =
       <_ExpenseEntry>[];
 
-  String _category = 'Fuel';
-  String _mode = 'Cash';
+String _category = 'Fuel';
+String _mode = 'Cash';
 
-  bool _isLoading = true;
-  bool _isSaving = false;
+bool _isLoading = true;
+bool _isSaving = false;
 
-  String _errorMessage = '';
+String? _expenseRequestId;
+String? _expenseRequestPayloadSignature;
+DateTime? _expenseRequestDate;
+
+String _errorMessage = '';
 
   @override
   void initState() {
@@ -101,8 +106,10 @@ class _ExpensesScreenState
         response.body,
       );
 
-      if (response.statusCode !=
-          200) {
+    if (
+  response.statusCode != 200 &&
+  response.statusCode != 201
+) {
         String message =
             'Unable to load expenses.';
 
@@ -126,23 +133,22 @@ class _ExpensesScreenState
               ? decoded['data']
                   as List<dynamic>
               : <dynamic>[];
+final List<_ExpenseEntry>
+    loadedExpenses =
+    expenseList
+        .whereType<Map>()
+        .map(
+          (item) =>
+              _ExpenseEntry
+                  .fromJson(
+            Map<String, dynamic>.from(
+              item,
+            ),
+          ),
+        )
+        .toList();
 
-      final List<_ExpenseEntry>
-          loadedExpenses =
-          expenseList
-              .whereType<Map>()
-              .map(
-                (item) =>
-                    _ExpenseEntry
-                        .fromJson(
-                  Map<String, dynamic>.from(
-                    item,
-                  ),
-                ),
-              )
-              .toList();
-
-      if (!mounted) return;
+if (!mounted) return;
 
       setState(() {
         _expenses
@@ -198,42 +204,87 @@ class _ExpensesScreenState
     });
 
     try {
-      final response =
-          await http.post(
-        Uri.parse(
-          '${ApiConfig.baseUrl}/api/expenses',
-        ),
-        headers: _headers,
-        body: jsonEncode(
-          <String, dynamic>{
-            'expenseDate':
-                DateTime.now()
-                    .toIso8601String(),
+   final Map<String, dynamic>
+    requestPayload =
+    <String, dynamic>{
 
-            'category':
-                _category,
+  'expenseDate':
+      (_expenseRequestDate ??=
+              DateTime.now())
+          .toIso8601String(),
 
-            'amount':
-                amount,
+  'category':
+      _category,
 
-            'paymentMode':
-                _mode,
+  'amount':
+      amount,
 
-            'note':
-                _noteController
-                    .text
-                    .trim(),
-          },
-        ),
-      );
+  'paymentMode':
+      _mode,
+
+  'note':
+      _noteController
+          .text
+          .trim(),
+};
+
+
+// ============================================================
+// EXPENSE CREATE IDEMPOTENCY
+//
+// Exact retry:
+// -> same clientRequestId
+//
+// Payload changed:
+// -> fresh clientRequestId
+// ============================================================
+
+final String payloadSignature =
+    jsonEncode(
+      requestPayload,
+    );
+
+
+if (_expenseRequestId == null ||
+    _expenseRequestPayloadSignature !=
+        payloadSignature) {
+
+  _expenseRequestId =
+      const Uuid().v4();
+
+  _expenseRequestPayloadSignature =
+      payloadSignature;
+}
+
+
+requestPayload['clientRequestId'] =
+    _expenseRequestId;
+
+
+final response =
+    await http.post(
+  Uri.parse(
+    '${ApiConfig.baseUrl}/api/expenses',
+  ),
+
+  headers:
+      _headers,
+
+  body:
+      jsonEncode(
+        requestPayload,
+      ),
+);
 
       final dynamic decoded =
           jsonDecode(
         response.body,
       );
 
-      if (response.statusCode !=
-          201) {
+  if (
+  response.statusCode != 200 &&
+  response.statusCode != 201
+) {
         String message =
             'Unable to save expense.';
 
@@ -249,7 +300,16 @@ class _ExpensesScreenState
         );
       }
 
+// ============================================================
+// BACKEND CONFIRMED THIS LOGICAL EXPENSE
+// ============================================================
+
+_expenseRequestId = null;
+_expenseRequestPayloadSignature = null;
+_expenseRequestDate = null;
+
       if (!mounted) return;
+
 
       _amountController.clear();
       _noteController.clear();
@@ -493,12 +553,21 @@ class _ExpensesScreenState
                                 return;
                               }
 
-                              setState(
-                                () {
-                                  _category =
-                                      value;
-                                },
-                              );
+                           setState(
+  () {
+    _category =
+        value;
+
+    _expenseRequestId =
+        null;
+
+    _expenseRequestPayloadSignature =
+        null;
+
+    _expenseRequestDate =
+        null;
+  },
+);
                             },
                 ),
 
@@ -604,12 +673,21 @@ class _ExpensesScreenState
                                 return;
                               }
 
-                              setState(
-                                () {
-                                  _mode =
-                                      value;
-                                },
-                              );
+                         setState(
+  () {
+    _mode =
+        value;
+
+    _expenseRequestId =
+        null;
+
+    _expenseRequestPayloadSignature =
+        null;
+
+    _expenseRequestDate =
+        null;
+  },
+);
                             },
                 ),
 

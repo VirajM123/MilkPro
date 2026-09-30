@@ -14,6 +14,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/data_sync_service.dart';
 import 'sales_bill_preview_screen.dart';
 import 'sales_report_preview_screen.dart';
+import '../../utils/india_business_date.dart';
 
 class SalesScreen extends StatefulWidget {
   const SalesScreen({super.key});
@@ -79,6 +80,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
   bool _loadingSales = false;
   bool _savingSale = false;
   String? _clientRequestId;
+  String? _clientRequestPayloadSignature;
   bool _syncing = false;
   Timer? _pollTimer;
   int _salesRequestToken = 0;
@@ -104,7 +106,7 @@ class _SalesScreenState extends State<SalesScreen> with WidgetsBindingObserver {
     DataSyncService.instance.addListener(_onDataSyncChanged);
     UiSession.instance.addListener(_onSessionChanged);
 
-    _selectedDate = DateTime.now();
+    _selectedDate = IndiaBusinessDate.today();
 
     _quantityController.addListener(_refreshTotal);
     _rateController.addListener(_refreshTotal);
@@ -740,6 +742,11 @@ Future<void> _handleManualSync() async {
   }
 
   Future<void> _pickDate() async {
+    if (_isSalesman) {
+      _showMessage('Salesman bills use the current India business date.');
+      return;
+    }
+
     final date = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
@@ -751,7 +758,8 @@ Future<void> _handleManualSync() async {
       _selectedDate = date;
       _cart.clear();
       if (_isSalesman && !_isEditingSale) {
-        _clientRequestId = null;
+       _clientRequestId = null;
+_clientRequestPayloadSignature = null;
       }
     });
   }
@@ -858,9 +866,13 @@ Future<void> _handleManualSync() async {
             );
           }
 
-          final saleDate =
-              DateTime.tryParse(sale['saleDate']?.toString() ?? '') ??
-              DateTime.now();
+          final DateTime saleDate = IndiaBusinessDate.timestampFromApi(
+            sale['saleDate'],
+          );
+          final String businessDate =
+              IndiaBusinessDate.apiDateKey(sale['businessDate']) ??
+              IndiaBusinessDate.apiDateKey(sale['saleDate']) ??
+              IndiaBusinessDate.toDateKey(saleDate);
 
           final saleNo =
               sale['saleNo']?.toString() ??
@@ -875,6 +887,8 @@ Future<void> _handleManualSync() async {
               saleId: sale['saleId']?.toString() ?? '',
 
               date: saleDate,
+
+              businessDate: businessDate,
 
               customerId: sale['customerId']?.toString() ?? '',
 
@@ -2011,20 +2025,9 @@ if (selectedCustomerId.isNotEmpty) {
       // REQUEST
       // ============================================================
 
-      final String? clientRequestId = _isEditingSale
-          ? null
-          : (_clientRequestId ??= Uuid().v4());
-
-      final String saleDate = _isSalesman
-          ? DateTime.now().toUtc().toIso8601String()
-          : _selectedDate.toIso8601String();
+   
 
       final Map<String, dynamic> requestPayload = <String, dynamic>{
-        // Salesman business timestamps are assigned by the backend.  Keep
-        // this compatibility field as a real UTC instant, never a fake IST
-        // conversion.  Admin backdated sales retain their selected date.
-        'saleDate': saleDate,
-
         'customerId': customerId,
 
         // Kept for compatibility.
@@ -2053,9 +2056,44 @@ if (selectedCustomerId.isNotEmpty) {
         }).toList(),
       };
 
-      if (clientRequestId != null) {
-        requestPayload['clientRequestId'] = clientRequestId;
-      }
+      // The backend owns the current India business date for salesmen. Admin
+      // date picker values are date-only calendar keys, never UTC timestamps.
+      if (!_isSalesman) {
+  requestPayload['saleDate'] =
+      IndiaBusinessDate.toDateKey(
+        _selectedDate,
+      );
+}
+  if (!_isEditingSale) {
+  // ============================================================
+  // SALE CREATE IDEMPOTENCY
+  //
+  // Exact same payload retry:
+  // -> keep same clientRequestId
+  //
+  // Payload changed:
+  // -> generate new clientRequestId
+  // ============================================================
+
+  final String payloadSignature =
+      jsonEncode(requestPayload);
+
+
+  if (_clientRequestId == null ||
+      _clientRequestPayloadSignature !=
+          payloadSignature) {
+
+    _clientRequestId =
+        const Uuid().v4();
+
+    _clientRequestPayloadSignature =
+        payloadSignature;
+  }
+
+
+  requestPayload['clientRequestId'] =
+      _clientRequestId;
+}
 
       final String requestBody = jsonEncode(requestPayload);
 
@@ -2143,14 +2181,11 @@ if (selectedCustomerId.isNotEmpty) {
 
           _selectedAllocation = null;
 
-          _isEditingSale = false;
-
-          if (!wasEditing) {
-            // The backend confirmed this logical bill.  The next new bill
-            // must get a fresh idempotency key; retries before this point
-            // intentionally keep the same key.
-            _clientRequestId = null;
-          }
+            _isEditingSale = false;
+if (!wasEditing) {
+  _clientRequestId = null;
+  _clientRequestPayloadSignature = null;
+}
 
           _editingSaleId = null;
 
@@ -2441,6 +2476,7 @@ if (selectedCustomerId.isNotEmpty) {
                       _isEditingSale = false;
 
                       _clientRequestId = null;
+_clientRequestPayloadSignature = null;
 
                       _editingSaleId = null;
 
@@ -2705,7 +2741,7 @@ if (selectedCustomerId.isNotEmpty) {
 
   List<SaleModel> get _filteredSales {
     final query = _searchController.text.trim().toLowerCase();
-    final now = DateTime.now();
+    final now = IndiaBusinessDate.today();
     return _salesSource.where((sale) {
       final matchesProduct = sale.products.any(
         (product) => product.productName.toLowerCase().contains(query),
@@ -2719,25 +2755,26 @@ if (selectedCustomerId.isNotEmpty) {
       if (!matchesQuery) return false;
       return switch (_selectedPeriod) {
         _SalesPeriod.all => true,
-        _SalesPeriod.today => _sameDay(sale.date, now),
-        _SalesPeriod.week => sale.date.isAfter(
+        _SalesPeriod.today => _sameDay(sale.businessDay, now),
+        _SalesPeriod.week => sale.businessDay.isAfter(
           now.subtract(const Duration(days: 7)),
         ),
         _SalesPeriod.month =>
-          sale.date.year == now.year && sale.date.month == now.month,
+          sale.businessDay.year == now.year &&
+              sale.businessDay.month == now.month,
       };
     }).toList();
   }
 
   double get _monthlySalesTotal {
-    final now = DateTime.now();
+    final now = IndiaBusinessDate.today();
 
     return _salesSource
         .where(
           (sale) =>
               !_isSaleCancelled(sale) &&
-              sale.date.year == now.year &&
-              sale.date.month == now.month,
+              sale.businessDay.year == now.year &&
+              sale.businessDay.month == now.month,
         )
         .fold<double>(0, (total, sale) => total + sale.total);
   }
@@ -2965,7 +3002,7 @@ if (selectedCustomerId.isNotEmpty) {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  '${_formatDate(sale.date)}  •  ${_formatTime(sale.date)}',
+                  '${_formatDate(sale.businessDay)}  •  ${_formatTime(sale.date)}',
                   style: const TextStyle(color: _muted, fontSize: 12),
                 ),
                 const SizedBox(height: 10),
@@ -3299,7 +3336,7 @@ if (selectedCustomerId.isNotEmpty) {
 
                               _saleDetailRow(
                                 'Date',
-                                '${_formatDate(sale.date)} • ${_formatTime(sale.date)}',
+                                '${_formatDate(sale.businessDay)} • ${_formatTime(sale.date)}',
                               ),
 
                               _saleDetailDivider(),
@@ -3832,7 +3869,8 @@ if (selectedCustomerId.isNotEmpty) {
     setState(() {
       _isEditingSale = true;
 
-      _clientRequestId = null;
+     _clientRequestId = null;
+_clientRequestPayloadSignature = null;
 
       _editingSaleId = sale.id;
 
@@ -3840,7 +3878,7 @@ if (selectedCustomerId.isNotEmpty) {
 
       _isCreatingSale = true;
 
-      _selectedDate = sale.date;
+      _selectedDate = sale.businessDay;
 
       _selectedCustomer = customer;
 
@@ -3963,7 +4001,8 @@ if (selectedCustomerId.isNotEmpty) {
 
       _isEditingSale = false;
 
-      _clientRequestId = null;
+     _clientRequestId = null;
+_clientRequestPayloadSignature = null;
 
       _editingSaleId = null;
 
@@ -3971,7 +4010,7 @@ if (selectedCustomerId.isNotEmpty) {
 
       _isCreatingSale = true;
 
-      _selectedDate = DateTime.now();
+      _selectedDate = IndiaBusinessDate.today();
 
       _selectedCustomer = null;
 
@@ -4141,7 +4180,7 @@ if (selectedCustomerId.isNotEmpty) {
 
   Widget _buildDateField() {
     return InkWell(
-      onTap: _pickDate,
+      onTap: _isSalesman ? null : _pickDate,
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -4154,7 +4193,10 @@ if (selectedCustomerId.isNotEmpty) {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  const Text('SALE DATE', style: _fieldLabelStyle),
+                  Text(
+                    _isSalesman ? 'SALE DATE (INDIA)' : 'SALE DATE',
+                    style: _fieldLabelStyle,
+                  ),
                   const SizedBox(height: 3),
                   Text(
                     _formatDate(_selectedDate),
@@ -4381,9 +4423,6 @@ if (selectedCustomerId.isNotEmpty) {
 
                       _cart.clear();
 
-                      if (!_isEditingSale) {
-                        _clientRequestId = null;
-                      }
 
                       _customerController.text =
                           customer['name']?.toString() ?? '';
@@ -6567,7 +6606,10 @@ if (selectedCustomerId.isNotEmpty) {
               const SizedBox(width: 9),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _cart.isEmpty ? null : _completeSale,
+                 onPressed:
+    _cart.isEmpty || _savingSale
+        ? null
+        : _completeSale,
                   icon: Icon(
                     _isEditingSale
                         ? Icons.edit_outlined
@@ -6908,7 +6950,10 @@ if (selectedCustomerId.isNotEmpty) {
           width: double.infinity,
           height: 50,
           child: ElevatedButton.icon(
-            onPressed: _cart.isEmpty ? null : _completeSale,
+           onPressed:
+    _cart.isEmpty || _savingSale
+        ? null
+        : _completeSale,
             icon: const Icon(Icons.check_circle_outline_rounded),
             label: const Text(
               'Complete Sale',

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
+
 
 import '../../config/api_config.dart';
 import '../../models/access_models.dart';
@@ -98,8 +100,11 @@ String _purchaseStatusFilter = 'all';
 
   bool _loadingSuppliers = false;
   bool _loadingMasterProducts = false;
-  bool _loadingPurchases = true;
-  bool _savingPurchase = false;
+bool _loadingPurchases = true;
+bool _savingPurchase = false;
+
+String? _purchaseRequestId;
+String? _purchaseRequestPayloadSignature;
 
   final List<String> paymentTypes = ['Credit', 'Cash', 'UPI', 'Bank Transfer'];
 
@@ -1041,6 +1046,9 @@ void _clearPurchaseHistoryFilters() {
   _editingPurchaseId = null;
 
   _editingPurchaseNo = null;
+
+_purchaseRequestId = null;
+_purchaseRequestPayloadSignature = null;
 }
 
   void _clearPurchase() {
@@ -1109,23 +1117,90 @@ Future<void> _savePurchase() async {
     // REQUEST BODY - SAME FOR CREATE AND EDIT
     // ============================================================
 
-    final requestBody = jsonEncode({
-      'purchaseDate': purchaseDate.toIso8601String(),
-      'supplierId': selectedSupplierId,
-      'invoiceNo': invoiceController.text.trim(),
-      'billDate': billDate.toIso8601String(),
-      'paymentType': selectedPaymentType,
-      'dueDate': dueDate.toIso8601String(),
-      'godown': selectedGodown,
-      'remarks': remarksController.text.trim(),
-      'products': products
+final Map<String, dynamic> requestPayload =
+    <String, dynamic>{
+
+  'purchaseDate':
+      purchaseDate.toIso8601String(),
+
+  'supplierId':
+      selectedSupplierId,
+
+  'invoiceNo':
+      invoiceController.text.trim(),
+
+  'billDate':
+      billDate.toIso8601String(),
+
+  'paymentType':
+      selectedPaymentType,
+
+  'dueDate':
+      dueDate.toIso8601String(),
+
+  'godown':
+      selectedGodown,
+
+  'remarks':
+      remarksController.text.trim(),
+
+  'products':
+      products
           .map(
             (item) => item.toJson(),
           )
           .toList(),
-      'discount': discount,
-      'taxPercentage': taxPercentage,
-    });
+
+  'discount':
+      discount,
+
+  'taxPercentage':
+      taxPercentage,
+};
+
+
+// ============================================================
+// PURCHASE CREATE IDEMPOTENCY
+//
+// Same exact retry:
+// -> same clientRequestId
+//
+// Payload changed:
+// -> fresh clientRequestId
+//
+// Edit:
+// -> no Create clientRequestId
+// ============================================================
+
+if (!_isEditingPurchase) {
+
+  final String payloadSignature =
+      jsonEncode(
+        requestPayload,
+      );
+
+
+  if (_purchaseRequestId == null ||
+      _purchaseRequestPayloadSignature !=
+          payloadSignature) {
+
+    _purchaseRequestId =
+        const Uuid().v4();
+
+    _purchaseRequestPayloadSignature =
+        payloadSignature;
+  }
+
+
+  requestPayload['clientRequestId'] =
+      _purchaseRequestId;
+}
+
+
+final String requestBody =
+    jsonEncode(
+      requestPayload,
+    );
 
     final headers = {
       'Content-Type': 'application/json',
@@ -1184,6 +1259,10 @@ Future<void> _savePurchase() async {
             response.statusCode == 201) &&
         data['success'] == true) {
       final wasEditing = _isEditingPurchase;
+      if (!wasEditing) {
+  _purchaseRequestId = null;
+  _purchaseRequestPayloadSignature = null;
+}
 
       _showMessage(
         data['message']?.toString() ??
@@ -3097,10 +3176,13 @@ Widget _buildSavedPurchaseCard(
       return;
     }
 
-    setState(() {
-      _isEditingPurchase = true;
+  setState(() {
+  _purchaseRequestId = null;
+  _purchaseRequestPayloadSignature = null;
 
-      _editingPurchaseId = purchase.id;
+  _isEditingPurchase = true;
+
+  _editingPurchaseId = purchase.id;
 
       _editingPurchaseNo = purchase.number;
 

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
-
+import 'package:uuid/uuid.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -984,12 +984,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
           customer.collectibleOutstanding.toStringAsFixed(2);
     }
 
-    String? clientRequestId;
-    String generateNewRequestId() {
-      final randomPart =
-          math.Random().nextInt(0xFFFFFF).toRadixString(16).padLeft(6, '0');
-      return 'REQ-${DateTime.now().millisecondsSinceEpoch}-$randomPart-${customer.customerId}';
-    }
+String? clientRequestId;
+String? clientRequestPayloadSignature;
 
     void reindexSelected() {
       final selected = openItems
@@ -2041,39 +2037,117 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                 }
                               }
 
-                              clientRequestId ??= generateNewRequestId();
+                             final Map<String, dynamic>
+    requestPayload =
+    <String, dynamic>{
 
-                              setState(() {
-                                _isSaving = true;
-                              });
-                              updateSheet(() {});
+  'customerId':
+      customer.customerId,
 
-                              try {
-                                final Map<String, dynamic> requestPayload = {
-                                  'customerId': customer.customerId,
-                                  'amount': amount,
-                                  'paymentMode': paymentMode,
-                                  'collectionDate':
-                                      collectionDate.toIso8601String(),
-                                  'referenceNo':
-                                      referenceController.text.trim(),
-                                  'remarks': remarksController.text.trim(),
-                                  'clientRequestId': clientRequestId,
-                                  'allocationMode': allocationMode,
-                                };
+  'amount':
+      amount,
 
-                                if (allocationMode == 'MANUAL') {
-                                  requestPayload['selectedAllocations'] =
-                                      selectedItems
-                                          .map(
-                                            (_SelectableBillItem i) => {
-                                              'sourceType': i.sourceType,
-                                              'referenceId': i.referenceId,
-                                              'amountApplied': i.appliedAmount,
-                                            },
-                                          )
-                                          .toList();
-                                }
+  'paymentMode':
+      paymentMode,
+
+  'collectionDate':
+      collectionDate
+          .toIso8601String(),
+
+  'referenceNo':
+      referenceController
+          .text
+          .trim(),
+
+  'remarks':
+      remarksController
+          .text
+          .trim(),
+
+  'allocationMode':
+      allocationMode,
+};
+
+
+if (
+  allocationMode ==
+  'MANUAL'
+) {
+
+  requestPayload[
+    'selectedAllocations'
+  ] =
+      selectedItems
+          .map(
+            (
+              _SelectableBillItem
+                  item
+            ) =>
+                <String,
+                    dynamic>{
+
+              'sourceType':
+                  item.sourceType,
+
+              'referenceId':
+                  item.referenceId,
+
+              'amountApplied':
+                  item.appliedAmount,
+            },
+          )
+          .toList();
+}
+
+
+// ============================================================
+// COLLECTION IDEMPOTENCY
+//
+// Exact retry:
+// -> same clientRequestId
+//
+// Payload changed:
+// -> fresh clientRequestId
+// ============================================================
+
+final String
+    payloadSignature =
+    jsonEncode(
+      requestPayload,
+    );
+
+
+if (
+  clientRequestId ==
+      null ||
+  clientRequestPayloadSignature !=
+      payloadSignature
+) {
+
+  clientRequestId =
+      const Uuid().v4();
+
+  clientRequestPayloadSignature =
+      payloadSignature;
+}
+
+
+requestPayload[
+  'clientRequestId'
+] =
+    clientRequestId;
+
+
+setState(() {
+  _isSaving = true;
+});
+
+updateSheet(() {});
+
+
+try {
+
+                          
 
                                 final response = await http.post(
                                   Uri.parse(
@@ -2099,21 +2173,34 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                   );
                                 }
 
-                                if (response.statusCode < 200 ||
-                                    response.statusCode >= 300 ||
-                                    decoded is! Map ||
-                                    decoded['success'] != true) {
-                                  throw Exception(
-                                    decoded is Map
-                                        ? (decoded['message'] ??
-                                                'Unable to save collection.')
-                                            .toString()
-                                        : 'Unable to save collection.',
-                                  );
-                                }
+                            if (response.statusCode < 200 ||
+    response.statusCode >= 300 ||
+    decoded is! Map ||
+    decoded['success'] != true) {
+  throw Exception(
+    decoded is Map
+        ? (decoded['message'] ??
+                'Unable to save collection.')
+            .toString()
+        : 'Unable to save collection.',
+  );
+}
 
-                                if (!mounted || !sheetContext.mounted) return;
-                                Navigator.pop(sheetContext);
+
+// ============================================================
+// BACKEND CONFIRMED THIS LOGICAL COLLECTION
+//
+// Only now clear the idempotency state.
+// Network/API failure must keep the same request ID.
+// ============================================================
+
+clientRequestId = null;
+clientRequestPayloadSignature = null;
+
+
+if (!mounted || !sheetContext.mounted) return;
+
+Navigator.pop(sheetContext);
 
                                 final data = decoded['data'];
                                 final receiptNo = data is Map

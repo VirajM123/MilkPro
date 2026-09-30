@@ -1,3 +1,5 @@
+import '../utils/india_business_date.dart';
+
 // ============================================================
 // SALE PRODUCT MODEL
 // ============================================================
@@ -63,6 +65,7 @@ class SaleModel {
     required this.paymentMode,
     required this.grandTotal,
     required this.status,
+    this.businessDate = '',
     this.payments =
         const <Map<String, dynamic>>[],
     this.paidAmount = 0,
@@ -81,6 +84,15 @@ class SaleModel {
   final String saleId;
 
   final DateTime date;
+
+  /// India business-date key returned by the API for stock and reporting.
+  /// Legacy records without this field fall back to [date]'s calendar fields,
+  /// so historical bills remain readable without another time-zone conversion.
+  final String businessDate;
+
+  DateTime get businessDay =>
+      IndiaBusinessDate.tryDateFromKey(businessDate) ??
+      DateTime(date.year, date.month, date.day);
 
   // ============================================================
   // CUSTOMER
@@ -161,18 +173,24 @@ class SaleModel {
   // Total = 1.75
   //
   // Never convert this to int.
-  double get totalQuantity {
-    return products.fold<double>(
-      0.0,
-      (
-        double sum,
-        SaleProductModel item,
-      ) {
-        return sum +
-            item.quantity;
-      },
-    );
-  }
+ double get totalQuantity {
+  final int units =
+      products.fold<int>(
+    0,
+    (
+      int sum,
+      SaleProductModel item,
+    ) {
+      return sum +
+          (
+            item.quantity *
+            100
+          ).round();
+    },
+  );
+
+  return units / 100;
+}
 
   double get total =>
       grandTotal;

@@ -9,6 +9,7 @@ import '../../models/access_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/data_sync_service.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/india_business_date.dart';
 import '../../widgets/app_widgets.dart';
 import '../common/access_denied_screen.dart';
 import '../returns/return_settlement_screen.dart';
@@ -60,7 +61,7 @@ final List<Map<String, dynamic>> _customers =
 final List<Map<String, dynamic>> _allocations =
     <Map<String, dynamic>>[];
 
-DateTime _selectedDate = DateTime.now();
+DateTime _selectedDate = IndiaBusinessDate.today();
 String _allocationSection = 'today';
 
 Map<String, int> _allocationSummary = <String, int>{
@@ -82,7 +83,7 @@ void initState() {
   WidgetsBinding.instance.addObserver(this);
   DataSyncService.instance.addListener(_onDataSyncChanged);
 
-  _selectedDate = DateTime.now();
+  _selectedDate = IndiaBusinessDate.today();
 
   _loadAllocationData();
 
@@ -475,32 +476,14 @@ final response =
                 ?.toString() ??
             '';
 
-    DateTime allocationDate =
-        DateTime.now();
-
-    final rawDate =
-        allocation['allocationDate'];
-
-    if (rawDate != null) {
-      final str = rawDate.toString().trim();
-      final parsed = DateTime.tryParse(str);
-      if (parsed != null) {
-        if (str.length == 10 && !str.contains('T')) {
-          final parts = str.split('-');
-          if (parts.length == 3) {
-            allocationDate = DateTime(
-              int.parse(parts[0]),
-              int.parse(parts[1]),
-              int.parse(parts[2]),
-            );
-          } else {
-            allocationDate = parsed.toLocal();
-          }
-        } else {
-          allocationDate = parsed.toLocal();
-        }
-      }
-    }
+    final Object? rawBusinessDate =
+        allocation['businessDate'] ?? allocation['allocationDate'];
+    final DateTime allocationDate = IndiaBusinessDate.dateFromApi(
+      rawBusinessDate,
+    );
+    final String businessDate =
+        IndiaBusinessDate.apiDateKey(rawBusinessDate) ??
+        IndiaBusinessDate.toDateKey(allocationDate);
 
     final products =
         allocation['products'];
@@ -532,6 +515,9 @@ final response =
 
         'date':
             allocationDate,
+
+        'businessDate':
+            businessDate,
 
         'routeId':
             allocation['routeId']
@@ -697,12 +683,22 @@ void _showApiMessage(String message) {
     return value.toDouble();
   }
 
+
   return double.tryParse(
         value?.toString().trim() ?? '',
       ) ??
       0.0;
 }
 
+  double _normalizeQty(
+  num value,
+) {
+  return (
+        value.toDouble() *
+        100
+      ).round() /
+      100;
+}
 String _formatQty(num value) {
   final double number =
       value.toDouble();
@@ -773,7 +769,9 @@ List<Map<String, dynamic>>
         );
   }
 
-  return total;
+  return _normalizeQty(
+  total,
+);
 }
 
 double get _totalSold {
@@ -786,7 +784,9 @@ double get _totalSold {
         );
   }
 
-  return total;
+  return _normalizeQty(
+  total,
+);
 }
 
 double get _totalReturned {
@@ -799,7 +799,9 @@ double get _totalReturned {
         );
   }
 
-  return total;
+  return _normalizeQty(
+  total,
+);
 }
 double get _totalReconciled {
   double total = 0;
@@ -816,7 +818,9 @@ double get _totalReconciled {
         );
   }
 
-  return total;
+return _normalizeQty(
+  total,
+);
 }
 
 double get _totalPending {
@@ -834,7 +838,9 @@ double get _totalPending {
         );
   }
 
-  return total;
+ return _normalizeQty(
+  total,
+);
 }
 
   int get _totalRoutes {
@@ -866,7 +872,9 @@ double get _totalPending {
         );
   }
 
-  return total;
+  return _normalizeQty(
+  total,
+);
 }
 
   int get _selectedDateRoutes {
@@ -1190,10 +1198,11 @@ Future<void> _openEditAllocation(
             .toString(),
 
     'allocationDate':
-        first['date'] is DateTime
-            ? (first['date'] as DateTime)
-                .toIso8601String()
-            : first['date']?.toString(),
+        (first['businessDate'] ??
+                (first['date'] is DateTime
+                    ? IndiaBusinessDate.toDateKey(first['date'] as DateTime)
+                    : null))
+            ?.toString(),
 
     'routeId':
         (first['routeId'] ?? '')
@@ -1316,7 +1325,19 @@ Future<void> _openEditAllocation(
   // ============================================================
 
   Future<void> _showReturnDialog(Map<String, dynamic> allocation) async {
-    final bool hasSettlement = allocation['settlement'] is Map;
+ final bool hasSettlement =
+    _asDouble(
+      allocation[
+        'returnedQty'
+      ],
+    ) >
+        0 ||
+    _asDouble(
+      allocation[
+        'reconciledQty'
+      ],
+    ) >
+        0;
 
     final Map<String, dynamic>? result = await Navigator.of(context)
         .push<Map<String, dynamic>>(
@@ -2132,7 +2153,7 @@ Widget _allocationSectionButton({
 
     final DateTime date = first['date'] is DateTime
         ? first['date'] as DateTime
-        : DateTime.now();
+        : IndiaBusinessDate.today();
 
     final String salesman = (first['salesman'] ?? '').toString();
     final String route = (first['route'] ?? '').toString();
@@ -2543,8 +2564,8 @@ final double remaining =
     );
 
 final bool hasSettlement =
-    item['settlement'] is Map;
-
+    returned > 0 ||
+    reconciled > 0;
     
 
     return Container(
@@ -3154,7 +3175,7 @@ class _AssignAllocationPageState extends State<LegacyAssignAllocationPage> {
   void initState() {
     super.initState();
 
-    _selectedDate = DateTime.now();
+    _selectedDate = IndiaBusinessDate.today();
 
     if (widget.routes.isNotEmpty) {
       _selectedRoute = widget.routes.first;
