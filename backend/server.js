@@ -25767,7 +25767,7 @@ amount:
 
 appliedAmount:
   roundMoney2(
-    appliedAmount
+    collection.appliedAmount || 0
   ),
 
 advanceAmount:
@@ -25777,43 +25777,23 @@ advanceAmount:
 
 previousOutstanding:
   roundMoney2(
-    collectibleOutstanding
+    collection.previousOutstanding || 0
   ),
 
 remainingOutstanding:
   roundMoney2(
-    newOutstanding
+    collection.remainingOutstanding || 0
   ),
 
 previousAdvanceBalance:
   roundMoney2(
-    previousAdvanceBalance
+    collection.previousAdvanceBalance || 0
   ),
 
 currentAdvanceBalance:
   roundMoney2(
-    previousAdvanceBalance
+    collection.currentAdvanceBalance || 0
   ),
-
-          previousOutstanding:
-            Number(
-              (collection.previousOutstanding ?? 0).toFixed(2)
-            ),
-
-          remainingOutstanding:
-            Number(
-              (collection.remainingOutstanding ?? 0).toFixed(2)
-            ),
-
-          previousAdvanceBalance:
-            Number(
-              (collection.previousAdvanceBalance ?? 0).toFixed(2)
-            ),
-
-          currentAdvanceBalance:
-            Number(
-              (collection.currentAdvanceBalance ?? 0).toFixed(2)
-            ),
 
           allocations:
             Array.isArray(collection.allocations)
