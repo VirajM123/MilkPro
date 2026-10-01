@@ -609,9 +609,9 @@ const supplierSchema = new mongoose.Schema(
       default: 0,
     },
     paymentRevision: {
-  type: Number,
-  default: 0,
-},
+      type: Number,
+      default: 0,
+    },
 
     isActive: {
       type: Boolean,
@@ -826,26 +826,26 @@ const purchaseSchema = new mongoose.Schema(
       trim: true,
     },
 
-purchaseNo: {
-  type: String,
-  required: true,
-  trim: true,
-},
+    purchaseNo: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-clientRequestId: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    clientRequestId: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    requestFingerprint: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
 
-purchaseDate: {
+    purchaseDate: {
       type: Date,
       required: true,
     },
@@ -1097,46 +1097,46 @@ const stockSchema = new mongoose.Schema(
     },
 
     rate: {
-  type: Number,
-  default: 0,
-},
+      type: Number,
+      default: 0,
+    },
 
-transactionDate: {
-  type: Date,
-  default: Date.now,
-  index: true,
-},
+    transactionDate: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
 
-variant: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    variant: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-unit: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    unit: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-amount: {
-  type: Number,
-  default: 0,
-},
+    amount: {
+      type: Number,
+      default: 0,
+    },
 
-remarks: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    remarks: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-createdRole: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    createdRole: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-godown: {
+    godown: {
       type: String,
       default: "Main Godown",
       trim: true,
@@ -1260,15 +1260,15 @@ const saleSchema = new mongoose.Schema(
       index: true,
     },
     clientRequestId: {
-  type: String,
-  default: "",
-  trim: true,
-},
-requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+      type: String,
+      default: "",
+      trim: true,
+    },
+    requestFingerprint: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
     saleDate: {
       type: Date,
@@ -1680,25 +1680,25 @@ const allocationSchema = new mongoose.Schema(
       index: true,
     },
     clientRequestId: {
-  type: String,
-  default: "",
-  trim: true,
-},
-requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+      type: String,
+      default: "",
+      trim: true,
+    },
+    requestFingerprint: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-stockRevision: {
-  type: Number,
-  default: 0,
-},
+    stockRevision: {
+      type: Number,
+      default: 0,
+    },
 
-settlementRequestIds: {
-  type: [String],
-  default: [],
-},
+    settlementRequestIds: {
+      type: [String],
+      default: [],
+    },
 
     allocationDate: {
       type: Date,
@@ -1987,35 +1987,35 @@ const collectionSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-      requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    requestFingerprint: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-  collectionDate: {
-  type: Date,
-  required: true,
-  default: Date.now,
-},
+    collectionDate: {
+      type: Date,
+      required: true,
+      default: Date.now,
+    },
 
-// ======================================================
-// INDIA ACCOUNTING BUSINESS DATE
-//
-// collectionDate = real transaction/admin timestamp
-// businessDate   = authoritative YYYY-MM-DD India day
-//
-// New records use businessDate.
-// Historical records can fall back to collectionDate.
-// ======================================================
+    // ======================================================
+    // INDIA ACCOUNTING BUSINESS DATE
+    //
+    // collectionDate = real transaction/admin timestamp
+    // businessDate   = authoritative YYYY-MM-DD India day
+    //
+    // New records use businessDate.
+    // Historical records can fall back to collectionDate.
+    // ======================================================
 
-businessDate: {
-  type: String,
-  trim: true,
-  index: true,
-},
+    businessDate: {
+      type: String,
+      trim: true,
+      index: true,
+    },
 
-customerId: {
+    customerId: {
       type: String,
       required: true,
       uppercase: true,
@@ -2278,15 +2278,15 @@ const customerOutstandingSchema =
         index: true,
       },
       clientRequestId: {
-  type: String,
-  default: "",
-  trim: true,
-},
-requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+        type: String,
+        default: "",
+        trim: true,
+      },
+      requestFingerprint: {
+        type: String,
+        default: "",
+        trim: true,
+      },
 
       adjustmentDate: {
         type: Date,
@@ -2295,10 +2295,10 @@ requestFingerprint: {
         index: true,
       },
       businessDate: {
-  type: String,
-  trim: true,
-  index: true,
-},  
+        type: String,
+        trim: true,
+        index: true,
+      },
 
       customerId: {
         type: String,
@@ -2471,25 +2471,25 @@ const paymentSchema = new mongoose.Schema(
     },
 
     clientRequestId: {
-  type: String,
-  default: "",
-  trim: true,
-},
-requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+      type: String,
+      default: "",
+      trim: true,
+    },
+    requestFingerprint: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     paymentDate: {
       type: Date,
       required: true,
       default: Date.now,
     },
     businessDate: {
-  type: String,
-  trim: true,
-  index: true,
-},
+      type: String,
+      trim: true,
+      index: true,
+    },
 
     supplierId: {
       type: String,
@@ -2712,9 +2712,9 @@ function roundMoney2(value) {
       (
         num +
         Math.sign(num) *
-          Number.EPSILON
+        Number.EPSILON
       ) *
-        100
+      100
     ) / 100;
 
   return Object.is(
@@ -2832,7 +2832,7 @@ function normalizeFingerprintValue(
   if (
     value !== null &&
     typeof value ===
-      "object"
+    "object"
   ) {
 
     const result = {};
@@ -3151,24 +3151,24 @@ async function validateSupplierPayablePosition({
     return;
   }
   const supplier =
-  await Supplier.findOne({
-    farmId,
+    await Supplier.findOne({
+      farmId,
 
-    supplierId:
-      normalizedSupplierId,
-  })
-    .select(
-      "openingBalance"
-    )
-    .session(session)
-    .lean();
+      supplierId:
+        normalizedSupplierId,
+    })
+      .select(
+        "openingBalance"
+      )
+      .session(session)
+      .lean();
 
 
-const openingBalance =
-  roundMoney2(
-    supplier?.openingBalance ||
-    0
-  );
+  const openingBalance =
+    roundMoney2(
+      supplier?.openingBalance ||
+      0
+    );
 
 
   const purchaseFilter = {
@@ -3268,51 +3268,51 @@ const openingBalance =
   }
 
 
-const totalPayable =
-  roundMoney2(
-    openingBalance +
-    totalCreditPurchases
-  );
-
-
-if (
-  totalPaid >
-  roundMoney2(
-    totalPayable +
-    0.001
-  )
-) {
-
-  const error =
-    new Error(
-      `Cannot modify this purchase because supplier payments of ₹${totalPaid.toFixed(
-        2
-      )} would exceed remaining supplier payable of ₹${totalPayable.toFixed(
-        2
-      )}. Cancel or adjust supplier payments first.`
+  const totalPayable =
+    roundMoney2(
+      openingBalance +
+      totalCreditPurchases
     );
 
-  error.statusCode =
-    409;
 
-  throw error;
-}
-
-return {
-  openingBalance,
-
-  totalCreditPurchases,
-
-  totalPayable,
-
-  totalPaid,
-
-  outstanding:
+  if (
+    totalPaid >
     roundMoney2(
-      totalPayable -
-      totalPaid
-    ),
-};
+      totalPayable +
+      0.001
+    )
+  ) {
+
+    const error =
+      new Error(
+        `Cannot modify this purchase because supplier payments of ₹${totalPaid.toFixed(
+          2
+        )} would exceed remaining supplier payable of ₹${totalPayable.toFixed(
+          2
+        )}. Cancel or adjust supplier payments first.`
+      );
+
+    error.statusCode =
+      409;
+
+    throw error;
+  }
+
+  return {
+    openingBalance,
+
+    totalCreditPurchases,
+
+    totalPayable,
+
+    totalPaid,
+
+    outstanding:
+      roundMoney2(
+        totalPayable -
+        totalPaid
+      ),
+  };
 }
 // ======================================================
 // SYSTEM ATOMIC SEQUENCE
@@ -3361,7 +3361,7 @@ const Sequence =
     sequenceSchema,
     "SYS_SEQUENCE"
   );
-  async function getNextSequence({
+async function getNextSequence({
   key,
   session = null,
 }) {
@@ -3597,7 +3597,7 @@ async function getNextDocumentSequence({
       const documentNo =
         (
           document[
-            numberField
+          numberField
           ] || ""
         )
           .toString()
@@ -3626,7 +3626,7 @@ async function getNextDocumentSequence({
           numericPart
         ) &&
         numericPart >
-          currentMax
+        currentMax
       ) {
 
         currentMax =
@@ -3694,16 +3694,16 @@ const expenseSchema = new mongoose.Schema(
       index: true,
     },
     clientRequestId: {
-  type: String,
-  default: "",
-  trim: true,
-},
+      type: String,
+      default: "",
+      trim: true,
+    },
 
-requestFingerprint: {
-  type: String,
-  default: "",
-  trim: true,
-},
+    requestFingerprint: {
+      type: String,
+      default: "",
+      trim: true,
+    },
 
     expenseDate: {
       type: Date,
@@ -4100,8 +4100,8 @@ async function generatePurchaseNo(
   session = null
 ) {
 
-const year =
-  getIndiaDocumentYear();
+  const year =
+    getIndiaDocumentYear();
 
 
   const prefix =
@@ -4176,8 +4176,8 @@ async function generateSaleNo(
   session = null
 ) {
 
-const year =
-  getIndiaDocumentYear();
+  const year =
+    getIndiaDocumentYear();
 
 
   const prefix =
@@ -4252,8 +4252,8 @@ async function generateAllocationNo(
   session = null
 ) {
 
-const year =
-  getIndiaDocumentYear(); 
+  const year =
+    getIndiaDocumentYear();
 
 
   const prefix =
@@ -4329,7 +4329,7 @@ async function generateReceiptNo(
 ) {
 
   const year =
-  getIndiaDocumentYear();
+    getIndiaDocumentYear();
 
 
   const prefix =
@@ -4403,8 +4403,8 @@ async function generateCustomerOutstandingNo(
   session = null
 ) {
 
-const year =
-  getIndiaDocumentYear();
+  const year =
+    getIndiaDocumentYear();
 
 
   const prefix =
@@ -4869,8 +4869,8 @@ async function generatePaymentNo(
   session = null
 ) {
 
-const year =
-  getIndiaDocumentYear();
+  const year =
+    getIndiaDocumentYear();
 
 
   const prefix =
@@ -5076,19 +5076,19 @@ async function ensureCollectionIndexes() {
       );
     }
 
-await Collection.createIndexes();
+    await Collection.createIndexes();
 
-await Sale.createIndexes();
+    await Sale.createIndexes();
 
-await Allocation.createIndexes();
+    await Allocation.createIndexes();
 
-await CustomerOutstanding.createIndexes();
+    await CustomerOutstanding.createIndexes();
 
-await Payment.createIndexes();
+    await Payment.createIndexes();
 
-await Purchase.createIndexes();
+    await Purchase.createIndexes();
 
-await Expense.createIndexes();
+    await Expense.createIndexes();
 
   } catch (error) {
     console.error(
@@ -6198,14 +6198,14 @@ app.post(
   requirePermission("customersCreate"),
   async (req, res) => {
 
-const session =
-  await mongoose.startSession();
+    const session =
+      await mongoose.startSession();
 
 
 
 
 
-try {
+    try {
 
 
       let openingOutstandingRecord =
@@ -9365,8 +9365,8 @@ app.post(
     const requestFingerprint =
       normalizedClientRequestId
         ? createRequestFingerprint(
-            req.body
-          )
+          req.body
+        )
         : "";
 
 
@@ -9445,55 +9445,55 @@ app.post(
             taxPercentage,
           } = req.body;
 
-      // ================================================
-// IDEMPOTENCY INSIDE TRANSACTION
-// ================================================
+          // ================================================
+          // IDEMPOTENCY INSIDE TRANSACTION
+          // ================================================
 
-if (
-  normalizedClientRequestId
-) {
+          if (
+            normalizedClientRequestId
+          ) {
 
-  const existing =
-    await Purchase.findOne({
-      farmId,
+            const existing =
+              await Purchase.findOne({
+                farmId,
 
-      clientRequestId:
-        normalizedClientRequestId,
-    }).session(session);
-
-
-  if (existing) {
-
-    const conflict =
-      getIdempotencyConflict(
-        existing,
-        requestFingerprint
-      );
+                clientRequestId:
+                  normalizedClientRequestId,
+              }).session(session);
 
 
-    if (conflict) {
+            if (existing) {
 
-      const error =
-        new Error(
-          conflict.message
-        );
-
-      error.statusCode =
-        409;
-
-      throw error;
-    }
+              const conflict =
+                getIdempotencyConflict(
+                  existing,
+                  requestFingerprint
+                );
 
 
-    savedPurchase =
-      existing;
+              if (conflict) {
 
-    idempotentReplay =
-      true;
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-    return;
-  }
-}
+                error.statusCode =
+                  409;
+
+                throw error;
+              }
+
+
+              savedPurchase =
+                existing;
+
+              idempotentReplay =
+                true;
+
+              return;
+            }
+          }
 
           // ============================================
           // VALIDATION
@@ -9554,13 +9554,13 @@ if (
             throw error;
           }
           await lockSupplierFinancialPosition({
-  farmId,
+            farmId,
 
-  supplierId:
-    supplier.supplierId,
+            supplierId:
+              supplier.supplierId,
 
-  session,
-});
+            session,
+          });
 
           // ============================================
           // VERIFY PRODUCTS
@@ -9691,11 +9691,11 @@ if (
           const purchaseId =
             await generatePurchaseId();
 
-        const purchaseNo =
-  await generatePurchaseNo(
-    farmId,
-    session
-  );
+          const purchaseNo =
+            await generatePurchaseNo(
+              farmId,
+              session
+            );
 
           // ============================================
           // CREATE PURCHASE
@@ -9705,18 +9705,18 @@ if (
             await Purchase.create(
               [
                 {
-                 farmId,
+                  farmId,
 
-purchaseId,
-purchaseNo,
+                  purchaseId,
+                  purchaseNo,
 
-clientRequestId:
-  normalizedClientRequestId,
+                  clientRequestId:
+                    normalizedClientRequestId,
 
-requestFingerprint:
-  requestFingerprint,
+                  requestFingerprint:
+                    requestFingerprint,
 
-purchaseDate:
+                  purchaseDate:
                     purchaseDate
                       ? new Date(
                         purchaseDate
@@ -9890,84 +9890,84 @@ purchaseDate:
         }
       );
 
-  return res
-  .status(
-    idempotentReplay
-      ? 200
-      : 201
-  )
-  .json({
+      return res
+        .status(
+          idempotentReplay
+            ? 200
+            : 201
+        )
+        .json({
 
-    success: true,
+          success: true,
 
-    message:
-      idempotentReplay
-        ? "Purchase already recorded."
-        : "Purchase saved successfully.",
+          message:
+            idempotentReplay
+              ? "Purchase already recorded."
+              : "Purchase saved successfully.",
 
-    data:
-      savedPurchase,
-  });
+          data:
+            savedPurchase,
+        });
 
     } catch (error) {
 
-   console.error(
-  "ADD PURCHASE ERROR:",
-  error
-);
-
-
-// ================================================
-// DUPLICATE REQUEST RACE
-// ================================================
-
-if (
-  error.code === 11000 &&
-  normalizedClientRequestId
-) {
-
-  const existing =
-    await Purchase.findOne({
-      farmId,
-
-      clientRequestId:
-        normalizedClientRequestId,
-    }).lean();
-
-
-  if (existing) {
-
-    const conflict =
-      getIdempotencyConflict(
-        existing,
-        requestFingerprint
+      console.error(
+        "ADD PURCHASE ERROR:",
+        error
       );
 
 
-    if (conflict) {
+      // ================================================
+      // DUPLICATE REQUEST RACE
+      // ================================================
+
+      if (
+        error.code === 11000 &&
+        normalizedClientRequestId
+      ) {
+
+        const existing =
+          await Purchase.findOne({
+            farmId,
+
+            clientRequestId:
+              normalizedClientRequestId,
+          }).lean();
+
+
+        if (existing) {
+
+          const conflict =
+            getIdempotencyConflict(
+              existing,
+              requestFingerprint
+            );
+
+
+          if (conflict) {
+
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
+
+
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Purchase already recorded.",
+
+            data:
+              existing,
+          });
+        }
+      }
+
 
       return res
-        .status(409)
-        .json(
-          conflict
-        );
-    }
-
-
-    return res.status(200).json({
-      success: true,
-
-      message:
-        "Purchase already recorded.",
-
-      data:
-        existing,
-    });
-  }
-}
-
-
-return res
         .status(
           error.statusCode || 500
         )
@@ -10282,40 +10282,40 @@ app.put(
               isActive: true,
             }).session(session);
 
-      if (!supplier) {
-  const error =
-    new Error(
-      "Selected supplier not found."
-    );
+          if (!supplier) {
+            const error =
+              new Error(
+                "Selected supplier not found."
+              );
 
-  error.statusCode = 404;
+            error.statusCode = 404;
 
-  throw error;
-}
-
-
-// ============================================
-// SHARED SUPPLIER FINANCIAL LOCK
-//
-// Lock both old and new supplier.
-// If supplier did not change, helper locks only once.
-// ============================================
-
-await lockSupplierFinancialPositions({
-  farmId,
-
-  supplierIds: [
-    purchase.supplierId,
-    supplier.supplierId,
-  ],
-
-  session,
-});
+            throw error;
+          }
 
 
-// ============================================
-// VERIFY NEW PRODUCTS
-// ============================================
+          // ============================================
+          // SHARED SUPPLIER FINANCIAL LOCK
+          //
+          // Lock both old and new supplier.
+          // If supplier did not change, helper locks only once.
+          // ============================================
+
+          await lockSupplierFinancialPositions({
+            farmId,
+
+            supplierIds: [
+              purchase.supplierId,
+              supplier.supplierId,
+            ],
+
+            session,
+          });
+
+
+          // ============================================
+          // VERIFY NEW PRODUCTS
+          // ============================================
 
           // ============================================
           // VERIFY NEW PRODUCTS
@@ -10485,123 +10485,123 @@ await lockSupplierFinancialPositions({
           const grandTotal =
             taxableAmount +
             taxAmount;
-            // ============================================
-// SUPPLIER PAYMENT SAFETY
-//
-// Validate financial position BEFORE saving
-// edited purchase.
-// ============================================
+          // ============================================
+          // SUPPLIER PAYMENT SAFETY
+          //
+          // Validate financial position BEFORE saving
+          // edited purchase.
+          // ============================================
 
-const oldSupplierId =
-  (
-    purchase.supplierId ||
-    ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
-
-
-const newSupplierId =
-  (
-    supplier.supplierId ||
-    ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
+          const oldSupplierId =
+            (
+              purchase.supplierId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-const finalPaymentType =
-  (
-    paymentType ||
-    "Credit"
-  )
-    .toString()
-    .trim();
+          const newSupplierId =
+            (
+              supplier.supplierId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-const newCreditAmount =
-  /^Credit$/i.test(
-    finalPaymentType
-  )
-    ? roundMoney2(
-        grandTotal
-      )
-    : 0;
+          const finalPaymentType =
+            (
+              paymentType ||
+              "Credit"
+            )
+              .toString()
+              .trim();
 
 
-// ============================================
-// SAME SUPPLIER
-// ============================================
-
-if (
-  oldSupplierId ===
-  newSupplierId
-) {
-
-  await validateSupplierPayablePosition({
-    farmId,
-
-    supplierId:
-      oldSupplierId,
-
-    excludePurchaseId:
-      purchase._id,
-
-    additionalCreditAmount:
-      newCreditAmount,
-
-    session,
-  });
-}
+          const newCreditAmount =
+            /^Credit$/i.test(
+              finalPaymentType
+            )
+              ? roundMoney2(
+                grandTotal
+              )
+              : 0;
 
 
-// ============================================
-// SUPPLIER CHANGED
-// ============================================
+          // ============================================
+          // SAME SUPPLIER
+          // ============================================
 
-else {
+          if (
+            oldSupplierId ===
+            newSupplierId
+          ) {
 
-  // OLD SUPPLIER:
-  // Current purchase disappears completely
-  // from old supplier payable.
+            await validateSupplierPayablePosition({
+              farmId,
 
-  await validateSupplierPayablePosition({
-    farmId,
+              supplierId:
+                oldSupplierId,
 
-    supplierId:
-      oldSupplierId,
+              excludePurchaseId:
+                purchase._id,
 
-    excludePurchaseId:
-      purchase._id,
+              additionalCreditAmount:
+                newCreditAmount,
 
-    additionalCreditAmount:
-      0,
-
-    session,
-  });
+              session,
+            });
+          }
 
 
-  // NEW SUPPLIER:
-  // Edited purchase is added to new supplier
-  // only when payment type is Credit.
+          // ============================================
+          // SUPPLIER CHANGED
+          // ============================================
 
-  await validateSupplierPayablePosition({
-    farmId,
+          else {
 
-    supplierId:
-      newSupplierId,
+            // OLD SUPPLIER:
+            // Current purchase disappears completely
+            // from old supplier payable.
 
-    excludePurchaseId:
-      purchase._id,
+            await validateSupplierPayablePosition({
+              farmId,
 
-    additionalCreditAmount:
-      newCreditAmount,
+              supplierId:
+                oldSupplierId,
 
-    session,
-  });
-}
+              excludePurchaseId:
+                purchase._id,
+
+              additionalCreditAmount:
+                0,
+
+              session,
+            });
+
+
+            // NEW SUPPLIER:
+            // Edited purchase is added to new supplier
+            // only when payment type is Credit.
+
+            await validateSupplierPayablePosition({
+              farmId,
+
+              supplierId:
+                newSupplierId,
+
+              excludePurchaseId:
+                purchase._id,
+
+              additionalCreditAmount:
+                newCreditAmount,
+
+              session,
+            });
+          }
 
           // ============================================
           // ADD NEW STOCK
@@ -10881,69 +10881,69 @@ app.put(
             throw error;
           }
 
-     if (
-  purchase.status ===
-  "CANCELLED"
-) {
+          if (
+            purchase.status ===
+            "CANCELLED"
+          ) {
 
-  const error =
-    new Error(
-      "Purchase is already cancelled."
-    );
+            const error =
+              new Error(
+                "Purchase is already cancelled."
+              );
 
-  error.statusCode = 400;
+            error.statusCode = 400;
 
-  throw error;
-}
+            throw error;
+          }
 
 
-// ============================================
-// SUPPLIER FINANCIAL LOCK
-// ============================================
+          // ============================================
+          // SUPPLIER FINANCIAL LOCK
+          // ============================================
 
-await lockSupplierFinancialPosition({
-  farmId,
+          await lockSupplierFinancialPosition({
+            farmId,
 
-  supplierId:
-    purchase.supplierId,
+            supplierId:
+              purchase.supplierId,
 
-  session,
-});
+            session,
+          });
 
-// ============================================
-// SUPPLIER PAYMENT SAFETY
-//
-// After cancellation this purchase disappears
-// from supplier's credit payable completely.
-// ============================================
+          // ============================================
+          // SUPPLIER PAYMENT SAFETY
+          //
+          // After cancellation this purchase disappears
+          // from supplier's credit payable completely.
+          // ============================================
 
-if (
-  /^Credit$/i.test(
-    (
-      purchase.paymentType ||
-      ""
-    )
-      .toString()
-      .trim()
-  )
-) {
+          if (
+            /^Credit$/i.test(
+              (
+                purchase.paymentType ||
+                ""
+              )
+                .toString()
+                .trim()
+            )
+          ) {
 
-  await validateSupplierPayablePosition({
-    farmId,
+            await validateSupplierPayablePosition({
+              farmId,
 
-    supplierId:
-      purchase.supplierId,
+              supplierId:
+                purchase.supplierId,
 
-    excludePurchaseId:
-      purchase._id,
+              excludePurchaseId:
+                purchase._id,
 
-    additionalCreditAmount:
-      0,
+              additionalCreditAmount:
+                0,
 
-    session,
-  });
-}
-          
+              session,
+            });
+          }
+
           // ============================================
           // CHECK ALL STOCK FIRST
           // ============================================
@@ -11702,73 +11702,73 @@ async function getPreviousPendingAllocation({
   // ONLY OLDER ALLOCATIONS
   // ======================================================
 
-let allocationQuery =
-  Allocation.find({
+  let allocationQuery =
+    Allocation.find({
 
-    farmId,
+      farmId,
 
-    salesmanId:
-      normalizedSalesmanId,
+      salesmanId:
+        normalizedSalesmanId,
 
-    status: {
-      $in: [
-        "POSTED",
-        "RETURNED",
-      ],
-    },
-
-    $or: [
-
-      // ============================================
-      // NEW RECORDS
-      // businessDate is authoritative
-      // ============================================
-      {
-        businessDate: {
-          $type: "string",
-          $ne: "",
-          $lt:
-            currentBusinessDate,
-        },
-      },
-
-      // ============================================
-      // LEGACY RECORDS
-      // no businessDate -> allocationDate fallback
-      // ============================================
-      {
-        $and: [
-
-          {
-            $or: [
-              {
-                businessDate: {
-                  $exists: false,
-                },
-              },
-
-              {
-                businessDate:
-                  null,
-              },
-
-              {
-                businessDate:
-                  "",
-              },
-            ],
-          },
-
-          {
-            allocationDate: {
-              $lt:
-                currentAllocationDate,
-            },
-          },
+      status: {
+        $in: [
+          "POSTED",
+          "RETURNED",
         ],
       },
-    ],
-  })
+
+      $or: [
+
+        // ============================================
+        // NEW RECORDS
+        // businessDate is authoritative
+        // ============================================
+        {
+          businessDate: {
+            $type: "string",
+            $ne: "",
+            $lt:
+              currentBusinessDate,
+          },
+        },
+
+        // ============================================
+        // LEGACY RECORDS
+        // no businessDate -> allocationDate fallback
+        // ============================================
+        {
+          $and: [
+
+            {
+              $or: [
+                {
+                  businessDate: {
+                    $exists: false,
+                  },
+                },
+
+                {
+                  businessDate:
+                    null,
+                },
+
+                {
+                  businessDate:
+                    "",
+                },
+              ],
+            },
+
+            {
+              allocationDate: {
+                $lt:
+                  currentAllocationDate,
+              },
+            },
+          ],
+        },
+      ],
+    })
       .sort({
         allocationDate: 1,
         createdAt: 1,
@@ -12098,28 +12098,28 @@ app.post(
   requirePermission("salesCreate"),
   async (req, res) => {
 
-   const session =
-  await mongoose.startSession();
+    const session =
+      await mongoose.startSession();
 
-const normalizedClientRequestId =
-  (
-    req.body?.clientRequestId ||
-    ""
-  )
-    .toString()
-    .trim();
-    const requestFingerprint =
-  normalizedClientRequestId
-    ? createRequestFingerprint(
-        req.body
+    const normalizedClientRequestId =
+      (
+        req.body?.clientRequestId ||
+        ""
       )
-    : "";
+        .toString()
+        .trim();
+    const requestFingerprint =
+      normalizedClientRequestId
+        ? createRequestFingerprint(
+          req.body
+        )
+        : "";
 
-let idempotentReplay = false;
+    let idempotentReplay = false;
 
-try {
+    try {
 
-  let savedSale = null;
+      let savedSale = null;
 
       await session.withTransaction(
         async () => {
@@ -12132,47 +12132,47 @@ try {
 
           const role =
             req.user.role;
-            if (normalizedClientRequestId) {
+          if (normalizedClientRequestId) {
 
-  const existingSale =
-    await Sale.findOne({
-      farmId,
-      clientRequestId:
-        normalizedClientRequestId,
-    }).session(session);
+            const existingSale =
+              await Sale.findOne({
+                farmId,
+                clientRequestId:
+                  normalizedClientRequestId,
+              }).session(session);
 
-if (existingSale) {
+            if (existingSale) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existingSale,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    const error =
-      new Error(
-        conflict.message
-      );
-
-    error.statusCode =
-      409;
-
-    throw error;
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existingSale,
+                  requestFingerprint
+                );
 
 
-  savedSale =
-    existingSale;
+              if (conflict) {
 
-  idempotentReplay =
-    true;
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-  return;
-}
-}
+                error.statusCode =
+                  409;
+
+                throw error;
+              }
+
+
+              savedSale =
+                existingSale;
+
+              idempotentReplay =
+                true;
+
+              return;
+            }
+          }
 
 
           // ======================================================
@@ -12361,15 +12361,15 @@ if (existingSale) {
 
             throw error;
           }
-const lockedCustomer =
-  await lockCustomerFinancialPosition({
-    farmId,
+          const lockedCustomer =
+            await lockCustomerFinancialPosition({
+              farmId,
 
-    customerId:
-      normalizedCustomerId,
+              customerId:
+                normalizedCustomerId,
 
-    session,
-  });
+              session,
+            });
 
 
           // ==================================================
@@ -12513,8 +12513,8 @@ const lockedCustomer =
                 farmId,
 
                 salesmanId:
-                salesman.salesmanId,
-              businessDate:
+                  salesman.salesmanId,
+                businessDate:
                   finalBusinessDate,
 
                 session,
@@ -12571,32 +12571,32 @@ const lockedCustomer =
 
           if (role === "salesman") {
             const stockLock =
-  await lockSalesmanBusinessDayStock({
+              await lockSalesmanBusinessDayStock({
 
-    farmId,
+                farmId,
 
-    salesmanId:
-      salesman.salesmanId,
+                salesmanId:
+                  salesman.salesmanId,
 
-    businessDate:
-      finalBusinessDate,
+                businessDate:
+                  finalBusinessDate,
 
-    session,
-  });
+                session,
+              });
 
 
-if (!stockLock) {
+            if (!stockLock) {
 
-  const error =
-    new Error(
-      "No allocation found for today's business date."
-    );
+              const error =
+                new Error(
+                  "No allocation found for today's business date."
+                );
 
-  error.statusCode =
-    409;
+              error.statusCode =
+                409;
 
-  throw error;
-}
+              throw error;
+            }
 
             const dayStock =
               await getSalesmanBusinessDayStockMap({
@@ -12658,10 +12658,10 @@ if (!stockLock) {
                 .toUpperCase();
 
 
-      const quantity =
-  roundQty2(
-    line.quantity
-  );
+            const quantity =
+              roundQty2(
+                line.quantity
+              );
 
 
             if (!productId) {
@@ -12896,13 +12896,13 @@ if (!stockLock) {
             }
 
 
-         const amount =
-  Number(
-    (
-      quantity *
-      finalRate
-    ).toFixed(2)
-  );
+            const amount =
+              Number(
+                (
+                  quantity *
+                  finalRate
+                ).toFixed(2)
+              );
 
 
             verifiedProducts.push({
@@ -12936,19 +12936,19 @@ if (!stockLock) {
             });
 
 
- totalQuantity =
-  roundQty2(
-    totalQuantity +
-    quantity
-  );
+            totalQuantity =
+              roundQty2(
+                totalQuantity +
+                quantity
+              );
 
-grandTotal =
-  Number(
-    (
-      grandTotal +
-      amount
-    ).toFixed(2)
-  );
+            grandTotal =
+              Number(
+                (
+                  grandTotal +
+                  amount
+                ).toFixed(2)
+              );
           }
 
           // ==================================================
@@ -13254,11 +13254,11 @@ grandTotal =
             await generateSaleId();
 
 
-       const saleNo =
-  await generateSaleNo(
-    farmId,
-    session
-  );
+          const saleNo =
+            await generateSaleNo(
+              farmId,
+              session
+            );
 
 
           // ==================================================
@@ -13292,10 +13292,10 @@ grandTotal =
 
                   saleNo:
                     saleNo,
-                    clientRequestId:
-  normalizedClientRequestId,
-  requestFingerprint:
-  requestFingerprint,
+                  clientRequestId:
+                    normalizedClientRequestId,
+                  requestFingerprint:
+                    requestFingerprint,
 
                   saleDate:
                     finalSaleDate,
@@ -13593,113 +13593,113 @@ grandTotal =
         }
       );
 
-return res
-  .status(
-    idempotentReplay
-      ? 200
-      : 201
-  )
-  .json({
+      return res
+        .status(
+          idempotentReplay
+            ? 200
+            : 201
+        )
+        .json({
 
-    success: true,
+          success: true,
 
-    message:
-      idempotentReplay
-        ? "Sale already recorded. Existing sale returned."
-        : (
-          req.user.role === "salesman"
-            ? "Salesman sale saved successfully."
-            : "Sale saved and stock updated successfully."
-        ),
+          message:
+            idempotentReplay
+              ? "Sale already recorded. Existing sale returned."
+              : (
+                req.user.role === "salesman"
+                  ? "Salesman sale saved successfully."
+                  : "Sale saved and stock updated successfully."
+              ),
 
-    data:
-      savedSale,
-  });
-
-
-} catch (error) {
-
-  console.error(
-    "ADD SALE ERROR:",
-    error
-  );
+          data:
+            savedSale,
+        });
 
 
-  // ==================================================
-  // IDEMPOTENCY RACE PROTECTION
-  //
-  // If two copies of the same mobile request reached
-  // the backend together, the unique index may reject
-  // one of them. Return the already-created sale.
-  // ==================================================
+    } catch (error) {
 
-  if (
-    error.code === 11000 &&
-    normalizedClientRequestId
-  ) {
-
-    const existingSale =
-      await Sale.findOne({
-
-        farmId:
-          req.user.farmId,
-
-        clientRequestId:
-          normalizedClientRequestId,
-
-      }).lean();
+      console.error(
+        "ADD SALE ERROR:",
+        error
+      );
 
 
-    if (existingSale) {
-      const conflict =
-  getIdempotencyConflict(
-    existingSale,
-    requestFingerprint
-  );
+      // ==================================================
+      // IDEMPOTENCY RACE PROTECTION
+      //
+      // If two copies of the same mobile request reached
+      // the backend together, the unique index may reject
+      // one of them. Return the already-created sale.
+      // ==================================================
+
+      if (
+        error.code === 11000 &&
+        normalizedClientRequestId
+      ) {
+
+        const existingSale =
+          await Sale.findOne({
+
+            farmId:
+              req.user.farmId,
+
+            clientRequestId:
+              normalizedClientRequestId,
+
+          }).lean();
 
 
-if (conflict) {
-
-  return res.status(409).json(
-    conflict
-  );
-}
-
-      return res.status(200).json({
-
-        success: true,
-
-        message:
-          "Sale already recorded. Existing sale returned.",
-
-        data:
-          existingSale,
-      });
-    }
-  }
+        if (existingSale) {
+          const conflict =
+            getIdempotencyConflict(
+              existingSale,
+              requestFingerprint
+            );
 
 
-  return res
-    .status(
-      error.statusCode ||
-      (
-        error.code === 11000
-          ? 409
-          : 500
-      )
-    )
-    .json({
+          if (conflict) {
 
-      success: false,
+            return res.status(409).json(
+              conflict
+            );
+          }
 
-      message:
-        error.code === 11000
-          ? "Duplicate sale detected. Please refresh and try again."
-          : (
-            error.message ||
-            "Unable to save sale."
-          ),
-    });
+          return res.status(200).json({
+
+            success: true,
+
+            message:
+              "Sale already recorded. Existing sale returned.",
+
+            data:
+              existingSale,
+          });
+        }
+      }
+
+
+      return res
+        .status(
+          error.statusCode ||
+          (
+            error.code === 11000
+              ? 409
+              : 500
+          )
+        )
+        .json({
+
+          success: false,
+
+          message:
+            error.code === 11000
+              ? "Duplicate sale detected. Please refresh and try again."
+              : (
+                error.message ||
+                "Unable to save sale."
+              ),
+        });
 
 
     } finally {
@@ -14012,68 +14012,68 @@ app.put(
 
             throw error;
           }
-  const lockedCustomers =
-  await lockCustomerFinancialPositions({
-    farmId,
+          const lockedCustomers =
+            await lockCustomerFinancialPositions({
+              farmId,
 
-    customerIds: [
-      originalCustomer.customerId,
-      customer.customerId,
-    ],
+              customerIds: [
+                originalCustomer.customerId,
+                customer.customerId,
+              ],
 
-    session,
-  });
-
-
-const lockedOriginalCustomer =
-  lockedCustomers.get(
-    originalCustomer.customerId
-      .toString()
-      .trim()
-      .toUpperCase()
-  );
+              session,
+            });
 
 
-const lockedSelectedCustomer =
-  lockedCustomers.get(
-    customer.customerId
-      .toString()
-      .trim()
-      .toUpperCase()
-  );
+          const lockedOriginalCustomer =
+            lockedCustomers.get(
+              originalCustomer.customerId
+                .toString()
+                .trim()
+                .toUpperCase()
+            );
 
 
-if (
-  !lockedOriginalCustomer ||
-  !lockedSelectedCustomer
-) {
-
-  const error =
-    new Error(
-      "Customer financial position changed. Please retry the sale edit."
-    );
-
-  error.statusCode =
-    409;
-
-  throw error;
-}
+          const lockedSelectedCustomer =
+            lockedCustomers.get(
+              customer.customerId
+                .toString()
+                .trim()
+                .toUpperCase()
+            );
 
 
-// Synchronize the already-loaded documents
-// with the balances obtained under the lock.
+          if (
+            !lockedOriginalCustomer ||
+            !lockedSelectedCustomer
+          ) {
 
-originalCustomer.balance =
-  roundMoney2(
-    lockedOriginalCustomer.balance ||
-    0
-  );
+            const error =
+              new Error(
+                "Customer financial position changed. Please retry the sale edit."
+              );
 
-customer.balance =
-  roundMoney2(
-    lockedSelectedCustomer.balance ||
-    0
-  );
+            error.statusCode =
+              409;
+
+            throw error;
+          }
+
+
+          // Synchronize the already-loaded documents
+          // with the balances obtained under the lock.
+
+          originalCustomer.balance =
+            roundMoney2(
+              lockedOriginalCustomer.balance ||
+              0
+            );
+
+          customer.balance =
+            roundMoney2(
+              lockedSelectedCustomer.balance ||
+              0
+            );
           // ==================================================
           // RESTORE ADVANCE USED BY ORIGINAL SALE
           //
@@ -14257,7 +14257,7 @@ customer.balance =
                 .trim()
                 .toUpperCase();
 
-                
+
 
             // Legacy protection:
             // if an old salesman sale is missing salesmanId,
@@ -14311,80 +14311,80 @@ customer.balance =
               throw error;
             }
             const saleBusinessDate =
-  getSaleBusinessDateKey(
-    sale
-  );
+              getSaleBusinessDateKey(
+                sale
+              );
 
-if (!saleBusinessDate) {
+            if (!saleBusinessDate) {
 
-  const error =
-    new Error(
-      "Business date could not be determined for this sale."
-    );
+              const error =
+                new Error(
+                  "Business date could not be determined for this sale."
+                );
 
-  error.statusCode =
-    409;
+              error.statusCode =
+                409;
 
-  throw error;
-}
-
-
-const stockLock =
-  await lockSalesmanBusinessDayStock({
-
-    farmId,
-
-    salesmanId:
-      allocationSalesmanId,
-
-    businessDate:
-      saleBusinessDate,
-
-    session,
-  });
+              throw error;
+            }
 
 
-if (!stockLock) {
+            const stockLock =
+              await lockSalesmanBusinessDayStock({
 
-  const error =
-    new Error(
-      "Allocation for this sale's business date was not found."
-    );
+                farmId,
 
-  error.statusCode =
-    409;
+                salesmanId:
+                  allocationSalesmanId,
 
-  throw error;
-}
+                businessDate:
+                  saleBusinessDate,
 
-
-const settlementExists =
-  await hasSalesmanBusinessDaySettlement({
-
-    farmId,
-
-    salesmanId:
-      allocationSalesmanId,
-
-    businessDate:
-      saleBusinessDate,
-
-    session,
-  });
+                session,
+              });
 
 
-if (settlementExists) {
+            if (!stockLock) {
 
-  const error =
-    new Error(
-      "This sale cannot be edited because return or reconciliation has already been recorded for this business date."
-    );
+              const error =
+                new Error(
+                  "Allocation for this sale's business date was not found."
+                );
 
-  error.statusCode =
-    409;
+              error.statusCode =
+                409;
 
-  throw error;
-}
+              throw error;
+            }
+
+
+            const settlementExists =
+              await hasSalesmanBusinessDaySettlement({
+
+                farmId,
+
+                salesmanId:
+                  allocationSalesmanId,
+
+                businessDate:
+                  saleBusinessDate,
+
+                session,
+              });
+
+
+            if (settlementExists) {
+
+              const error =
+                new Error(
+                  "This sale cannot be edited because return or reconciliation has already been recorded for this business date."
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
 
 
             const dayStock =
@@ -14451,10 +14451,10 @@ if (settlementExists) {
                 ?.toString()
                 .trim()
                 .toUpperCase();
-const quantity =
-  roundQty2(
-    line.quantity
-  );
+            const quantity =
+              roundQty2(
+                line.quantity
+              );
 
             if (!productId) {
               const error =
@@ -14589,11 +14589,11 @@ const quantity =
                 productId
               ) || 0;
 
-       const difference =
-  roundQty2(
-    quantity -
-    oldQuantity
-  );
+            const difference =
+              roundQty2(
+                quantity -
+                oldQuantity
+              );
 
             // ADMIN:
             // Only additional quantity needs more stock.
@@ -14651,13 +14651,13 @@ const quantity =
                 throw error;
               }
             }
-const amount =
-  Number(
-    (
-      quantity *
-      finalRate
-    ).toFixed(2)
-  );
+            const amount =
+              Number(
+                (
+                  quantity *
+                  finalRate
+                ).toFixed(2)
+              );
 
             verifiedProducts.push({
               productId:
@@ -14684,19 +14684,19 @@ const amount =
               amount,
             });
 
-        totalQuantity =
-  roundQty2(
-    totalQuantity +
-    quantity
-  );
+            totalQuantity =
+              roundQty2(
+                totalQuantity +
+                quantity
+              );
 
-grandTotal =
-  Number(
-    (
-      grandTotal +
-      amount
-    ).toFixed(2)
-  );
+            grandTotal =
+              Number(
+                (
+                  grandTotal +
+                  amount
+                ).toFixed(2)
+              );
           }
           // ==================================================
           // PAYMENT BREAKUP
@@ -15023,11 +15023,11 @@ grandTotal =
                   productId
                 ) || 0;
 
-           const difference =
-  roundQty2(
-    newQty -
-    oldQty
-  );
+              const difference =
+                roundQty2(
+                  newQty -
+                  oldQty
+                );
 
               if (
                 difference === 0
@@ -15155,12 +15155,12 @@ grandTotal =
               if (
                 difference < 0
               ) {
-           const quantityBack =
-  roundQty2(
-    Math.abs(
-      difference
-    )
-  );
+                const quantityBack =
+                  roundQty2(
+                    Math.abs(
+                      difference
+                    )
+                  );
 
                 await Product.updateOne(
                   {
@@ -15613,33 +15613,33 @@ app.put(
           // PREVENT DOUBLE CANCELLATION
           // ==================================================
 
-      if (
-  sale.status ===
-  "CANCELLED"
-) {
-  const error =
-    new Error(
-      "Sale is already cancelled."
-    );
+          if (
+            sale.status ===
+            "CANCELLED"
+          ) {
+            const error =
+              new Error(
+                "Sale is already cancelled."
+              );
 
-  error.statusCode = 400;
+            error.statusCode = 400;
 
-  throw error;
-}
+            throw error;
+          }
 
 
-// ==================================================
-// CUSTOMER FINANCIAL LOCK
-// ==================================================
+          // ==================================================
+          // CUSTOMER FINANCIAL LOCK
+          // ==================================================
 
-await lockCustomerFinancialPosition({
-  farmId,
+          await lockCustomerFinancialPosition({
+            farmId,
 
-  customerId:
-    sale.customerId,
+            customerId:
+              sale.customerId,
 
-  session,
-});
+            session,
+          });
           // ==================================================
           // PREVENT SALE CANCELLATION IF A POSTED COLLECTION
           // HAS ALREADY BEEN APPLIED AGAINST THIS BILL
@@ -15854,131 +15854,131 @@ await lockCustomerFinancialPosition({
           }
 
           if (
-  effectiveStockSource ===
-  "SALESMAN_ALLOCATION"
-) {
+            effectiveStockSource ===
+            "SALESMAN_ALLOCATION"
+          ) {
 
-  let allocationSalesmanId =
-    (
-      sale.salesmanId ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
-
-
-  if (
-    !allocationSalesmanId &&
-    sale.createdBy
-  ) {
-
-    const ownerSalesman =
-      await Salesman.findOne({
-        _id:
-          sale.createdBy,
-
-        farmId,
-
-        isActive:
-          true,
-      })
-        .select(
-          "salesmanId"
-        )
-        .session(session)
-        .lean();
+            let allocationSalesmanId =
+              (
+                sale.salesmanId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
 
 
-    allocationSalesmanId =
-      (
-        ownerSalesman
-          ?.salesmanId ||
-        ""
-      )
-        .toString()
-        .trim()
-        .toUpperCase();
-  }
+            if (
+              !allocationSalesmanId &&
+              sale.createdBy
+            ) {
+
+              const ownerSalesman =
+                await Salesman.findOne({
+                  _id:
+                    sale.createdBy,
+
+                  farmId,
+
+                  isActive:
+                    true,
+                })
+                  .select(
+                    "salesmanId"
+                  )
+                  .session(session)
+                  .lean();
 
 
-  if (!allocationSalesmanId) {
-
-    const error =
-      new Error(
-        "Salesman ID is missing from this allocation sale."
-      );
-
-    error.statusCode =
-      409;
-
-    throw error;
-  }
+              allocationSalesmanId =
+                (
+                  ownerSalesman
+                    ?.salesmanId ||
+                  ""
+                )
+                  .toString()
+                  .trim()
+                  .toUpperCase();
+            }
 
 
-  const saleBusinessDate =
-    getSaleBusinessDateKey(
-      sale
-    );
+            if (!allocationSalesmanId) {
+
+              const error =
+                new Error(
+                  "Salesman ID is missing from this allocation sale."
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
 
 
-  const stockLock =
-    await lockSalesmanBusinessDayStock({
-
-      farmId,
-
-      salesmanId:
-        allocationSalesmanId,
-
-      businessDate:
-        saleBusinessDate,
-
-      session,
-    });
+            const saleBusinessDate =
+              getSaleBusinessDateKey(
+                sale
+              );
 
 
-  if (!stockLock) {
+            const stockLock =
+              await lockSalesmanBusinessDayStock({
 
-    const error =
-      new Error(
-        "Allocation for this sale's business date was not found."
-      );
+                farmId,
 
-    error.statusCode =
-      409;
+                salesmanId:
+                  allocationSalesmanId,
 
-    throw error;
-  }
+                businessDate:
+                  saleBusinessDate,
 
-
-  const settlementExists =
-    await hasSalesmanBusinessDaySettlement({
-
-      farmId,
-
-      salesmanId:
-        allocationSalesmanId,
-
-      businessDate:
-        saleBusinessDate,
-
-      session,
-    });
+                session,
+              });
 
 
-  if (settlementExists) {
+            if (!stockLock) {
 
-    const error =
-      new Error(
-        "This sale cannot be cancelled because return or reconciliation has already been recorded for this business date."
-      );
+              const error =
+                new Error(
+                  "Allocation for this sale's business date was not found."
+                );
 
-    error.statusCode =
-      409;
+              error.statusCode =
+                409;
 
-    throw error;
-  }
-}
+              throw error;
+            }
+
+
+            const settlementExists =
+              await hasSalesmanBusinessDaySettlement({
+
+                farmId,
+
+                salesmanId:
+                  allocationSalesmanId,
+
+                businessDate:
+                  saleBusinessDate,
+
+                session,
+              });
+
+
+            if (settlementExists) {
+
+              const error =
+                new Error(
+                  "This sale cannot be cancelled because return or reconciliation has already been recorded for this business date."
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
+          }
 
           // ==================================================
           // ONLY MAIN GODOWN SALES RETURN TO MAS_PRODUCT
@@ -16026,10 +16026,10 @@ await lockCustomerFinancialPosition({
               sale.products
             ) {
 
-          const quantity =
-  roundQty2(
-    line.quantity
-  );
+              const quantity =
+                roundQty2(
+                  line.quantity
+                );
 
               if (quantity <= 0) {
 
@@ -16736,33 +16736,33 @@ async function getSoldQuantityForAllocation({
     );
 
 
-let allocationQuery =
-  Allocation.find({
+  let allocationQuery =
+    Allocation.find({
 
-    farmId,
+      farmId,
 
-    salesmanId:
-      normalizedSalesmanId,
+      salesmanId:
+        normalizedSalesmanId,
 
-    status: {
-      $in: [
-        "POSTED",
-        "RETURNED",
+      status: {
+        $in: [
+          "POSTED",
+          "RETURNED",
+        ],
+      },
+
+      $and: [
+        getAllocationBusinessDateFilter(
+          allocationBusinessDate
+        ),
       ],
-    },
 
-    $and: [
-      getAllocationBusinessDateFilter(
-        allocationBusinessDate
-      ),
-    ],
-
-  })
-    .sort({
-      allocationDate: 1,
-      createdAt: 1,
     })
-    .lean();
+      .sort({
+        allocationDate: 1,
+        createdAt: 1,
+      })
+      .lean();
 
 
   if (session) {
@@ -17334,27 +17334,27 @@ async function getSalesmanBusinessDayStockMap({
   // ==============================================
 
   let allocationQuery =
-  Allocation.find({
+    Allocation.find({
 
-    farmId,
+      farmId,
 
-    salesmanId:
-      normalizedSalesmanId,
+      salesmanId:
+        normalizedSalesmanId,
 
-    status: {
-      $in: [
-        "POSTED",
-        "RETURNED",
+      status: {
+        $in: [
+          "POSTED",
+          "RETURNED",
+        ],
+      },
+
+      $and: [
+        getAllocationBusinessDateFilter(
+          businessDateKey
+        ),
       ],
-    },
 
-    $and: [
-      getAllocationBusinessDateFilter(
-        businessDateKey
-      ),
-    ],
-
-  }).lean();
+    }).lean();
 
 
   if (session) {
@@ -17889,10 +17889,10 @@ app.get(
             continue;
           }
 
-const quantity =
-  roundQty2(
-    item.quantity
-  );
+          const quantity =
+            roundQty2(
+              item.quantity
+            );
 
 
           const saleBusinessDate =
@@ -17908,18 +17908,18 @@ const quantity =
             `${salesmanId}|${saleBusinessDate}|${productId}`;
 
 
-     const oldSold =
-  roundQty2(
-    soldMap.get(key) || 0
-  );
+          const oldSold =
+            roundQty2(
+              soldMap.get(key) || 0
+            );
 
-soldMap.set(
-  key,
-  roundQty2(
-    oldSold +
-    quantity
-  )
-);
+          soldMap.set(
+            key,
+            roundQty2(
+              oldSold +
+              quantity
+            )
+          );
           // ================================================
           // ACTUAL FINANCIAL VALUE OF THIS SALE LINE
           // ================================================
@@ -18222,16 +18222,16 @@ soldMap.set(
                 );
 
 
-           remainingSoldMap.set(
-  key,
-  roundQty2(
-    Math.max(
-      0,
-      remainingSold -
-      soldQuantity
-    )
-  )
-);
+              remainingSoldMap.set(
+                key,
+                roundQty2(
+                  Math.max(
+                    0,
+                    remainingSold -
+                    soldQuantity
+                  )
+                )
+              );
               // ================================================
               // FINANCIAL VALUE FOR THIS ALLOCATION PRODUCT
               // ================================================
@@ -18362,29 +18362,29 @@ soldMap.set(
                   )
                 );
 
-allocationSoldQuantity =
-  roundQty2(
-    allocationSoldQuantity +
-    soldQuantity
-  );
+              allocationSoldQuantity =
+                roundQty2(
+                  allocationSoldQuantity +
+                  soldQuantity
+                );
 
-allocationReturnedQuantity =
-  roundQty2(
-    allocationReturnedQuantity +
-    returnedQuantity
-  );
+              allocationReturnedQuantity =
+                roundQty2(
+                  allocationReturnedQuantity +
+                  returnedQuantity
+                );
 
-allocationReconciledQuantity =
-  roundQty2(
-    allocationReconciledQuantity +
-    reconciledQuantity
-  );
+              allocationReconciledQuantity =
+                roundQty2(
+                  allocationReconciledQuantity +
+                  reconciledQuantity
+                );
 
-allocationRemainingQuantity =
-  roundQty2(
-    allocationRemainingQuantity +
-    remainingQuantity
-  );
+              allocationRemainingQuantity =
+                roundQty2(
+                  allocationRemainingQuantity +
+                  remainingQuantity
+                );
 
               allocationSalesValue +=
                 productSalesValue;
@@ -18461,25 +18461,25 @@ allocationRemainingQuantity =
           products:
             enrichedProducts,
 
-    soldQuantity:
-  roundQty2(
-    allocationSoldQuantity
-  ),
+          soldQuantity:
+            roundQty2(
+              allocationSoldQuantity
+            ),
 
-returnedQuantity:
-  roundQty2(
-    allocationReturnedQuantity
-  ),
+          returnedQuantity:
+            roundQty2(
+              allocationReturnedQuantity
+            ),
 
-reconciledQuantity:
-  roundQty2(
-    allocationReconciledQuantity
-  ),
+          reconciledQuantity:
+            roundQty2(
+              allocationReconciledQuantity
+            ),
 
-remainingQuantity:
-  roundQty2(
-    allocationRemainingQuantity
-  ),
+          remainingQuantity:
+            roundQty2(
+              allocationRemainingQuantity
+            ),
           salesValue:
             Number(
               allocationSalesValue
@@ -19026,31 +19026,31 @@ app.post(
   requireAdmin,
   async (req, res) => {
 
-const session =
-  await mongoose.startSession();
+    const session =
+      await mongoose.startSession();
 
-const normalizedClientRequestId =
-  (
-    req.body?.clientRequestId ||
-    ""
-  )
-    .toString()
-    .trim();
+    const normalizedClientRequestId =
+      (
+        req.body?.clientRequestId ||
+        ""
+      )
+        .toString()
+        .trim();
 
     const requestFingerprint =
-  normalizedClientRequestId
-    ? createRequestFingerprint(
-        req.body
-      )
-    : "";
+      normalizedClientRequestId
+        ? createRequestFingerprint(
+          req.body
+        )
+        : "";
 
-let idempotentReplay =
-  false;
+    let idempotentReplay =
+      false;
 
-try {
+    try {
 
-  let savedAllocation =
-    null;
+      let savedAllocation =
+        null;
 
 
       await session.withTransaction(
@@ -19058,53 +19058,53 @@ try {
 
           const farmId =
             req.user.farmId;
-if (
-  normalizedClientRequestId
-) {
+          if (
+            normalizedClientRequestId
+          ) {
 
-  const existingAllocation =
-    await Allocation.findOne({
+            const existingAllocation =
+              await Allocation.findOne({
 
-      farmId,
+                farmId,
 
-      clientRequestId:
-        normalizedClientRequestId,
+                clientRequestId:
+                  normalizedClientRequestId,
 
-    }).session(session);
+              }).session(session);
 
-if (existingAllocation) {
+            if (existingAllocation) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existingAllocation,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    const error =
-      new Error(
-        conflict.message
-      );
-
-    error.statusCode =
-      409;
-
-    throw error;
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existingAllocation,
+                  requestFingerprint
+                );
 
 
-  savedAllocation =
-    existingAllocation;
+              if (conflict) {
 
-  idempotentReplay =
-    true;
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-  return;
-}
-  
-}
+                error.statusCode =
+                  409;
+
+                throw error;
+              }
+
+
+              savedAllocation =
+                existingAllocation;
+
+              idempotentReplay =
+                true;
+
+              return;
+            }
+
+          }
 
           const {
             allocationDate,
@@ -19323,10 +19323,10 @@ if (existingAllocation) {
                 .toUpperCase() ||
               "";
 
-const quantity =
-  roundQty2(
-    item.quantity
-  );
+            const quantity =
+              roundQty2(
+                item.quantity
+              );
 
 
             if (!productId) {
@@ -19471,11 +19471,11 @@ const quantity =
             });
 
 
-totalQuantity =
-  roundQty2(
-    totalQuantity +
-    quantity
-  );
+            totalQuantity =
+              roundQty2(
+                totalQuantity +
+                quantity
+              );
           }
 
 
@@ -19486,11 +19486,11 @@ totalQuantity =
           const allocationId =
             await generateAllocationId();
 
-const allocationNo =
-  await generateAllocationNo(
-    farmId,
-    session
-  );
+          const allocationNo =
+            await generateAllocationNo(
+              farmId,
+              session
+            );
 
           const finalAllocationDate =
             parseAllocationBusinessDate(
@@ -19557,17 +19557,17 @@ const allocationNo =
                   allocationId:
                     allocationId,
 
-               allocationNo:
-  allocationNo,
+                  allocationNo:
+                    allocationNo,
 
-clientRequestId:
-  normalizedClientRequestId,
+                  clientRequestId:
+                    normalizedClientRequestId,
 
-requestFingerprint:
-  requestFingerprint,
+                  requestFingerprint:
+                    requestFingerprint,
 
-allocationDate:
-  finalAllocationDate,
+                  allocationDate:
+                    finalAllocationDate,
 
                   businessDate:
                     finalAllocationBusinessDate,
@@ -19770,116 +19770,116 @@ allocationDate:
       // ================================================
       // SUCCESS
       // ================================================
-// ================================================
-// SUCCESS
-// ================================================
+      // ================================================
+      // SUCCESS
+      // ================================================
 
-return res
-  .status(
-    idempotentReplay
-      ? 200
-      : 201
-  )
-  .json({
+      return res
+        .status(
+          idempotentReplay
+            ? 200
+            : 201
+        )
+        .json({
 
-    success: true,
+          success: true,
 
-    message:
-      idempotentReplay
-        ? "Allocation already recorded. Existing allocation returned."
-        : "Allocation saved and stock updated successfully.",
+          message:
+            idempotentReplay
+              ? "Allocation already recorded. Existing allocation returned."
+              : "Allocation saved and stock updated successfully.",
 
-    data:
-      savedAllocation,
-  });
-
-
-} catch (error) {
-
-  console.error(
-    "ADD ALLOCATION ERROR:",
-    error
-  );
+          data:
+            savedAllocation,
+        });
 
 
-  // ==================================================
-  // IDEMPOTENCY RACE PROTECTION
-  // ==================================================
+    } catch (error) {
 
-  if (
-    error.code === 11000 &&
-    normalizedClientRequestId
-  ) {
-
-    const existingAllocation =
-      await Allocation.findOne({
-
-        farmId:
-          req.user.farmId,
-
-        clientRequestId:
-          normalizedClientRequestId,
-
-      }).lean();
-
-
-   if (existingAllocation) {
-
-  const conflict =
-    getIdempotencyConflict(
-      existingAllocation,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
+      console.error(
+        "ADD ALLOCATION ERROR:",
+        error
       );
-  }
 
 
-  return res.status(200).json({
+      // ==================================================
+      // IDEMPOTENCY RACE PROTECTION
+      // ==================================================
 
-    success: true,
+      if (
+        error.code === 11000 &&
+        normalizedClientRequestId
+      ) {
 
-    message:
-      "Allocation already recorded. Existing allocation returned.",
+        const existingAllocation =
+          await Allocation.findOne({
 
-    data:
-      existingAllocation,
-  });
-}
-  }
+            farmId:
+              req.user.farmId,
 
+            clientRequestId:
+              normalizedClientRequestId,
 
-  return res
-    .status(
-      error.statusCode ||
-      (
-        error.code === 11000
-          ? 409
-          : 500
-      )
-    )
-    .json({
-
-      success: false,
-
-      message:
-        error.code === 11000
-          ? "Duplicate allocation detected. Please refresh and try again."
-          : (
-            error.message ||
-            "Unable to save allocation."
-          ),
-    });
+          }).lean();
 
 
-     
+        if (existingAllocation) {
+
+          const conflict =
+            getIdempotencyConflict(
+              existingAllocation,
+              requestFingerprint
+            );
+
+
+          if (conflict) {
+
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
+
+
+          return res.status(200).json({
+
+            success: true,
+
+            message:
+              "Allocation already recorded. Existing allocation returned.",
+
+            data:
+              existingAllocation,
+          });
+        }
+      }
+
+
+      return res
+        .status(
+          error.statusCode ||
+          (
+            error.code === 11000
+              ? 409
+              : 500
+          )
+        )
+        .json({
+
+          success: false,
+
+          message:
+            error.code === 11000
+              ? "Duplicate allocation detected. Please refresh and try again."
+              : (
+                error.message ||
+                "Unable to save allocation."
+              ),
+        });
+
+
+
 
 
     } finally {
@@ -20007,7 +20007,7 @@ app.put(
             throw error;
           }
 
-          
+
           const {
             allocationDate,
             salesmanId,
@@ -20034,52 +20034,52 @@ app.put(
             throw error;
           }
           const allocationBusinessDate =
-  getAllocationDocumentBusinessDateKey(
-    allocation
-  );
+            getAllocationDocumentBusinessDateKey(
+              allocation
+            );
 
 
-if (!allocationBusinessDate) {
+          if (!allocationBusinessDate) {
 
-  const error =
-    new Error(
-      "Business date could not be determined for this allocation."
-    );
+            const error =
+              new Error(
+                "Business date could not be determined for this allocation."
+              );
 
-  error.statusCode =
-    409;
+            error.statusCode =
+              409;
 
-  throw error;
-}
-
-
-const allocationLock =
-  await lockSalesmanBusinessDayStock({
-
-    farmId,
-
-    salesmanId:
-      allocation.salesmanId,
-
-    businessDate:
-      allocationBusinessDate,
-
-    session,
-  });
+            throw error;
+          }
 
 
-if (!allocationLock) {
+          const allocationLock =
+            await lockSalesmanBusinessDayStock({
 
-  const error =
-    new Error(
-      "Unable to lock this allocation business day."
-    );
+              farmId,
 
-  error.statusCode =
-    409;
+              salesmanId:
+                allocation.salesmanId,
 
-  throw error;
-}
+              businessDate:
+                allocationBusinessDate,
+
+              session,
+            });
+
+
+          if (!allocationLock) {
+
+            const error =
+              new Error(
+                "Unable to lock this allocation business day."
+              );
+
+            error.statusCode =
+              409;
+
+            throw error;
+          }
 
           // ==============================================
           // SOLD QUANTITY OF THIS ALLOCATION
@@ -20186,59 +20186,59 @@ if (!allocationLock) {
               .toString()
               .trim()
               .toUpperCase();
-              const originalSalesmanId =
-  (
-    allocation.salesmanId ||
-    ""
-  )
-    .toString()
-    .trim()
-    .toUpperCase();
+          const originalSalesmanId =
+            (
+              allocation.salesmanId ||
+              ""
+            )
+              .toString()
+              .trim()
+              .toUpperCase();
 
 
-if (
-  normalizedSalesmanId !==
-  originalSalesmanId
-) {
+          if (
+            normalizedSalesmanId !==
+            originalSalesmanId
+          ) {
 
-  const error =
-    new Error(
-      "Allocation salesman cannot be changed after allocation creation. Cancel/delete this allocation and create a new one."
-    );
+            const error =
+              new Error(
+                "Allocation salesman cannot be changed after allocation creation. Cancel/delete this allocation and create a new one."
+              );
 
-  error.statusCode =
-    409;
+            error.statusCode =
+              409;
 
-  throw error;
-}
-
-
-if (allocationDate) {
-
-  const requestedBusinessDate =
-    getAllocationDateKey(
-      parseAllocationBusinessDate(
-        allocationDate
-      )
-    );
+            throw error;
+          }
 
 
-  if (
-    requestedBusinessDate !==
-    allocationBusinessDate
-  ) {
+          if (allocationDate) {
 
-    const error =
-      new Error(
-        "Allocation business date cannot be changed after allocation creation. Cancel/delete this allocation and create a new one."
-      );
+            const requestedBusinessDate =
+              getAllocationDateKey(
+                parseAllocationBusinessDate(
+                  allocationDate
+                )
+              );
 
-    error.statusCode =
-      409;
 
-    throw error;
-  }
-}
+            if (
+              requestedBusinessDate !==
+              allocationBusinessDate
+            ) {
+
+              const error =
+                new Error(
+                  "Allocation business date cannot be changed after allocation creation. Cancel/delete this allocation and create a new one."
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
+          }
 
           const salesman =
             await Salesman.findOne({
@@ -20402,10 +20402,10 @@ if (allocationDate) {
               .trim()
               .toUpperCase();
 
-        const quantity =
-  roundQty2(
-    line.quantity
-  );
+            const quantity =
+              roundQty2(
+                line.quantity
+              );
 
             if (!productId) {
               const error =
@@ -20480,29 +20480,29 @@ if (allocationDate) {
                 productId
               );
 
-          const returnedQty =
-  roundQty2(
-    oldRow?.returnedQuantity
-  );
+            const returnedQty =
+              roundQty2(
+                oldRow?.returnedQuantity
+              );
 
-const reconciledQty =
-  roundQty2(
-    oldRow?.reconciledQuantity
-  );
+            const reconciledQty =
+              roundQty2(
+                oldRow?.reconciledQuantity
+              );
 
-const soldQty =
-  roundQty2(
-    soldMap.get(
-      productId
-    ) || 0
-  );
+            const soldQty =
+              roundQty2(
+                soldMap.get(
+                  productId
+                ) || 0
+              );
 
-const minimumQty =
-  roundQty2(
-    soldQty +
-    returnedQty +
-    reconciledQty
-  );
+            const minimumQty =
+              roundQty2(
+                soldQty +
+                returnedQty +
+                reconciledQty
+              );
 
             if (
               quantity <
@@ -20551,11 +20551,11 @@ const minimumQty =
               }
             );
 
-      totalQuantity =
-  roundQty2(
-    totalQuantity +
-    quantity
-  );
+            totalQuantity =
+              roundQty2(
+                totalQuantity +
+                quantity
+              );
           }
 
           // ==============================================
@@ -20646,11 +20646,11 @@ const minimumQty =
                 )?.quantity || 0
               );
 
-    const difference =
-  roundQty2(
-    newQty -
-    oldQty
-  );
+            const difference =
+              roundQty2(
+                newQty -
+                oldQty
+              );
 
             if (
               difference === 0
@@ -20802,12 +20802,12 @@ const minimumQty =
             if (
               difference < 0
             ) {
-const quantityBack =
-  roundQty2(
-    Math.abs(
-      difference
-    )
-  );
+              const quantityBack =
+                roundQty2(
+                  Math.abs(
+                    difference
+                  )
+                );
 
               await Product.updateOne(
                 {
@@ -21105,52 +21105,52 @@ app.put(
             throw error;
           }
           const allocationBusinessDate =
-  getAllocationDocumentBusinessDateKey(
-    allocation
-  );
+            getAllocationDocumentBusinessDateKey(
+              allocation
+            );
 
 
-if (!allocationBusinessDate) {
+          if (!allocationBusinessDate) {
 
-  const error =
-    new Error(
-      "Business date could not be determined for this allocation."
-    );
+            const error =
+              new Error(
+                "Business date could not be determined for this allocation."
+              );
 
-  error.statusCode =
-    409;
+            error.statusCode =
+              409;
 
-  throw error;
-}
-
-
-const allocationLock =
-  await lockSalesmanBusinessDayStock({
-
-    farmId,
-
-    salesmanId:
-      allocation.salesmanId,
-
-    businessDate:
-      allocationBusinessDate,
-
-    session,
-  });
+            throw error;
+          }
 
 
-if (!allocationLock) {
+          const allocationLock =
+            await lockSalesmanBusinessDayStock({
 
-  const error =
-    new Error(
-      "Unable to lock this allocation business day."
-    );
+              farmId,
 
-  error.statusCode =
-    409;
+              salesmanId:
+                allocation.salesmanId,
 
-  throw error;
-}
+              businessDate:
+                allocationBusinessDate,
+
+              session,
+            });
+
+
+          if (!allocationLock) {
+
+            const error =
+              new Error(
+                "Unable to lock this allocation business day."
+              );
+
+            error.statusCode =
+              409;
+
+            throw error;
+          }
 
           // ==============================================
           // SOLD QTY FOR THIS ALLOCATION
@@ -21183,22 +21183,22 @@ if (!allocationLock) {
               .toString()
               .trim()
               .toUpperCase();
-const soldQty =
-  roundQty2(
-    soldMap.get(
-      productId
-    ) || 0
-  );
+            const soldQty =
+              roundQty2(
+                soldMap.get(
+                  productId
+                ) || 0
+              );
 
-const returnedQty =
-  roundQty2(
-    item.returnedQuantity
-  );
+            const returnedQty =
+              roundQty2(
+                item.returnedQuantity
+              );
 
-const reconciledQty =
-  roundQty2(
-    item.reconciledQuantity
-  );
+            const reconciledQty =
+              roundQty2(
+                item.reconciledQuantity
+              );
 
             if (
               soldQty > 0
@@ -21251,10 +21251,10 @@ const reconciledQty =
             const item of
             allocation.products
           ) {
-      const quantity =
-  roundQty2(
-    item.quantity
-  );
+            const quantity =
+              roundQty2(
+                item.quantity
+              );
 
             if (
               quantity <= 0
@@ -21607,52 +21607,52 @@ app.delete(
             "POSTED"
           ) {
             const allocationBusinessDate =
-  getAllocationDocumentBusinessDateKey(
-    allocation
-  );
+              getAllocationDocumentBusinessDateKey(
+                allocation
+              );
 
 
-if (!allocationBusinessDate) {
+            if (!allocationBusinessDate) {
 
-  const error =
-    new Error(
-      "Business date could not be determined for this allocation."
-    );
+              const error =
+                new Error(
+                  "Business date could not be determined for this allocation."
+                );
 
-  error.statusCode =
-    409;
+              error.statusCode =
+                409;
 
-  throw error;
-}
-
-
-const allocationLock =
-  await lockSalesmanBusinessDayStock({
-
-    farmId,
-
-    salesmanId:
-      allocation.salesmanId,
-
-    businessDate:
-      allocationBusinessDate,
-
-    session,
-  });
+              throw error;
+            }
 
 
-if (!allocationLock) {
+            const allocationLock =
+              await lockSalesmanBusinessDayStock({
 
-  const error =
-    new Error(
-      "Unable to lock this allocation business day."
-    );
+                farmId,
 
-  error.statusCode =
-    409;
+                salesmanId:
+                  allocation.salesmanId,
 
-  throw error;
-}
+                businessDate:
+                  allocationBusinessDate,
+
+                session,
+              });
+
+
+            if (!allocationLock) {
+
+              const error =
+                new Error(
+                  "Unable to lock this allocation business day."
+                );
+
+              error.statusCode =
+                409;
+
+              throw error;
+            }
 
             const soldMap =
               await getSoldQuantityForAllocation({
@@ -21687,22 +21687,22 @@ if (!allocationLock) {
                   .toUpperCase();
 
 
-         const soldQty =
-  roundQty2(
-    soldMap.get(
-      productId
-    ) || 0
-  );
+              const soldQty =
+                roundQty2(
+                  soldMap.get(
+                    productId
+                  ) || 0
+                );
 
-const returnedQty =
-  roundQty2(
-    item.returnedQuantity
-  );
+              const returnedQty =
+                roundQty2(
+                  item.returnedQuantity
+                );
 
-const reconciledQty =
-  roundQty2(
-    item.reconciledQuantity
-  );
+              const reconciledQty =
+                roundQty2(
+                  item.reconciledQuantity
+                );
 
 
               if (
@@ -21764,9 +21764,9 @@ const reconciledQty =
             ) {
 
               const quantity =
-  roundQty2(
-    item.quantity
-  );
+                roundQty2(
+                  item.quantity
+                );
 
 
               if (
@@ -22037,8 +22037,8 @@ app.put(
 
     try {
 
-     let responseData = null;
-let idempotentReplay = false;
+      let responseData = null;
+      let idempotentReplay = false;
 
 
       await session.withTransaction(
@@ -22062,24 +22062,24 @@ let idempotentReplay = false;
           // ==============================================
 
           const {
-  clientRequestId,
-  productId,
-  goodReturnQty,
-  damageQty,
-  shortExcessQty,
-  returnType,
-  reason,
-  remarks,
-} = req.body;
+            clientRequestId,
+            productId,
+            goodReturnQty,
+            damageQty,
+            shortExcessQty,
+            returnType,
+            reason,
+            remarks,
+          } = req.body;
 
 
-const normalizedSettlementRequestId =
-  (
-    clientRequestId ||
-    ""
-  )
-    .toString()
-    .trim();
+          const normalizedSettlementRequestId =
+            (
+              clientRequestId ||
+              ""
+            )
+              .toString()
+              .trim();
 
 
           const normalizedProductId =
@@ -22252,93 +22252,93 @@ const normalizedSettlementRequestId =
           }
 
           const allocationBusinessDate =
-  getAllocationDocumentBusinessDateKey(
-    allocation
-  );
+            getAllocationDocumentBusinessDateKey(
+              allocation
+            );
 
 
-if (!allocationBusinessDate) {
+          if (!allocationBusinessDate) {
 
-  const error =
-    new Error(
-      "Business date could not be determined for this allocation."
-    );
+            const error =
+              new Error(
+                "Business date could not be determined for this allocation."
+              );
 
-  error.statusCode =
-    409;
+            error.statusCode =
+              409;
 
-  throw error;
-}
-
-
-const stockLock =
-  await lockSalesmanBusinessDayStock({
-
-    farmId,
-
-    salesmanId:
-      allocation.salesmanId,
-
-    businessDate:
-      allocationBusinessDate,
-
-    session,
-  });
+            throw error;
+          }
 
 
-if (!stockLock) {
+          const stockLock =
+            await lockSalesmanBusinessDayStock({
 
-  const error =
-    new Error(
-      "Unable to lock this allocation business day."
-    );
+              farmId,
 
-  error.statusCode =
-    409;
+              salesmanId:
+                allocation.salesmanId,
 
-  throw error;
-}
+              businessDate:
+                allocationBusinessDate,
+
+              session,
+            });
 
 
-// ==================================================
-// IDEMPOTENT RETURN / RECONCILIATION
-// ==================================================
+          if (!stockLock) {
 
-if (
-  normalizedSettlementRequestId &&
-  Array.isArray(
-    allocation.settlementRequestIds
-  ) &&
-  allocation
-    .settlementRequestIds
-    .includes(
-      normalizedSettlementRequestId
-    )
-) {
+            const error =
+              new Error(
+                "Unable to lock this allocation business day."
+              );
 
-  idempotentReplay =
-    true;
+            error.statusCode =
+              409;
 
-  responseData = {
+            throw error;
+          }
 
-    allocationId:
-      allocation.allocationId,
 
-    allocationNo:
-      allocation.allocationNo,
+          // ==================================================
+          // IDEMPOTENT RETURN / RECONCILIATION
+          // ==================================================
 
-    productId:
-      normalizedProductId,
+          if (
+            normalizedSettlementRequestId &&
+            Array.isArray(
+              allocation.settlementRequestIds
+            ) &&
+            allocation
+              .settlementRequestIds
+              .includes(
+                normalizedSettlementRequestId
+              )
+          ) {
 
-    status:
-      allocation.status,
+            idempotentReplay =
+              true;
 
-    idempotentReplay:
-      true,
-  };
+            responseData = {
 
-  return;
-}
+              allocationId:
+                allocation.allocationId,
+
+              allocationNo:
+                allocation.allocationNo,
+
+              productId:
+                normalizedProductId,
+
+              status:
+                allocation.status,
+
+              idempotentReplay:
+                true,
+            };
+
+            return;
+          }
 
           // ==============================================
           // FIND PRODUCT INSIDE ALLOCATION
@@ -22620,38 +22620,38 @@ if (
               ? "RETURNED"
               : "POSTED";
 
-              if (
-  normalizedSettlementRequestId
-) {
+          if (
+            normalizedSettlementRequestId
+          ) {
 
-  if (
-    !Array.isArray(
-      allocation
-        .settlementRequestIds
-    )
-  ) {
+            if (
+              !Array.isArray(
+                allocation
+                  .settlementRequestIds
+              )
+            ) {
 
-    allocation
-      .settlementRequestIds =
-      [];
-  }
+              allocation
+                .settlementRequestIds =
+                [];
+            }
 
 
-  if (
-    !allocation
-      .settlementRequestIds
-      .includes(
-        normalizedSettlementRequestId
-      )
-  ) {
+            if (
+              !allocation
+                .settlementRequestIds
+                .includes(
+                  normalizedSettlementRequestId
+                )
+            ) {
 
-    allocation
-      .settlementRequestIds
-      .push(
-        normalizedSettlementRequestId
-      );
-  }
-}
+              allocation
+                .settlementRequestIds
+                .push(
+                  normalizedSettlementRequestId
+                );
+            }
+          }
 
           await allocation.save({
             session,
@@ -22884,10 +22884,10 @@ if (
         success:
           true,
 
-   message:
-  idempotentReplay
-    ? "Allocation return already recorded."
-    : "Allocation return saved successfully.",
+        message:
+          idempotentReplay
+            ? "Allocation return already recorded."
+            : "Allocation return saved successfully.",
 
         data:
           responseData,
@@ -23307,87 +23307,87 @@ app.get(
           status;
       }
       const date =
-  (
-    req.query.date ||
-    ""
-  )
-    .toString()
-    .trim();
+        (
+          req.query.date ||
+          ""
+        )
+          .toString()
+          .trim();
 
 
-if (date) {
+      if (date) {
 
-  const requestedBusinessDate =
-    businessDate
-      .parseBusinessDateKey(
-        date,
-        "Outstanding date"
-      );
-
-
-  const {
-    start,
-    end,
-  } =
-    businessDate
-      .getIndiaBusinessDayRange(
-        requestedBusinessDate
-      );
+        const requestedBusinessDate =
+          businessDate
+            .parseBusinessDateKey(
+              date,
+              "Outstanding date"
+            );
 
 
-  filter.$or = [
-
-    // ================================================
-    // NEW RECORDS
-    // ================================================
-
-    {
-      businessDate:
-        requestedBusinessDate,
-    },
+        const {
+          start,
+          end,
+        } =
+          businessDate
+            .getIndiaBusinessDayRange(
+              requestedBusinessDate
+            );
 
 
-    // ================================================
-    // LEGACY RECORDS
-    // ================================================
+        filter.$or = [
 
-    {
-      $and: [
+          // ================================================
+          // NEW RECORDS
+          // ================================================
 
-        {
-          $or: [
-
-            {
-              businessDate: {
-                $exists: false,
-              },
-            },
-
-            {
-              businessDate:
-                null,
-            },
-
-            {
-              businessDate:
-                "",
-            },
-          ],
-        },
-
-        {
-          adjustmentDate: {
-            $gte:
-              start,
-
-            $lt:
-              end,
+          {
+            businessDate:
+              requestedBusinessDate,
           },
-        },
-      ],
-    },
-  ];
-}
+
+
+          // ================================================
+          // LEGACY RECORDS
+          // ================================================
+
+          {
+            $and: [
+
+              {
+                $or: [
+
+                  {
+                    businessDate: {
+                      $exists: false,
+                    },
+                  },
+
+                  {
+                    businessDate:
+                      null,
+                  },
+
+                  {
+                    businessDate:
+                      "",
+                  },
+                ],
+              },
+
+              {
+                adjustmentDate: {
+                  $gte:
+                    start,
+
+                  $lt:
+                    end,
+                },
+              },
+            ],
+          },
+        ];
+      }
 
       const records =
         await CustomerOutstanding.find(
@@ -23464,12 +23464,12 @@ app.post(
       )
         .toString()
         .trim();
-        const requestFingerprint =
-  normalizedClientRequestId
-    ? createRequestFingerprint(
-        req.body
-      )
-    : "";
+    const requestFingerprint =
+      normalizedClientRequestId
+        ? createRequestFingerprint(
+          req.body
+        )
+        : "";
 
     try {
 
@@ -23490,35 +23490,35 @@ app.post(
             })
             .lean();
 
-    if (existing) {
+        if (existing) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existing,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
-      );
-  }
+          const conflict =
+            getIdempotencyConflict(
+              existing,
+              requestFingerprint
+            );
 
 
-  return res.status(200).json({
-    success: true,
+          if (conflict) {
 
-    message:
-      "Customer outstanding already recorded.",
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
 
-    data:
-      existing,
-  });
-}
+
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Customer outstanding already recorded.",
+
+            data:
+              existing,
+          });
+        }
       }
 
 
@@ -23603,37 +23603,37 @@ app.post(
                 })
                 .session(session);
 
-         if (existing) {
+            if (existing) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existing,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    const error =
-      new Error(
-        conflict.message
-      );
-
-    error.statusCode =
-      409;
-
-    throw error;
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existing,
+                  requestFingerprint
+                );
 
 
-  savedRecord =
-    existing;
+              if (conflict) {
 
-  idempotentReplay =
-    true;
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-  return;
-}
+                error.statusCode =
+                  409;
+
+                throw error;
+              }
+
+
+              savedRecord =
+                existing;
+
+              idempotentReplay =
+                true;
+
+              return;
+            }
           }
 
 
@@ -23751,11 +23751,11 @@ app.post(
           const adjustmentId =
             await generateCustomerOutstandingId();
 
-const adjustmentNo =
-  await generateCustomerOutstandingNo(
-    farmId,
-    session
-  );
+          const adjustmentNo =
+            await generateCustomerOutstandingNo(
+              farmId,
+              session
+            );
 
 
           const docs =
@@ -23768,14 +23768,14 @@ const adjustmentNo =
 
                   adjustmentNo,
 
-                clientRequestId:
-  normalizedClientRequestId,
+                  clientRequestId:
+                    normalizedClientRequestId,
 
-requestFingerprint:
-  requestFingerprint,
+                  requestFingerprint:
+                    requestFingerprint,
 
-adjustmentDate:
-  finalOutstandingDate,
+                  adjustmentDate:
+                    finalOutstandingDate,
 
                   businessDate:
                     finalBusinessDate,
@@ -23878,35 +23878,35 @@ adjustmentDate:
             })
             .lean();
 
-    if (existing) {
+        if (existing) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existing,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
-      );
-  }
+          const conflict =
+            getIdempotencyConflict(
+              existing,
+              requestFingerprint
+            );
 
 
-  return res.status(200).json({
-    success: true,
+          if (conflict) {
 
-    message:
-      "Customer outstanding already recorded.",
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
 
-    data:
-      existing,
-  });
-}
+
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Customer outstanding already recorded.",
+
+            data:
+              existing,
+          });
+        }
       }
 
 
@@ -24069,9 +24069,8 @@ app.put(
 
             const error =
               new Error(
-                `Cannot cancel this outstanding because receipt ${
-                  dependentCollection.receiptNo ||
-                  dependentCollection.collectionId
+                `Cannot cancel this outstanding because receipt ${dependentCollection.receiptNo ||
+                dependentCollection.collectionId
                 } has already been allocated to it. Cancel that collection first.`
               );
 
@@ -25760,40 +25759,40 @@ app.get(
           salesmanName:
             collection.salesmanName ||
             "",
-amount:
-  roundMoney2(
-    collectionAmount
-  ),
+          amount:
+            roundMoney2(
+              collectionAmount
+            ),
 
-appliedAmount:
-  roundMoney2(
-    collection.appliedAmount || 0
-  ),
+          appliedAmount:
+            roundMoney2(
+              collection.appliedAmount || 0
+            ),
 
-advanceAmount:
-  roundMoney2(
-    advanceAmount
-  ),
+          advanceAmount:
+            roundMoney2(
+              advanceAmount
+            ),
 
-previousOutstanding:
-  roundMoney2(
-    collection.previousOutstanding || 0
-  ),
+          previousOutstanding:
+            roundMoney2(
+              collection.previousOutstanding || 0
+            ),
 
-remainingOutstanding:
-  roundMoney2(
-    collection.remainingOutstanding || 0
-  ),
+          remainingOutstanding:
+            roundMoney2(
+              collection.remainingOutstanding || 0
+            ),
 
-previousAdvanceBalance:
-  roundMoney2(
-    collection.previousAdvanceBalance || 0
-  ),
+          previousAdvanceBalance:
+            roundMoney2(
+              collection.previousAdvanceBalance || 0
+            ),
 
-currentAdvanceBalance:
-  roundMoney2(
-    collection.currentAdvanceBalance || 0
-  ),
+          currentAdvanceBalance:
+            roundMoney2(
+              collection.currentAdvanceBalance || 0
+            ),
 
           allocations:
             Array.isArray(collection.allocations)
@@ -26762,12 +26761,12 @@ app.post(
       (req.body?.clientRequestId || "")
         .toString()
         .trim();
-        const requestFingerprint =
-  normalizedClientRequestId
-    ? createRequestFingerprint(
-        req.body
-      )
-    : "";
+    const requestFingerprint =
+      normalizedClientRequestId
+        ? createRequestFingerprint(
+          req.body
+        )
+        : "";
 
     try {
       const role =
@@ -26790,35 +26789,35 @@ app.post(
           clientRequestId: normalizedClientRequestId,
         }).lean();
 
-     if (existingCollection) {
+        if (existingCollection) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existingCollection,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
-      );
-  }
+          const conflict =
+            getIdempotencyConflict(
+              existingCollection,
+              requestFingerprint
+            );
 
 
-  return res.status(200).json({
-    success: true,
+          if (conflict) {
 
-    message:
-      "Collection already recorded (idempotent request).",
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
 
-    data:
-      existingCollection,
-  });
-}
+
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Collection already recorded (idempotent request).",
+
+            data:
+              existingCollection,
+          });
+        }
       }
 
       const normalizedCustomerId =
@@ -26829,10 +26828,10 @@ app.post(
           .trim()
           .toUpperCase();
 
-  const collectionAmount =
-  roundMoney2(
-    amount
-  );
+      const collectionAmount =
+        roundMoney2(
+          amount
+        );
 
       // ==================================================
       // BASIC VALIDATION
@@ -26898,14 +26897,14 @@ app.post(
           const sType = (item?.sourceType || "").toString().trim().toUpperCase();
           const rId = (item?.referenceId || "").toString().trim().toUpperCase();
           const rawAmount =
-  Number(
-    item?.amountApplied
-  );
+            Number(
+              item?.amountApplied
+            );
 
-const amt =
-  roundMoney2(
-    rawAmount
-  );
+          const amt =
+            roundMoney2(
+              rawAmount
+            );
 
           if (!["SALE", "MANUAL_OUTSTANDING"].includes(sType)) {
             return res.status(400).json({
@@ -26930,21 +26929,21 @@ const amt =
           }
           seenKeys.add(key);
 
-         if (
-  !Number.isFinite(rawAmount) ||
-  amt <= 0
-) {
+          if (
+            !Number.isFinite(rawAmount) ||
+            amt <= 0
+          ) {
             return res.status(400).json({
               success: false,
               message: `Amount applied must be greater than zero for ${rId}.`,
             });
           }
 
-       manualAllocationTotal =
-  roundMoney2(
-    manualAllocationTotal +
-    amt
-  );
+          manualAllocationTotal =
+            roundMoney2(
+              manualAllocationTotal +
+              amt
+            );
         }
 
         if (Math.abs(manualAllocationTotal - collectionAmount) > 0.001) {
@@ -26967,45 +26966,45 @@ const amt =
               clientRequestId: normalizedClientRequestId,
             }).session(session).lean();
 
-       if (existingInTx) {
+            if (existingInTx) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existingInTx,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    const error =
-      new Error(
-        conflict.message
-      );
-
-    error.statusCode =
-      409;
-
-    throw error;
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existingInTx,
+                  requestFingerprint
+                );
 
 
-  responsePayload = {
-    status: 200,
+              if (conflict) {
 
-    body: {
-      success: true,
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-      message:
-        "Collection already recorded (idempotent request).",
+                error.statusCode =
+                  409;
 
-      data:
-        existingInTx,
-    },
-  };
+                throw error;
+              }
 
-  return;
-}
+
+              responsePayload = {
+                status: 200,
+
+                body: {
+                  success: true,
+
+                  message:
+                    "Collection already recorded (idempotent request).",
+
+                  data:
+                    existingInTx,
+                },
+              };
+
+              return;
+            }
           }
 
           // CUSTOMER
@@ -27405,169 +27404,169 @@ const amt =
           // GENERATE IDS
           const collectionId = await generateCollectionId(session);
           const receiptNo = await generateReceiptNo(farmId, session);
-// ======================================================
-// FINAL COLLECTION DATE + INDIA BUSINESS DATE
-//
-// SALESMAN:
-//   Server decides timestamp and India business date.
-//   Mobile device cannot move the accounting day.
-//
-// ADMIN:
-//   May enter a backdated date.
-//   Date-only input remains that exact calendar date.
-// ======================================================
+          // ======================================================
+          // FINAL COLLECTION DATE + INDIA BUSINESS DATE
+          //
+          // SALESMAN:
+          //   Server decides timestamp and India business date.
+          //   Mobile device cannot move the accounting day.
+          //
+          // ADMIN:
+          //   May enter a backdated date.
+          //   Date-only input remains that exact calendar date.
+          // ======================================================
 
-let finalCollectionDate;
-let finalCollectionBusinessDate;
-
-
-if (role === "salesman") {
-
-  finalCollectionDate =
-    new Date();
-
-  finalCollectionBusinessDate =
-    getISTBusinessDateKey(
-      finalCollectionDate
-    );
-
-} else {
-
-  finalCollectionDate =
-    collectionDate
-      ? new Date(
-          collectionDate
-        )
-      : new Date();
+          let finalCollectionDate;
+          let finalCollectionBusinessDate;
 
 
-  if (
-    Number.isNaN(
-      finalCollectionDate
-        .getTime()
-    )
-  ) {
-    const error =
-      new Error(
-        "Invalid collection date."
-      );
+          if (role === "salesman") {
 
-    error.statusCode =
-      400;
+            finalCollectionDate =
+              new Date();
 
-    throw error;
-  }
+            finalCollectionBusinessDate =
+              getISTBusinessDateKey(
+                finalCollectionDate
+              );
 
+          } else {
 
-  finalCollectionBusinessDate =
-    getBusinessDateKeyFromInput(
-      collectionDate,
-      finalCollectionDate
-    );
+            finalCollectionDate =
+              collectionDate
+                ? new Date(
+                  collectionDate
+                )
+                : new Date();
 
 
-  // When Admin supplies only YYYY-MM-DD,
-  // store a stable canonical date instead
-  // of allowing timezone interpretation.
-  const rawCollectionDate =
-    String(
-      collectionDate || ""
-    ).trim();
+            if (
+              Number.isNaN(
+                finalCollectionDate
+                  .getTime()
+              )
+            ) {
+              const error =
+                new Error(
+                  "Invalid collection date."
+                );
 
-  if (
-    /^\d{4}-\d{2}-\d{2}$/.test(
-      rawCollectionDate
-    )
-  ) {
-    finalCollectionDate =
-      businessDate
-        .businessDateToCanonicalUtcDate(
-          finalCollectionBusinessDate,
-          "Collection date"
-        );
-  }
-}
+              error.statusCode =
+                400;
+
+              throw error;
+            }
 
 
-if (
-  !finalCollectionBusinessDate
-) {
-  const error =
-    new Error(
-      "Unable to determine the India business date for this collection."
-    );
+            finalCollectionBusinessDate =
+              getBusinessDateKeyFromInput(
+                collectionDate,
+                finalCollectionDate
+              );
 
-  error.statusCode =
-    400;
 
-  throw error;
-}
+            // When Admin supplies only YYYY-MM-DD,
+            // store a stable canonical date instead
+            // of allowing timezone interpretation.
+            const rawCollectionDate =
+              String(
+                collectionDate || ""
+              ).trim();
+
+            if (
+              /^\d{4}-\d{2}-\d{2}$/.test(
+                rawCollectionDate
+              )
+            ) {
+              finalCollectionDate =
+                businessDate
+                  .businessDateToCanonicalUtcDate(
+                    finalCollectionBusinessDate,
+                    "Collection date"
+                  );
+            }
+          }
+
+
+          if (
+            !finalCollectionBusinessDate
+          ) {
+            const error =
+              new Error(
+                "Unable to determine the India business date for this collection."
+              );
+
+            error.statusCode =
+              400;
+
+            throw error;
+          }
 
 
           const previousAdvanceBalance =
-  Math.max(
-    0,
-    Number(
-      lockedCustomer.balance ||
-      0
-    )
-  );
+            Math.max(
+              0,
+              Number(
+                lockedCustomer.balance ||
+                0
+              )
+            );
           const newOutstanding = Number(Math.max(0, collectibleOutstanding - appliedAmount).toFixed(2));
 
-      const collectionToCreate = {
-  farmId,
+          const collectionToCreate = {
+            farmId,
 
-  collectionId,
+            collectionId,
 
-  receiptNo,
+            receiptNo,
 
-  collectionDate:
-    finalCollectionDate,
+            collectionDate:
+              finalCollectionDate,
 
-  businessDate:
-    finalCollectionBusinessDate,
+            businessDate:
+              finalCollectionBusinessDate,
 
-  customerId:
-    customer.customerId,
+            customerId:
+              customer.customerId,
             customerName: customer.name,
             customerMobile: customer.mobile || "",
             route: customer.route || "",
             salesmanId,
             salesmanName,
-         amount:
-  roundMoney2(
-    collectionAmount
-  ),
+            amount:
+              roundMoney2(
+                collectionAmount
+              ),
 
-appliedAmount:
-  roundMoney2(
-    appliedAmount
-  ),
+            appliedAmount:
+              roundMoney2(
+                appliedAmount
+              ),
 
-advanceAmount:
-  roundMoney2(
-    advanceAmount
-  ),
+            advanceAmount:
+              roundMoney2(
+                advanceAmount
+              ),
 
-previousOutstanding:
-  roundMoney2(
-    collectibleOutstanding
-  ),
+            previousOutstanding:
+              roundMoney2(
+                collectibleOutstanding
+              ),
 
-remainingOutstanding:
-  roundMoney2(
-    newOutstanding
-  ),
+            remainingOutstanding:
+              roundMoney2(
+                newOutstanding
+              ),
 
-previousAdvanceBalance:
-  roundMoney2(
-    previousAdvanceBalance
-  ),
+            previousAdvanceBalance:
+              roundMoney2(
+                previousAdvanceBalance
+              ),
 
-currentAdvanceBalance:
-  roundMoney2(
-    previousAdvanceBalance
-  ),
+            currentAdvanceBalance:
+              roundMoney2(
+                previousAdvanceBalance
+              ),
             allocations,
             allocationMode: finalAllocationMode,
             paymentMode,
@@ -27580,16 +27579,16 @@ currentAdvanceBalance:
             updatedAt: new Date(),
           };
 
-         if (
-  normalizedClientRequestId
-) {
+          if (
+            normalizedClientRequestId
+          ) {
 
-  collectionToCreate.clientRequestId =
-    normalizedClientRequestId;
+            collectionToCreate.clientRequestId =
+              normalizedClientRequestId;
 
-  collectionToCreate.requestFingerprint =
-    requestFingerprint;
-}
+            collectionToCreate.requestFingerprint =
+              requestFingerprint;
+          }
           const created = await Collection.create([collectionToCreate], { session });
           const savedCollection = created[0];
 
@@ -27600,40 +27599,40 @@ currentAdvanceBalance:
               message: "Collection saved successfully.",
               data: {
                 ...savedCollection.toObject(),
-            previousOutstanding:
-  roundMoney2(
-    collectibleOutstanding
-  ),
+                previousOutstanding:
+                  roundMoney2(
+                    collectibleOutstanding
+                  ),
 
-grossOutstanding:
-  roundMoney2(
-    outstanding
-  ),
+                grossOutstanding:
+                  roundMoney2(
+                    outstanding
+                  ),
 
-remainingOutstanding:
-  roundMoney2(
-    newOutstanding
-  ),
+                remainingOutstanding:
+                  roundMoney2(
+                    newOutstanding
+                  ),
 
-appliedAmount:
-  roundMoney2(
-    appliedAmount
-  ),
+                appliedAmount:
+                  roundMoney2(
+                    appliedAmount
+                  ),
 
-advanceAmount:
-  roundMoney2(
-    advanceAmount
-  ),
+                advanceAmount:
+                  roundMoney2(
+                    advanceAmount
+                  ),
 
-previousAdvanceBalance:
-  roundMoney2(
-    previousAdvanceBalance
-  ),
+                previousAdvanceBalance:
+                  roundMoney2(
+                    previousAdvanceBalance
+                  ),
 
-currentAdvanceBalance:
-  roundMoney2(
-    previousAdvanceBalance
-  ),
+                currentAdvanceBalance:
+                  roundMoney2(
+                    previousAdvanceBalance
+                  ),
               },
             },
           };
@@ -27671,35 +27670,35 @@ currentAdvanceBalance:
               clientRequestId: normalizedClientRequestId,
             }).lean();
 
-          if (existingCollection) {
+            if (existingCollection) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existingCollection,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
-      );
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existingCollection,
+                  requestFingerprint
+                );
 
 
-  return res.status(200).json({
-    success: true,
+              if (conflict) {
 
-    message:
-      "Collection already recorded (idempotent request).",
+                return res
+                  .status(409)
+                  .json(
+                    conflict
+                  );
+              }
 
-    data:
-      existingCollection,
-  });
-}
+
+              return res.status(200).json({
+                success: true,
+
+                message:
+                  "Collection already recorded (idempotent request).",
+
+                data:
+                  existingCollection,
+              });
+            }
           }
 
           return res.status(409).json({
@@ -27887,65 +27886,65 @@ app.get(
           .toString()
           .trim();
 
-if (date) {
+      if (date) {
 
-  const requestedBusinessDate =
-    businessDate.parseBusinessDateKey(
-      date,
-      "Collection date"
-    );
-
-
-  const {
-    start,
-    end,
-  } =
-    businessDate
-      .getIndiaBusinessDayRange(
-        requestedBusinessDate
-      );
+        const requestedBusinessDate =
+          businessDate.parseBusinessDateKey(
+            date,
+            "Collection date"
+          );
 
 
-  // New records:
-  // businessDate is authoritative.
-  //
-  // Legacy records:
-  // use collectionDate India-day range only
-  // when businessDate does not exist.
-  filter.$or = [
-    {
-      businessDate:
-        requestedBusinessDate,
-    },
+        const {
+          start,
+          end,
+        } =
+          businessDate
+            .getIndiaBusinessDayRange(
+              requestedBusinessDate
+            );
 
-    {
-      $and: [
-        {
-          $or: [
-            {
-              businessDate: {
-                $exists: false,
-              },
-            },
-            {
-              businessDate: null,
-            },
-            {
-              businessDate: "",
-            },
-          ],
-        },
 
-        {
-          collectionDate: {
-            $gte: start,
-            $lt: end,
+        // New records:
+        // businessDate is authoritative.
+        //
+        // Legacy records:
+        // use collectionDate India-day range only
+        // when businessDate does not exist.
+        filter.$or = [
+          {
+            businessDate:
+              requestedBusinessDate,
           },
-        },
-      ],
-    },
-  ];
-}
+
+          {
+            $and: [
+              {
+                $or: [
+                  {
+                    businessDate: {
+                      $exists: false,
+                    },
+                  },
+                  {
+                    businessDate: null,
+                  },
+                  {
+                    businessDate: "",
+                  },
+                ],
+              },
+
+              {
+                collectionDate: {
+                  $gte: start,
+                  $lt: end,
+                },
+              },
+            ],
+          },
+        ];
+      }
 
 
       // ==================================================
@@ -28147,27 +28146,27 @@ app.put(
           }
 
 
-    if (
-  collection.status ===
-  "CANCELLED"
-) {
-  cancelledCollection =
-    collection;
+          if (
+            collection.status ===
+            "CANCELLED"
+          ) {
+            cancelledCollection =
+              collection;
 
-  responseData =
-    collection.toObject();
+            responseData =
+              collection.toObject();
 
-  return;
-}
-const lockedCustomer =
-  await lockCustomerFinancialPosition({
-    farmId,
+            return;
+          }
+          const lockedCustomer =
+            await lockCustomerFinancialPosition({
+              farmId,
 
-    customerId:
-      collection.customerId,
+              customerId:
+                collection.customerId,
 
-    session,
-  });
+              session,
+            });
 
           // ==================================================
           // SAFETY CHECK: PREVENT CANCELLATION IF NEWER POSTED
@@ -28255,8 +28254,8 @@ const lockedCustomer =
             0.001
           ) {
 
-const customer =
-  lockedCustomer;
+            const customer =
+              lockedCustomer;
 
 
             if (!customer) {
@@ -28477,19 +28476,19 @@ app.get(
       const farmId =
         req.user.farmId;
 
-        // ================================================
-// LOAD SUPPLIERS INCLUDING OPENING BALANCE
-// ================================================
+      // ================================================
+      // LOAD SUPPLIERS INCLUDING OPENING BALANCE
+      // ================================================
 
-const suppliers =
-  await Supplier.find({
-    farmId,
-    isActive: true,
-  })
-    .select(
-      "supplierId supplierName openingBalance"
-    )
-    .lean();
+      const suppliers =
+        await Supplier.find({
+          farmId,
+          isActive: true,
+        })
+          .select(
+            "supplierId supplierName openingBalance"
+          )
+          .lean();
 
       // ================================================
       // LOAD CREDIT PURCHASES
@@ -28536,68 +28535,68 @@ const suppliers =
 
       const supplierMap =
         new Map();
-        // ================================================
-// INITIALIZE FROM SUPPLIER MASTER
-// ================================================
+      // ================================================
+      // INITIALIZE FROM SUPPLIER MASTER
+      // ================================================
 
-for (
-  const supplier of
-  suppliers
-) {
+      for (
+        const supplier of
+        suppliers
+      ) {
 
-  const supplierId =
-    (
-      supplier.supplierId ||
-      ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
-
-
-  if (!supplierId) {
-    continue;
-  }
+        const supplierId =
+          (
+            supplier.supplierId ||
+            ""
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
 
 
-  supplierMap.set(
-    supplierId,
-    {
-      supplierId,
+        if (!supplierId) {
+          continue;
+        }
 
-      supplierName:
-        supplier.supplierName ||
-        "",
 
-      openingBalance:
-        roundMoney2(
-          supplier.openingBalance ||
-          0
-        ),
+        supplierMap.set(
+          supplierId,
+          {
+            supplierId,
 
-      totalCreditPurchases:
-        0,
+            supplierName:
+              supplier.supplierName ||
+              "",
 
-      totalPaid:
-        0,
+            openingBalance:
+              roundMoney2(
+                supplier.openingBalance ||
+                0
+              ),
 
-      outstanding:
-        0,
+            totalCreditPurchases:
+              0,
 
-      purchaseCount:
-        0,
+            totalPaid:
+              0,
 
-      lastPaymentMode:
-        "",
+            outstanding:
+              0,
 
-      lastPaymentDate:
-        null,
+            purchaseCount:
+              0,
 
-      lastPaymentNo:
-        "",
-    }
-  );
-}
+            lastPaymentMode:
+              "",
+
+            lastPaymentDate:
+              null,
+
+            lastPaymentNo:
+              "",
+          }
+        );
+      }
 
       // ================================================
       // PURCHASE TOTAL
@@ -28619,47 +28618,47 @@ for (
           continue;
         }
 
-     if (
-  !supplierMap.has(
-    supplierId
-  )
-) {
+        if (
+          !supplierMap.has(
+            supplierId
+          )
+        ) {
 
-  supplierMap.set(
-    supplierId,
-    {
-      supplierId,
+          supplierMap.set(
+            supplierId,
+            {
+              supplierId,
 
-      supplierName:
-        purchase.supplierName ||
-        "",
+              supplierName:
+                purchase.supplierName ||
+                "",
 
-      openingBalance:
-        0,
+              openingBalance:
+                0,
 
-      totalCreditPurchases:
-        0,
+              totalCreditPurchases:
+                0,
 
-      totalPaid:
-        0,
+              totalPaid:
+                0,
 
-      outstanding:
-        0,
+              outstanding:
+                0,
 
-      purchaseCount:
-        0,
+              purchaseCount:
+                0,
 
-      lastPaymentMode:
-        "",
+              lastPaymentMode:
+                "",
 
-      lastPaymentDate:
-        null,
+              lastPaymentDate:
+                null,
 
-      lastPaymentNo:
-        "",
-    }
-  );
-}
+              lastPaymentNo:
+                "",
+            }
+          );
+        }
 
         const row =
           supplierMap.get(
@@ -28691,46 +28690,46 @@ for (
             .trim()
             .toUpperCase();
 
-      if (
-  !supplierMap.has(
-    supplierId
-  )
-) {
+        if (
+          !supplierMap.has(
+            supplierId
+          )
+        ) {
 
-  supplierMap.set(
-    supplierId,
-    {
-      supplierId,
+          supplierMap.set(
+            supplierId,
+            {
+              supplierId,
 
-      supplierName:
-        "",
+              supplierName:
+                "",
 
-      openingBalance:
-        0,
+              openingBalance:
+                0,
 
-      totalCreditPurchases:
-        0,
+              totalCreditPurchases:
+                0,
 
-      totalPaid:
-        0,
+              totalPaid:
+                0,
 
-      outstanding:
-        0,
+              outstanding:
+                0,
 
-      purchaseCount:
-        0,
+              purchaseCount:
+                0,
 
-      lastPaymentMode:
-        "",
+              lastPaymentMode:
+                "",
 
-      lastPaymentDate:
-        null,
+              lastPaymentDate:
+                null,
 
-      lastPaymentNo:
-        "",
-    }
-  );
-}
+              lastPaymentNo:
+                "",
+            }
+          );
+        }
 
         const row =
           supplierMap.get(
@@ -28778,39 +28777,39 @@ for (
           );
 
         row.openingBalance =
-  roundMoney2(
-    row.openingBalance
-  );
+          roundMoney2(
+            row.openingBalance
+          );
 
 
-row.totalCreditPurchases =
-  roundMoney2(
-    row.totalCreditPurchases
-  );
+        row.totalCreditPurchases =
+          roundMoney2(
+            row.totalCreditPurchases
+          );
 
 
-row.totalPaid =
-  roundMoney2(
-    row.totalPaid
-  );
+        row.totalPaid =
+          roundMoney2(
+            row.totalPaid
+          );
 
 
-row.totalPayable =
-  roundMoney2(
-    row.openingBalance +
-    row.totalCreditPurchases
-  );
+        row.totalPayable =
+          roundMoney2(
+            row.openingBalance +
+            row.totalCreditPurchases
+          );
 
 
-row.outstanding =
-  roundMoney2(
-    Math.max(
-      0,
+        row.outstanding =
+          roundMoney2(
+            Math.max(
+              0,
 
-      row.totalPayable -
-      row.totalPaid
-    )
-  );
+              row.totalPayable -
+              row.totalPaid
+            )
+          );
 
         if (
           row.outstanding <= 0
@@ -28891,12 +28890,12 @@ app.post(
       )
         .toString()
         .trim();
-        const requestFingerprint =
-  normalizedClientRequestId
-    ? createRequestFingerprint(
-        req.body
-      )
-    : "";
+    const requestFingerprint =
+      normalizedClientRequestId
+        ? createRequestFingerprint(
+          req.body
+        )
+        : "";
 
 
     try {
@@ -28917,35 +28916,35 @@ app.post(
               normalizedClientRequestId,
           }).lean();
 
-if (existing) {
+        if (existing) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existing,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
-      );
-  }
+          const conflict =
+            getIdempotencyConflict(
+              existing,
+              requestFingerprint
+            );
 
 
-  return res.status(200).json({
-    success: true,
+          if (conflict) {
 
-    message:
-      "Supplier payment already recorded.",
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
 
-    data:
-      existing,
-  });
-}
+
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Supplier payment already recorded.",
+
+            data:
+              existing,
+          });
+        }
       }
 
 
@@ -29063,37 +29062,37 @@ if (existing) {
                   normalizedClientRequestId,
               }).session(session);
 
-if (existing) {
+            if (existing) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existing,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    const error =
-      new Error(
-        conflict.message
-      );
-
-    error.statusCode =
-      409;
-
-    throw error;
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existing,
+                  requestFingerprint
+                );
 
 
-  savedPayment =
-    existing;
+              if (conflict) {
 
-  idempotentReplay =
-    true;
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-  return;
-}
+                error.statusCode =
+                  409;
+
+                throw error;
+              }
+
+
+              savedPayment =
+                existing;
+
+              idempotentReplay =
+                true;
+
+              return;
+            }
           }
 
 
@@ -29127,15 +29126,15 @@ if (existing) {
           // SHARED SUPPLIER FINANCIAL LOCK
           // ================================================
 
-const lockedSupplier =
-  await lockSupplierFinancialPosition({
-    farmId,
+          const lockedSupplier =
+            await lockSupplierFinancialPosition({
+              farmId,
 
-    supplierId:
-      normalizedSupplierId,
+              supplierId:
+                normalizedSupplierId,
 
-    session,
-  });
+              session,
+            });
 
 
           // ================================================
@@ -29221,28 +29220,28 @@ const lockedSupplier =
               );
           }
 
-const supplierOpeningBalance =
-  roundMoney2(
-    lockedSupplier.openingBalance
-  );
+          const supplierOpeningBalance =
+            roundMoney2(
+              lockedSupplier.openingBalance
+            );
 
 
-const totalSupplierPayable =
-  roundMoney2(
-    supplierOpeningBalance +
-    totalCreditPurchase
-  );
+          const totalSupplierPayable =
+            roundMoney2(
+              supplierOpeningBalance +
+              totalCreditPurchase
+            );
 
 
-const outstanding =
-  roundMoney2(
-    Math.max(
-      0,
+          const outstanding =
+            roundMoney2(
+              Math.max(
+                0,
 
-      totalSupplierPayable -
-      alreadyPaid
-    )
-  );
+                totalSupplierPayable -
+                alreadyPaid
+              )
+            );
 
           if (
             outstanding <= 0
@@ -29359,11 +29358,11 @@ const outstanding =
             await generatePaymentId();
 
 
-         const paymentNo =
-  await generatePaymentNo(
-    farmId,
-    session
-  );
+          const paymentNo =
+            await generatePaymentNo(
+              farmId,
+              session
+            );
 
 
           const docs =
@@ -29376,14 +29375,14 @@ const outstanding =
 
                   paymentNo,
 
-              clientRequestId:
-  normalizedClientRequestId,
+                  clientRequestId:
+                    normalizedClientRequestId,
 
-requestFingerprint:
-  requestFingerprint,
+                  requestFingerprint:
+                    requestFingerprint,
 
-paymentDate:
-  finalPaymentDate,
+                  paymentDate:
+                    finalPaymentDate,
 
                   businessDate:
                     finalBusinessDate,
@@ -29511,35 +29510,35 @@ paymentDate:
               normalizedClientRequestId,
           }).lean();
 
-if (existing) {
+        if (existing) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existing,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    return res
-      .status(409)
-      .json(
-        conflict
-      );
-  }
+          const conflict =
+            getIdempotencyConflict(
+              existing,
+              requestFingerprint
+            );
 
 
-  return res.status(200).json({
-    success: true,
+          if (conflict) {
 
-    message:
-      "Supplier payment already recorded.",
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
 
-    data:
-      existing,
-  });
-}
+
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Supplier payment already recorded.",
+
+            data:
+              existing,
+          });
+        }
       }
 
 
@@ -29625,69 +29624,69 @@ app.get(
           .toString()
           .trim();
 
-     if (date) {
+      if (date) {
 
-  const requestedBusinessDate =
-    businessDate
-      .parseBusinessDateKey(
-        date,
-        "Payment date"
-      );
-
-
-  const {
-    start,
-    end,
-  } =
-    businessDate
-      .getIndiaBusinessDayRange(
-        requestedBusinessDate
-      );
+        const requestedBusinessDate =
+          businessDate
+            .parseBusinessDateKey(
+              date,
+              "Payment date"
+            );
 
 
-  filter.$or = [
+        const {
+          start,
+          end,
+        } =
+          businessDate
+            .getIndiaBusinessDayRange(
+              requestedBusinessDate
+            );
 
-    {
-      businessDate:
-        requestedBusinessDate,
-    },
 
-    {
-      $and: [
+        filter.$or = [
 
-        {
-          $or: [
-            {
-              businessDate: {
-                $exists: false,
-              },
-            },
-
-            {
-              businessDate:
-                null,
-            },
-
-            {
-              businessDate:
-                "",
-            },
-          ],
-        },
-
-        {
-          paymentDate: {
-            $gte:
-              start,
-
-            $lt:
-              end,
+          {
+            businessDate:
+              requestedBusinessDate,
           },
-        },
-      ],
-    },
-  ];
-}
+
+          {
+            $and: [
+
+              {
+                $or: [
+                  {
+                    businessDate: {
+                      $exists: false,
+                    },
+                  },
+
+                  {
+                    businessDate:
+                      null,
+                  },
+
+                  {
+                    businessDate:
+                      "",
+                  },
+                ],
+              },
+
+              {
+                paymentDate: {
+                  $gte:
+                    start,
+
+                  $lt:
+                    end,
+                },
+              },
+            ],
+          },
+        ];
+      }
 
       const payments =
         await Payment.find(
@@ -30935,8 +30934,8 @@ app.get(
             true,
         })
           .select(
-  "supplierId supplierName mobile openingBalance"
-)
+            "supplierId supplierName mobile openingBalance"
+          )
           .lean();
 
       if (!supplier) {
@@ -30946,7 +30945,7 @@ app.get(
             "Supplier not found.",
         });
       }
-      
+
 
 
       // ----------------------------------------------
@@ -32475,49 +32474,93 @@ app.get(
             );
 
 
-        const cashSales =
-          sales
-            .filter(
-              sale =>
-                sale.paymentMode ===
-                "Cash"
-            )
-            .reduce(
-              (
-                total,
-                sale
-              ) =>
-                total +
-                (
-                  Number(
-                    sale.grandTotal
-                  ) || 0
-                ),
-              0
+        let totalPaidAtBilling = 0;
+        let cashReceived = 0;
+        let upiReceived = 0;
+        let bankReceived = 0;
+        let chequeReceived = 0;
+        let otherReceived = 0;
+        let totalOutstandingAmount = 0;
+
+
+        for (const sale of sales) {
+
+          const billing =
+            getSaleBillingPaymentBreakup(
+              sale
             );
 
-
-        const creditSales =
-          sales
-            .filter(
-              sale =>
-                sale.paymentMode ===
-                "Credit"
-            )
-            .reduce(
-              (
-                total,
-                sale
-              ) =>
-                total +
-                (
-                  Number(
-                    sale.grandTotal
-                  ) || 0
-                ),
-              0
+          totalPaidAtBilling +=
+            Number(
+              billing.total || 0
             );
 
+          cashReceived +=
+            Number(
+              billing.cash || 0
+            );
+
+          upiReceived +=
+            Number(
+              billing.upi || 0
+            );
+
+          bankReceived +=
+            Number(
+              billing.bankTransfer || 0
+            );
+
+          chequeReceived +=
+            Number(
+              billing.cheque || 0
+            );
+
+          otherReceived +=
+            Number(
+              billing.other || 0
+            );
+
+          totalOutstandingAmount +=
+            Number(
+              sale.outstandingAmount || 0
+            );
+        }
+
+
+        totalPaidAtBilling =
+          Number(
+            totalPaidAtBilling.toFixed(2)
+          );
+
+        cashReceived =
+          Number(
+            cashReceived.toFixed(2)
+          );
+
+        upiReceived =
+          Number(
+            upiReceived.toFixed(2)
+          );
+
+        bankReceived =
+          Number(
+            bankReceived.toFixed(2)
+          );
+
+        chequeReceived =
+          Number(
+            chequeReceived.toFixed(2)
+          );
+
+        otherReceived =
+          Number(
+            otherReceived.toFixed(2)
+          );
+
+        totalOutstandingAmount =
+          Number(
+            totalOutstandingAmount.toFixed(2)
+          );
 
         return res.status(200).json({
           success: true,
@@ -32546,31 +32589,40 @@ app.get(
             ],
 
             rows,
-
             metrics: [
               {
-                label:
-                  "Total Sales",
-                value:
-                  money(
-                    totalSales
-                  ),
+                label: "Total Sales",
+                value: money(totalSales),
               },
+
               {
-                label:
-                  "Cash Sales",
-                value:
-                  money(
-                    cashSales
-                  ),
+                label: "Paid at Billing",
+                value: money(totalPaidAtBilling),
               },
+
               {
-                label:
-                  "Credit Sales",
-                value:
-                  money(
-                    creditSales
-                  ),
+                label: "Cash Received",
+                value: money(cashReceived),
+              },
+
+              {
+                label: "UPI Received",
+                value: money(upiReceived),
+              },
+
+              {
+                label: "Bank Received",
+                value: money(bankReceived),
+              },
+
+              {
+                label: "Cheque Received",
+                value: money(chequeReceived),
+              },
+
+              {
+                label: "Outstanding",
+                value: money(totalOutstandingAmount),
               },
             ],
           },
@@ -32809,41 +32861,81 @@ app.get(
         "purchase-payment-due"
       ) {
 
+        const dueSupplierId =
+          (
+            req.query.supplierId ||
+            ""
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
+
+
+        const dueSupplierFilter = {
+          farmId,
+          isActive: true,
+        };
+
+
+        if (dueSupplierId) {
+          dueSupplierFilter.supplierId =
+            dueSupplierId;
+        }
+
+
         const suppliers =
-          await Supplier.find({
-            farmId,
-            isActive: true,
-          })
-        .select(
-  "supplierId supplierName mobile openingBalance"
-)
+          await Supplier.find(
+            dueSupplierFilter
+          )
+            .select(
+              "supplierId supplierName mobile openingBalance"
+            )
             .sort({
               supplierName: 1,
             })
             .lean();
 
+        const creditPurchaseFilter = {
+          farmId,
+          status: "POSTED",
+
+          paymentType: {
+            $regex: /^Credit$/i,
+          },
+        };
+
+
+        if (dueSupplierId) {
+          creditPurchaseFilter.supplierId =
+            dueSupplierId;
+        }
+
 
         const creditPurchases =
-          await Purchase.find({
-            farmId,
-            status: "POSTED",
-
-            paymentType: {
-              $regex:
-                /^Credit$/i,
-            },
-          })
+          await Purchase.find(
+            creditPurchaseFilter
+          )
             .select(
               "supplierId supplierName grandTotal dueDate"
             )
             .lean();
 
+        const supplierPaymentFilter = {
+          farmId,
+          status: "POSTED",
+        };
+
+
+        if (dueSupplierId) {
+          supplierPaymentFilter.supplierId =
+            dueSupplierId;
+        }
+
 
         const payments =
-          await Payment.find({
-            farmId,
-            status: "POSTED",
-          })
+          await Payment.find(
+            supplierPaymentFilter
+          )
             .select(
               "supplierId amount"
             )
@@ -33001,45 +33093,45 @@ app.get(
               .trim()
               .toUpperCase();
 
-const openingBalance =
-  roundMoney2(
-    supplier.openingBalance ||
-    0
-  );
+          const openingBalance =
+            roundMoney2(
+              supplier.openingBalance ||
+              0
+            );
 
 
-const purchaseAmount =
-  roundMoney2(
-    purchaseMap.get(
-      supplierId
-    ) || 0
-  );
+          const purchaseAmount =
+            roundMoney2(
+              purchaseMap.get(
+                supplierId
+              ) || 0
+            );
 
 
-const paidAmount =
-  roundMoney2(
-    paymentMap.get(
-      supplierId
-    ) || 0
-  );
+          const paidAmount =
+            roundMoney2(
+              paymentMap.get(
+                supplierId
+              ) || 0
+            );
 
 
-const totalPayable =
-  roundMoney2(
-    openingBalance +
-    purchaseAmount
-  );
+          const totalPayable =
+            roundMoney2(
+              openingBalance +
+              purchaseAmount
+            );
 
 
-const outstanding =
-  roundMoney2(
-    Math.max(
-      0,
+          const outstanding =
+            roundMoney2(
+              Math.max(
+                0,
 
-      totalPayable -
-      paidAmount
-    )
-  );
+                totalPayable -
+                paidAmount
+              )
+            );
 
           if (
             outstanding <= 0
@@ -36565,48 +36657,57 @@ app.get(
           ).toFixed(2)}`;
 
 
-      const dateKey =
-        (value) => {
+     const dateKey =
+  (value) => {
 
-          const date =
-            new Date(value);
+    if (!value) {
+      return "";
+    }
 
-          if (
-            Number.isNaN(
-              date.getTime()
-            )
-          ) {
-            return "";
-          }
 
-         const year =
-  getIndiaDocumentYear();
+    const date =
+      new Date(value);
 
-          const month =
-            (
-              date.getMonth() +
-              1
-            )
-              .toString()
-              .padStart(
-                2,
-                "0"
-              );
 
-          const day =
-            date
-              .getDate()
-              .toString()
-              .padStart(
-                2,
-                "0"
-              );
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return "";
+    }
 
-          return (
-            `${year}-${month}-${day}`
-          );
-        };
 
+    const year =
+      date.getFullYear();
+
+
+    const month =
+      (
+        date.getMonth() +
+        1
+      )
+        .toString()
+        .padStart(
+          2,
+          "0"
+        );
+
+
+    const day =
+      date
+        .getDate()
+        .toString()
+        .padStart(
+          2,
+          "0"
+        );
+
+
+    return (
+      `${year}-${month}-${day}`
+    );
+  };
 
       const displayDate =
         (key) => {
@@ -37765,54 +37866,54 @@ app.post(
   requirePermission("expensesView"),
   async (req, res) => {
 
-const session =
-  await mongoose.startSession();
+    const session =
+      await mongoose.startSession();
 
 
-const farmId =
-  req.user.farmId;
+    const farmId =
+      req.user.farmId;
 
 
-const normalizedClientRequestId =
-  (
-    req.body?.clientRequestId ||
-    ""
-  )
-    .toString()
-    .trim();
-
-
-const requestFingerprint =
-  normalizedClientRequestId
-    ? createRequestFingerprint(
-        req.body
+    const normalizedClientRequestId =
+      (
+        req.body?.clientRequestId ||
+        ""
       )
-    : "";
+        .toString()
+        .trim();
 
 
-try {
-
-  let savedExpense =
-    null;
-
-  let idempotentReplay =
-    false;
-
-
-  const userId =
-    req.user.userId || "";
-
-  const role =
-    req.user.role || "";
+    const requestFingerprint =
+      normalizedClientRequestId
+        ? createRequestFingerprint(
+          req.body
+        )
+        : "";
 
 
-  const {
-    expenseDate,
-    category,
-    amount,
-    paymentMode,
-    note,
-  } = req.body;
+    try {
+
+      let savedExpense =
+        null;
+
+      let idempotentReplay =
+        false;
+
+
+      const userId =
+        req.user.userId || "";
+
+      const role =
+        req.user.role || "";
+
+
+      const {
+        expenseDate,
+        category,
+        amount,
+        paymentMode,
+        note,
+      } = req.body;
 
 
       // ==================================================
@@ -37932,41 +38033,41 @@ try {
 
       if (normalizedClientRequestId) {
 
-  const existingExpense =
-    await Expense.findOne({
-      farmId,
-      clientRequestId:
-        normalizedClientRequestId,
-    }).lean();
+        const existingExpense =
+          await Expense.findOne({
+            farmId,
+            clientRequestId:
+              normalizedClientRequestId,
+          }).lean();
 
 
-  if (existingExpense) {
+        if (existingExpense) {
 
-    const conflict =
-      getIdempotencyConflict(
-        existingExpense,
-        requestFingerprint
-      );
-
-
-    if (conflict) {
-      return res
-        .status(409)
-        .json(conflict);
-    }
+          const conflict =
+            getIdempotencyConflict(
+              existingExpense,
+              requestFingerprint
+            );
 
 
-    return res.status(200).json({
-      success: true,
+          if (conflict) {
+            return res
+              .status(409)
+              .json(conflict);
+          }
 
-      message:
-        "Expense already recorded.",
 
-      data:
-        existingExpense,
-    });
-  }
-}
+          return res.status(200).json({
+            success: true,
+
+            message:
+              "Expense already recorded.",
+
+            data:
+              existingExpense,
+          });
+        }
+      }
       // ==================================================
       // TRANSACTION
       // ==================================================
@@ -37976,45 +38077,45 @@ try {
 
           if (normalizedClientRequestId) {
 
-  const existingExpense =
-    await Expense.findOne({
-      farmId,
-      clientRequestId:
-        normalizedClientRequestId,
-    })
-      .session(session);
+            const existingExpense =
+              await Expense.findOne({
+                farmId,
+                clientRequestId:
+                  normalizedClientRequestId,
+              })
+                .session(session);
 
-if (existingExpense) {
+            if (existingExpense) {
 
-  const conflict =
-    getIdempotencyConflict(
-      existingExpense,
-      requestFingerprint
-    );
-
-
-  if (conflict) {
-
-    const error =
-      new Error(
-        conflict.message
-      );
-
-    error.statusCode = 409;
-
-    throw error;
-  }
+              const conflict =
+                getIdempotencyConflict(
+                  existingExpense,
+                  requestFingerprint
+                );
 
 
-  savedExpense =
-    existingExpense;
+              if (conflict) {
 
-  idempotentReplay =
-    true;
+                const error =
+                  new Error(
+                    conflict.message
+                  );
 
-  return;
-}
-}
+                error.statusCode = 409;
+
+                throw error;
+              }
+
+
+              savedExpense =
+                existingExpense;
+
+              idempotentReplay =
+                true;
+
+              return;
+            }
+          }
           const expenseId =
             await generateExpenseId();
 
@@ -38038,11 +38139,11 @@ if (existingExpense) {
 
                   expenseDate:
                     finalExpenseDate,
-                    clientRequestId:
-  normalizedClientRequestId,
+                  clientRequestId:
+                    normalizedClientRequestId,
 
-requestFingerprint:
-  requestFingerprint,
+                  requestFingerprint:
+                    requestFingerprint,
 
                   category:
                     finalCategory,
@@ -38082,110 +38183,110 @@ requestFingerprint:
       );
 
 
-    return res.status(
-  idempotentReplay
-    ? 200
-    : 201
-).json({
+      return res.status(
+        idempotentReplay
+          ? 200
+          : 201
+      ).json({
 
-  success: true,
+        success: true,
 
-  message:
-    idempotentReplay
-      ? "Expense already recorded."
-      : "Expense added successfully.",
+        message:
+          idempotentReplay
+            ? "Expense already recorded."
+            : "Expense added successfully.",
 
-  data:
-    savedExpense,
-});
-
-
-   } catch (error) {
-
-  console.error(
-    "ADD EXPENSE ERROR:",
-    error
-  );
+        data:
+          savedExpense,
+      });
 
 
-  // ==================================================
-  // IDEMPOTENCY RACE PROTECTION
-  //
-  // Two identical requests may reach the backend
-  // together. One creates the Expense, while the
-  // unique index rejects the second.
-  // ==================================================
+    } catch (error) {
 
-  if (
-    error.code === 11000 &&
-    normalizedClientRequestId
-  ) {
-
-    const existing =
-      await Expense.findOne({
-        farmId,
-
-        clientRequestId:
-          normalizedClientRequestId,
-      }).lean();
+      console.error(
+        "ADD EXPENSE ERROR:",
+        error
+      );
 
 
-    if (existing) {
+      // ==================================================
+      // IDEMPOTENCY RACE PROTECTION
+      //
+      // Two identical requests may reach the backend
+      // together. One creates the Expense, while the
+      // unique index rejects the second.
+      // ==================================================
 
-      const conflict =
-        getIdempotencyConflict(
-          existing,
-          requestFingerprint
-        );
+      if (
+        error.code === 11000 &&
+        normalizedClientRequestId
+      ) {
+
+        const existing =
+          await Expense.findOne({
+            farmId,
+
+            clientRequestId:
+              normalizedClientRequestId,
+          }).lean();
 
 
-      if (conflict) {
+        if (existing) {
 
-        return res
-          .status(409)
-          .json(
-            conflict
-          );
+          const conflict =
+            getIdempotencyConflict(
+              existing,
+              requestFingerprint
+            );
+
+
+          if (conflict) {
+
+            return res
+              .status(409)
+              .json(
+                conflict
+              );
+          }
+
+
+          return res
+            .status(200)
+            .json({
+
+              success: true,
+
+              message:
+                "Expense already recorded.",
+
+              data:
+                existing,
+            });
+        }
       }
 
 
       return res
-        .status(200)
+        .status(
+          error.statusCode ||
+          (
+            error.code === 11000
+              ? 409
+              : 500
+          )
+        )
         .json({
 
-          success: true,
+          success: false,
 
           message:
-            "Expense already recorded.",
-
-          data:
-            existing,
+            error.code === 11000
+              ? "Duplicate expense detected. Please refresh and try again."
+              : (
+                error.message ||
+                "Unable to save expense."
+              ),
         });
-    }
-  }
-
-
-  return res
-    .status(
-      error.statusCode ||
-      (
-        error.code === 11000
-          ? 409
-          : 500
-      )
-    )
-    .json({
-
-      success: false,
-
-      message:
-        error.code === 11000
-          ? "Duplicate expense detected. Please refresh and try again."
-          : (
-              error.message ||
-              "Unable to save expense."
-            ),
-    });
 
 
     } finally {
@@ -41335,362 +41436,362 @@ app.get(
         0;
 
 
-      
+
+
+      // ==================================================
+      // ALL SALESMAN SALES
+      // ==================================================
+
+      if (salesman) {
 
         // ==================================================
-        // ALL SALESMAN SALES
+        // SALESMAN SALES
+        //
+        // IMPORTANT:
+        // Stock consumption is BUSINESS-DATE-WISE.
+        // One day's sales must never consume another day's
+        // allocation.
         // ==================================================
 
-        if (salesman) {
+        const salesmanSalesForQty =
+          await Sale.find({
 
-          // ==================================================
-          // SALESMAN SALES
-          //
-          // IMPORTANT:
-          // Stock consumption is BUSINESS-DATE-WISE.
-          // One day's sales must never consume another day's
-          // allocation.
-          // ==================================================
+            farmId,
 
-          const salesmanSalesForQty =
-            await Sale.find({
+            salesmanId:
+              salesman.salesmanId,
 
-              farmId,
+            status:
+              "POSTED",
 
-              salesmanId:
-                salesman.salesmanId,
+            $or: [
 
-              status:
-                "POSTED",
+              {
+                stockSource:
+                  "SALESMAN_ALLOCATION",
+              },
 
-              $or: [
-
-                {
-                  stockSource:
-                    "SALESMAN_ALLOCATION",
+              {
+                stockSource: {
+                  $exists: false,
                 },
 
-                {
-                  stockSource: {
-                    $exists: false,
-                  },
+                createdRole:
+                  "salesman",
+              },
 
-                  createdRole:
-                    "salesman",
-                },
+              {
+                stockSource:
+                  null,
 
-                {
-                  stockSource:
-                    null,
+                createdRole:
+                  "salesman",
+              },
 
-                  createdRole:
-                    "salesman",
-                },
+              {
+                stockSource:
+                  "",
 
-                {
-                  stockSource:
-                    "",
+                createdRole:
+                  "salesman",
+              },
 
-                  createdRole:
-                    "salesman",
-                },
+            ],
 
-              ],
-
-            })
-              .select(
-                "products saleDate businessDate createdAt"
-              )
-              .lean();
+          })
+            .select(
+              "products saleDate businessDate createdAt"
+            )
+            .lean();
 
 
-          // ==================================================
-          // KEY:
-          // YYYY-MM-DD|PRODUCT
-          // ==================================================
+        // ==================================================
+        // KEY:
+        // YYYY-MM-DD|PRODUCT
+        // ==================================================
 
-          const remainingSoldMap =
-            new Map();
+        const remainingSoldMap =
+          new Map();
+
+
+        for (
+          const sale of
+          salesmanSalesForQty
+        ) {
+
+          const saleBusinessDate =
+            getSaleBusinessDateKey(
+              sale
+            );
+
+
+          if (!saleBusinessDate) {
+            continue;
+          }
 
 
           for (
-            const sale of
-            salesmanSalesForQty
+            const product of
+            sale.products || []
           ) {
 
-            const saleBusinessDate =
-              getSaleBusinessDateKey(
-                sale
-              );
+            const productId =
+              (
+                product.productId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
 
 
-            if (!saleBusinessDate) {
+            if (!productId) {
               continue;
             }
 
 
-            for (
-              const product of
-              sale.products || []
-            ) {
+            const quantity =
+              roundQty2(
+                Math.max(
+                  0,
 
-              const productId =
-                (
-                  product.productId ||
-                  ""
-                )
-                  .toString()
-                  .trim()
-                  .toUpperCase();
-
-
-              if (!productId) {
-                continue;
-              }
-
-
-              const quantity =
-                roundQty2(
-                  Math.max(
-                    0,
-
-                    Number(
-                      product.quantity ||
-                      0
-                    )
+                  Number(
+                    product.quantity ||
+                    0
                   )
-                );
+                )
+              );
 
 
-              const key =
-                `${saleBusinessDate}|${productId}`;
+            const key =
+              `${saleBusinessDate}|${productId}`;
 
 
-              remainingSoldMap.set(
-                key,
+            remainingSoldMap.set(
+              key,
 
-                roundQty2(
-                  (
+              roundQty2(
+                (
+                  remainingSoldMap.get(
+                    key
+                  ) || 0
+                ) +
+                quantity
+              )
+            );
+          }
+        }
+
+
+        // ==================================================
+        // ALLOCATION POSITION
+        //
+        // Same business date only.
+        //
+        // Remaining =
+        // Allocated
+        // - Sold
+        // - Returned
+        // - Reconciled
+        // ==================================================
+
+        for (
+          const allocation of
+          allRelevantAllocations
+        ) {
+
+          const allocationDate =
+            new Date(
+              allocation.allocationDate ||
+              allocation.createdAt ||
+              0
+            );
+
+
+          const allocationBusinessDate =
+            getAllocationDocumentBusinessDateKey(
+              allocation
+            );
+
+
+          if (!allocationBusinessDate) {
+            continue;
+          }
+
+
+          const isPreviousAllocation =
+            allocationDate <
+            todayStart;
+
+
+          for (
+            const product of
+            allocation.products || []
+          ) {
+
+            const productId =
+              (
+                product.productId ||
+                ""
+              )
+                .toString()
+                .trim()
+                .toUpperCase();
+
+
+            if (!productId) {
+              continue;
+            }
+
+
+            const allocatedQuantity =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  Number(
+                    product.quantity ||
+                    0
+                  )
+                )
+              );
+
+
+            const returnedQuantity =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  Number(
+                    product
+                      .returnedQuantity ||
+                    0
+                  )
+                )
+              );
+
+
+            const reconciledQuantity =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  Number(
+                    product
+                      .reconciledQuantity ||
+                    0
+                  )
+                )
+              );
+
+
+            const usableAllocated =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  allocatedQuantity -
+                  returnedQuantity -
+                  reconciledQuantity
+                )
+              );
+
+
+            const key =
+              `${allocationBusinessDate}|${productId}`;
+
+
+            const remainingSold =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  Number(
                     remainingSoldMap.get(
                       key
                     ) || 0
-                  ) +
-                  quantity
+                  )
                 )
               );
-            }
-          }
 
 
-          // ==================================================
-          // ALLOCATION POSITION
-          //
-          // Same business date only.
-          //
-          // Remaining =
-          // Allocated
-          // - Sold
-          // - Returned
-          // - Reconciled
-          // ==================================================
-
-          for (
-            const allocation of
-            allRelevantAllocations
-          ) {
-
-            const allocationDate =
-              new Date(
-                allocation.allocationDate ||
-                allocation.createdAt ||
-                0
+            const soldAgainstAllocation =
+              roundQty2(
+                Math.min(
+                  usableAllocated,
+                  remainingSold
+                )
               );
 
 
-            const allocationBusinessDate =
-              getAllocationDocumentBusinessDateKey(
-                allocation
+            remainingSoldMap.set(
+              key,
+
+              roundQty2(
+                Math.max(
+                  0,
+
+                  remainingSold -
+                  soldAgainstAllocation
+                )
+              )
+            );
+
+
+            const remainingQuantity =
+              roundQty2(
+                Math.max(
+                  0,
+
+                  usableAllocated -
+                  soldAgainstAllocation
+                )
               );
 
 
-            if (!allocationBusinessDate) {
+            if (
+              remainingQuantity <=
+              0.001
+            ) {
               continue;
             }
 
 
-            const isPreviousAllocation =
-              allocationDate <
-              todayStart;
-
-
-            for (
-              const product of
-              allocation.products || []
+            if (
+              isPreviousAllocation
             ) {
 
-              const productId =
-                (
-                  product.productId ||
-                  ""
-                )
-                  .toString()
-                  .trim()
-                  .toUpperCase();
-
-
-              if (!productId) {
-                continue;
-              }
-
-
-              const allocatedQuantity =
+              pendingReturnQuantity =
                 roundQty2(
-                  Math.max(
-                    0,
-
-                    Number(
-                      product.quantity ||
-                      0
-                    )
-                  )
+                  pendingReturnQuantity +
+                  remainingQuantity
                 );
+            }
 
+            else {
 
-              const returnedQuantity =
+              pendingDeliveryQuantity =
                 roundQty2(
-                  Math.max(
-                    0,
-
-                    Number(
-                      product
-                        .returnedQuantity ||
-                      0
-                    )
-                  )
+                  pendingDeliveryQuantity +
+                  remainingQuantity
                 );
-
-
-              const reconciledQuantity =
-                roundQty2(
-                  Math.max(
-                    0,
-
-                    Number(
-                      product
-                        .reconciledQuantity ||
-                      0
-                    )
-                  )
-                );
-
-
-              const usableAllocated =
-                roundQty2(
-                  Math.max(
-                    0,
-
-                    allocatedQuantity -
-                    returnedQuantity -
-                    reconciledQuantity
-                  )
-                );
-
-
-              const key =
-                `${allocationBusinessDate}|${productId}`;
-
-
-              const remainingSold =
-                roundQty2(
-                  Math.max(
-                    0,
-
-                    Number(
-                      remainingSoldMap.get(
-                        key
-                      ) || 0
-                    )
-                  )
-                );
-
-
-              const soldAgainstAllocation =
-                roundQty2(
-                  Math.min(
-                    usableAllocated,
-                    remainingSold
-                  )
-                );
-
-
-              remainingSoldMap.set(
-                key,
-
-                roundQty2(
-                  Math.max(
-                    0,
-
-                    remainingSold -
-                    soldAgainstAllocation
-                  )
-                )
-              );
-
-
-              const remainingQuantity =
-                roundQty2(
-                  Math.max(
-                    0,
-
-                    usableAllocated -
-                    soldAgainstAllocation
-                  )
-                );
-
-
-              if (
-                remainingQuantity <=
-                0.001
-              ) {
-                continue;
-              }
-
-
-              if (
-                isPreviousAllocation
-              ) {
-
-                pendingReturnQuantity =
-                  roundQty2(
-                    pendingReturnQuantity +
-                    remainingQuantity
-                  );
-              }
-
-              else {
-
-                pendingDeliveryQuantity =
-                  roundQty2(
-                    pendingDeliveryQuantity +
-                    remainingQuantity
-                  );
-              }
             }
           }
-
-
-          pendingDeliveryQuantity =
-            roundQty2(
-              pendingDeliveryQuantity
-            );
-
-
-          pendingReturnQuantity =
-            roundQty2(
-              pendingReturnQuantity
-            );
         }
-      
+
+
+        pendingDeliveryQuantity =
+          roundQty2(
+            pendingDeliveryQuantity
+          );
+
+
+        pendingReturnQuantity =
+          roundQty2(
+            pendingReturnQuantity
+          );
+      }
+
 
 
 
@@ -45527,10 +45628,10 @@ app.get(
             continue;
           }
 
-  const quantity =
-  roundQty2(
-    product.quantity
-  );
+          const quantity =
+            roundQty2(
+              product.quantity
+            );
 
           saleQuantity +=
             quantity;
