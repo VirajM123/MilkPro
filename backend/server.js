@@ -39771,6 +39771,1162 @@ app.get(
 );
 
 // ======================================================
+// DAILY SALESMAN SETTLEMENT REPORT
+//
+// SEPARATE REPORT API
+//
+// DOES NOT CHANGE:
+// - SALES API
+// - COLLECTION API
+// - ALLOCATION API
+// - MOBILE APP API
+//
+// GET:
+// /api/reports/daily-salesman-settlement
+//
+// QUERY:
+// date=2026-10-01
+// salesmanId=SM213549
+// route=Warje (optional)
+// ======================================================
+
+app.get(
+  "/api/reports/daily-salesman-settlement",
+  authenticateToken,
+  loadAccessContext,
+  requirePermission("reportsView"),
+
+  async (req, res) => {
+    try {
+      const farmId =
+        req.access?.farmId ||
+        req.user?.farmId;
+
+      const isSalesman =
+        Boolean(req.access?.isSalesman);
+
+      // ==================================================
+      // REPORT DATE
+      // YYYY-MM-DD
+      // ==================================================
+
+      const requestedDate =
+        String(
+          req.query.date || ""
+        ).trim();
+
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          requestedDate
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Valid report date is required in YYYY-MM-DD format.",
+        });
+      }
+
+      // ==================================================
+      // SALESMAN
+      //
+      // ADMIN:
+      // can select salesman
+      //
+      // SALESMAN:
+      // API always forces own salesmanId
+      // ==================================================
+
+      let salesmanId = "";
+
+      if (isSalesman) {
+        salesmanId = String(
+          req.access.salesmanId || ""
+        )
+          .trim()
+          .toUpperCase();
+      } else {
+        salesmanId = String(
+          req.query.salesmanId || ""
+        )
+          .trim()
+          .toUpperCase();
+      }
+
+      if (!salesmanId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Please select a salesman.",
+        });
+      }
+
+      const routeFilter =
+        String(
+          req.query.route || ""
+        ).trim();
+
+      // ==================================================
+      // SALESMAN MASTER
+      // ==================================================
+
+      const salesman =
+        await Salesman.findOne({
+          farmId,
+          salesmanId,
+          isActive: true,
+        })
+          .select(
+            "salesmanId name mobile"
+          )
+          .lean();
+
+      if (!salesman) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Salesman not found.",
+        });
+      }
+
+      // ==================================================
+      // DATE RANGE FALLBACK
+      //
+      // New records use businessDate.
+      // Old records can fall back to timestamp.
+      // ==================================================
+
+      let dayRange;
+
+      try {
+        dayRange =
+          getAllocationBusinessDayRange(
+            requestedDate
+          );
+      } catch (_error) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid report date.",
+        });
+      }
+
+      const rangeStart =
+        dayRange.start;
+
+      const rangeEnd =
+        dayRange.end;
+
+      // ==================================================
+      // SAFE BUSINESS-DATE FILTER
+      // ==================================================
+
+      const makeBusinessDateFilter = (
+        timestampField
+      ) => ({
+        $or: [
+          {
+            businessDate:
+              requestedDate,
+          },
+
+          {
+            $and: [
+              {
+                $or: [
+                  {
+                    businessDate: {
+                      $exists: false,
+                    },
+                  },
+                  {
+                    businessDate: null,
+                  },
+                  {
+                    businessDate: "",
+                  },
+                ],
+              },
+
+              {
+                [timestampField]: {
+                  $gte: rangeStart,
+                  $lt: rangeEnd,
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      // ==================================================
+      // COMMON PAYMENT CLASSIFIER
+      // ==================================================
+
+      const classifyPaymentMode = (
+        rawMode
+      ) => {
+        const mode =
+          String(rawMode || "")
+            .trim()
+            .toLowerCase();
+
+        if (mode === "cash") {
+          return "cash";
+        }
+
+        if (
+          [
+            "upi",
+            "phonepe",
+            "google pay",
+            "gpay",
+            "paytm",
+          ].includes(mode)
+        ) {
+          return "online";
+        }
+
+        if (
+          [
+            "bank transfer",
+            "bank",
+            "neft",
+            "rtgs",
+            "imps",
+            "cheque",
+          ].includes(mode)
+        ) {
+          return "online";
+        }
+
+        return "other";
+      };
+
+      // ==================================================
+      // LOAD ALLOCATION
+      // ==================================================
+
+      const allocationFilter = {
+        farmId,
+        salesmanId,
+
+        status: {
+          $in: [
+            "POSTED",
+            "RETURNED",
+          ],
+        },
+
+        ...makeBusinessDateFilter(
+          "allocationDate"
+        ),
+      };
+
+      if (routeFilter) {
+        allocationFilter.routeName =
+          routeFilter;
+      }
+
+      const allocations =
+        await Allocation.find(
+          allocationFilter
+        )
+          .select(
+            [
+              "allocationId",
+              "allocationNo",
+              "allocationDate",
+              "businessDate",
+
+              "salesmanId",
+              "salesmanName",
+
+              "routeId",
+              "routeName",
+
+              "products",
+              "totalQuantity",
+              "status",
+            ].join(" ")
+          )
+          .lean();
+
+      // ==================================================
+      // LOAD SALES
+      // ==================================================
+
+      const saleFilter = {
+        farmId,
+        salesmanId,
+        status: "POSTED",
+
+        ...makeBusinessDateFilter(
+          "saleDate"
+        ),
+      };
+
+      if (routeFilter) {
+        saleFilter.route =
+          routeFilter;
+      }
+
+      const sales =
+        await Sale.find(
+          saleFilter
+        )
+          .select(
+            [
+              "saleId",
+              "saleNo",
+              "saleDate",
+              "businessDate",
+
+              "customerId",
+              "customerName",
+              "customerMobile",
+
+              "route",
+
+              "salesmanId",
+              "salesmanName",
+
+              "products",
+
+              "grandTotal",
+
+              "paymentMode",
+              "payments",
+              "paidAmount",
+
+              "paymentApplied",
+              "outstandingAmount",
+
+              "status",
+            ].join(" ")
+          )
+          .lean();
+
+      // Your sale records already support paymentMode = Split
+      // and payments[] for individual Cash / UPI /
+      // Bank Transfer components.
+      // ==================================================
+
+      // ==================================================
+      // LOAD LATER COLLECTIONS
+      // ==================================================
+
+      const collectionFilter = {
+        farmId,
+        salesmanId,
+        status: "POSTED",
+
+        ...makeBusinessDateFilter(
+          "collectionDate"
+        ),
+      };
+
+      if (routeFilter) {
+        collectionFilter.route =
+          routeFilter;
+      }
+
+      const collections =
+        await Collection.find(
+          collectionFilter
+        )
+          .select(
+            [
+              "collectionId",
+              "receiptNo",
+
+              "collectionDate",
+              "businessDate",
+
+              "customerId",
+              "customerName",
+
+              "route",
+
+              "salesmanId",
+              "salesmanName",
+
+              "amount",
+              "paymentMode",
+              "referenceNo",
+            ].join(" ")
+          )
+          .lean();
+
+      // ==================================================
+      // PRODUCT SUMMARY
+      //
+      // KEY:
+      // productId + variant
+      // ==================================================
+
+      const productMap =
+        new Map();
+
+      const getProductKey = (
+        product
+      ) => {
+        return [
+          String(
+            product?.productId || ""
+          )
+            .trim()
+            .toUpperCase(),
+
+          String(
+            product?.variant || ""
+          )
+            .trim()
+            .toUpperCase(),
+        ].join("__");
+      };
+
+      const ensureProduct = (
+        product
+      ) => {
+        const key =
+          getProductKey(product);
+
+        if (
+          !productMap.has(key)
+        ) {
+          productMap.set(key, {
+            key,
+
+            productId:
+              product?.productId ||
+              "",
+
+            productName:
+              product?.productName ||
+              product?.name ||
+              product?.productId ||
+              "",
+
+            variant:
+              product?.variant ||
+              "",
+
+            unit:
+              product?.unit ||
+              "",
+
+            allocatedQty: 0,
+
+            soldQty: 0,
+
+            returnedQty: 0,
+
+            adjustedQty: 0,
+
+            differenceQty: 0,
+          });
+        }
+
+        return productMap.get(key);
+      };
+
+      // ==================================================
+      // ALLOCATION TOTALS
+      // ==================================================
+
+      for (
+        const allocation of
+        allocations
+      ) {
+        for (
+          const product of
+          allocation.products || []
+        ) {
+          const row =
+            ensureProduct(product);
+
+          row.allocatedQty +=
+            Number(
+              product.quantity || 0
+            );
+
+          row.returnedQty +=
+            Number(
+              product.returnedQuantity ||
+                0
+            );
+
+          row.adjustedQty +=
+            Number(
+              product.reconciledQuantity ||
+                0
+            );
+        }
+      }
+
+      // ==================================================
+      // CUSTOMER MATRIX
+      //
+      // One customer row.
+      // Products become horizontal columns on frontend.
+      // ==================================================
+
+      const customerMap =
+        new Map();
+
+      const ensureCustomer = (
+        sale
+      ) => {
+        const customerId =
+          String(
+            sale.customerId || ""
+          ).trim();
+
+        const key =
+          customerId ||
+          String(
+            sale.customerName || ""
+          ).trim();
+
+        if (
+          !customerMap.has(key)
+        ) {
+          customerMap.set(key, {
+            customerId,
+
+            customerName:
+              sale.customerName ||
+              customerId ||
+              "Unknown",
+
+            route:
+              sale.route || "",
+
+            quantities: {},
+
+            totalQty: 0,
+
+            salesAmount: 0,
+
+            cash: 0,
+            online: 0,
+            totalCollection: 0,
+          });
+        }
+
+        return customerMap.get(key);
+      };
+
+      // ==================================================
+      // SALE PRODUCTS
+      // ==================================================
+
+      for (
+        const sale of sales
+      ) {
+        const customer =
+          ensureCustomer(sale);
+
+        customer.salesAmount +=
+          Number(
+            sale.grandTotal || 0
+          );
+
+        for (
+          const product of
+          sale.products || []
+        ) {
+          const summaryProduct =
+            ensureProduct(product);
+
+          const qty =
+            Number(
+              product.quantity || 0
+            );
+
+          summaryProduct.soldQty +=
+            qty;
+
+          customer.quantities[
+            summaryProduct.key
+          ] =
+            Number(
+              customer.quantities[
+                summaryProduct.key
+              ] || 0
+            ) + qty;
+
+          customer.totalQty +=
+            qty;
+        }
+
+        // ================================================
+        // BILL PAYMENT BREAKUP
+        //
+        // This is money received while making the sale.
+        // DO NOT create another TRN_COLLECTION.
+        // ================================================
+
+        const paidAmount =
+          Math.max(
+            0,
+            Number(
+              sale.paidAmount || 0
+            )
+          );
+
+        if (
+          paidAmount > 0.001
+        ) {
+          const payments =
+            Array.isArray(
+              sale.payments
+            )
+              ? sale.payments
+              : [];
+
+          let assignedAmount = 0;
+
+          for (
+            const payment of payments
+          ) {
+            const paymentAmount =
+              Math.max(
+                0,
+                Number(
+                  payment?.amount || 0
+                )
+              );
+
+            if (
+              paymentAmount <=
+              0.001
+            ) {
+              continue;
+            }
+
+            const remaining =
+              Math.max(
+                0,
+                paidAmount -
+                  assignedAmount
+              );
+
+            const safeAmount =
+              Math.min(
+                paymentAmount,
+                remaining
+              );
+
+            if (
+              safeAmount <=
+              0.001
+            ) {
+              continue;
+            }
+
+            const group =
+              classifyPaymentMode(
+                payment?.mode ||
+                  payment
+                    ?.paymentMode
+              );
+
+            if (
+              group === "cash"
+            ) {
+              customer.cash +=
+                safeAmount;
+            } else {
+              customer.online +=
+                safeAmount;
+            }
+
+            customer
+              .totalCollection +=
+              safeAmount;
+
+            assignedAmount +=
+              safeAmount;
+          }
+
+          // ==============================================
+          // LEGACY SINGLE PAYMENT FALLBACK
+          // ==============================================
+
+          const remaining =
+            Math.max(
+              0,
+              paidAmount -
+                assignedAmount
+            );
+
+          if (
+            remaining > 0.001
+          ) {
+            const group =
+              classifyPaymentMode(
+                sale.paymentMode
+              );
+
+            if (
+              group === "cash"
+            ) {
+              customer.cash +=
+                remaining;
+            } else {
+              customer.online +=
+                remaining;
+            }
+
+            customer
+              .totalCollection +=
+              remaining;
+          }
+        }
+      }
+
+      // ==================================================
+      // LATER COLLECTIONS
+      // ==================================================
+
+      for (
+        const collection of
+        collections
+      ) {
+        const customerId =
+          String(
+            collection.customerId ||
+              ""
+          ).trim();
+
+        const customerKey =
+          customerId ||
+          String(
+            collection.customerName ||
+              ""
+          ).trim();
+
+        if (
+          !customerMap.has(
+            customerKey
+          )
+        ) {
+          customerMap.set(
+            customerKey,
+            {
+              customerId,
+
+              customerName:
+                collection
+                  .customerName ||
+                customerId ||
+                "Unknown",
+
+              route:
+                collection.route ||
+                "",
+
+              quantities: {},
+
+              totalQty: 0,
+
+              salesAmount: 0,
+
+              cash: 0,
+
+              online: 0,
+
+              totalCollection: 0,
+            }
+          );
+        }
+
+        const customer =
+          customerMap.get(
+            customerKey
+          );
+
+        const amount =
+          Math.max(
+            0,
+            Number(
+              collection.amount ||
+                0
+            )
+          );
+
+        const group =
+          classifyPaymentMode(
+            collection.paymentMode
+          );
+
+        if (
+          group === "cash"
+        ) {
+          customer.cash +=
+            amount;
+        } else {
+          customer.online +=
+            amount;
+        }
+
+        customer.totalCollection +=
+          amount;
+      }
+
+      // ==================================================
+      // PRODUCT DIFFERENCE
+      //
+      // Allocated - Sold - Returned - Adjusted
+      // ==================================================
+
+      let totalAllocated = 0;
+      let totalSold = 0;
+      let totalReturned = 0;
+      let totalAdjusted = 0;
+      let totalDifference = 0;
+
+      const products =
+        Array.from(
+          productMap.values()
+        )
+          .map((product) => {
+            const allocatedQty =
+              Number(
+                product
+                  .allocatedQty || 0
+              );
+
+            const soldQty =
+              Number(
+                product.soldQty || 0
+              );
+
+            const returnedQty =
+              Number(
+                product
+                  .returnedQty || 0
+              );
+
+            const adjustedQty =
+              Number(
+                product
+                  .adjustedQty || 0
+              );
+
+            const differenceQty =
+              Number(
+                (
+                  allocatedQty -
+                  soldQty -
+                  returnedQty -
+                  adjustedQty
+                ).toFixed(3)
+              );
+
+            totalAllocated +=
+              allocatedQty;
+
+            totalSold +=
+              soldQty;
+
+            totalReturned +=
+              returnedQty;
+
+            totalAdjusted +=
+              adjustedQty;
+
+            totalDifference +=
+              differenceQty;
+
+            return {
+              ...product,
+
+              allocatedQty:
+                Number(
+                  allocatedQty
+                    .toFixed(3)
+                ),
+
+              soldQty:
+                Number(
+                  soldQty.toFixed(
+                    3
+                  )
+                ),
+
+              returnedQty:
+                Number(
+                  returnedQty
+                    .toFixed(3)
+                ),
+
+              adjustedQty:
+                Number(
+                  adjustedQty
+                    .toFixed(3)
+                ),
+
+              differenceQty,
+            };
+          })
+          .sort((a, b) =>
+            String(
+              a.productName
+            ).localeCompare(
+              String(
+                b.productName
+              )
+            )
+          );
+
+      // ==================================================
+      // FINAL CUSTOMER ARRAY
+      // ==================================================
+
+      const customers =
+        Array.from(
+          customerMap.values()
+        )
+          .map((customer) => ({
+            ...customer,
+
+            totalQty:
+              Number(
+                customer.totalQty
+                  .toFixed(3)
+              ),
+
+            salesAmount:
+              Number(
+                customer
+                  .salesAmount
+                  .toFixed(2)
+              ),
+
+            cash:
+              Number(
+                customer.cash
+                  .toFixed(2)
+              ),
+
+            online:
+              Number(
+                customer.online
+                  .toFixed(2)
+              ),
+
+            totalCollection:
+              Number(
+                customer
+                  .totalCollection
+                  .toFixed(2)
+              ),
+          }))
+          .sort((a, b) =>
+            String(
+              a.customerName
+            ).localeCompare(
+              String(
+                b.customerName
+              )
+            )
+          );
+
+      // ==================================================
+      // FINANCIAL TOTALS
+      // ==================================================
+
+      const totalCash =
+        customers.reduce(
+          (sum, customer) =>
+            sum +
+            Number(
+              customer.cash || 0
+            ),
+          0
+        );
+
+      const totalOnline =
+        customers.reduce(
+          (sum, customer) =>
+            sum +
+            Number(
+              customer.online || 0
+            ),
+          0
+        );
+
+      const totalCollection =
+        totalCash +
+        totalOnline;
+
+      const totalSalesAmount =
+        customers.reduce(
+          (sum, customer) =>
+            sum +
+            Number(
+              customer.salesAmount ||
+                0
+            ),
+          0
+        );
+
+      // ==================================================
+      // ROUTES USED TODAY
+      // ==================================================
+
+      const routes =
+        Array.from(
+          new Set([
+            ...allocations.map(
+              (item) =>
+                item.routeName || ""
+            ),
+
+            ...sales.map(
+              (item) =>
+                item.route || ""
+            ),
+
+            ...collections.map(
+              (item) =>
+                item.route || ""
+            ),
+          ])
+        )
+          .filter(Boolean)
+          .sort();
+
+      // ==================================================
+      // RESPONSE
+      // ==================================================
+
+      return res.status(200).json({
+        success: true,
+
+        report: {
+          reportDate:
+            requestedDate,
+
+          salesman: {
+            salesmanId:
+              salesman.salesmanId,
+
+            salesmanName:
+              salesman.name,
+
+            mobile:
+              salesman.mobile ||
+              "",
+          },
+
+          route:
+            routeFilter || "",
+
+          routes,
+
+          products,
+
+          customers,
+
+          collectionSummary: {
+            cash:
+              Number(
+                totalCash.toFixed(
+                  2
+                )
+              ),
+
+            online:
+              Number(
+                totalOnline.toFixed(
+                  2
+                )
+              ),
+
+            total:
+              Number(
+                totalCollection.toFixed(
+                  2
+                )
+              ),
+          },
+
+          salesSummary: {
+            totalSalesAmount:
+              Number(
+                totalSalesAmount.toFixed(
+                  2
+                )
+              ),
+
+            customers:
+              customers.length,
+
+            bills:
+              sales.length,
+          },
+
+          settlementSummary: {
+            allocated:
+              Number(
+                totalAllocated.toFixed(
+                  3
+                )
+              ),
+
+            sold:
+              Number(
+                totalSold.toFixed(
+                  3
+                )
+              ),
+
+            returned:
+              Number(
+                totalReturned.toFixed(
+                  3
+                )
+              ),
+
+            adjusted:
+              Number(
+                totalAdjusted.toFixed(
+                  3
+                )
+              ),
+
+            difference:
+              Number(
+                totalDifference.toFixed(
+                  3
+                )
+              ),
+          },
+        },
+      });
+    } catch (error) {
+      console.error(
+        "DAILY SALESMAN SETTLEMENT REPORT ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+
+        message:
+          "Unable to load daily salesman settlement report.",
+
+        error:
+          error.message,
+      });
+    }
+  }
+);
+// ======================================================
 // REPORTS - SALESMAN REPORTS
 // ======================================================
 
