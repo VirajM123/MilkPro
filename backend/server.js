@@ -9621,8 +9621,10 @@ app.post(
               throw error;
             }
 
-            const amount =
-              quantity * rate;
+          const amount =
+  roundMoney2(
+    quantity * rate
+  );
 
             verifiedProducts.push({
               productId:
@@ -9645,44 +9647,60 @@ app.post(
 
             });
 
-            totalQuantity +=
-              quantity;
+           totalQuantity =
+  roundQty2(
+    totalQuantity +
+    quantity
+  );
 
-            subTotal +=
-              amount;
+subTotal =
+  roundMoney2(
+    subTotal +
+    amount
+  );
           }
 
           // ============================================
           // TOTALS
           // ============================================
 
-          const discountValue =
-            Math.max(
-              0,
-              Number(discount) || 0
-            );
+     const discountValue =
+  roundMoney2(
+    Math.max(
+      0,
+      Number(discount) || 0
+    )
+  );
 
-          const taxPercentageValue =
-            Math.max(
-              0,
-              Number(taxPercentage) || 0
-            );
+const taxPercentageValue =
+  Math.max(
+    0,
+    Number(
+      taxPercentage
+    ) || 0
+  );
 
-          const taxableAmount =
-            Math.max(
-              0,
-              subTotal -
-              discountValue
-            );
+const taxableAmount =
+  roundMoney2(
+    Math.max(
+      0,
+      subTotal -
+      discountValue
+    )
+  );
 
-          const taxAmount =
-            taxableAmount *
-            taxPercentageValue /
-            100;
+const taxAmount =
+  roundMoney2(
+    taxableAmount *
+    taxPercentageValue /
+    100
+  );
 
-          const grandTotal =
-            taxableAmount +
-            taxAmount;
+const grandTotal =
+  roundMoney2(
+    taxableAmount +
+    taxAmount
+  );
 
           // ============================================
           // IDS
@@ -10422,8 +10440,10 @@ app.put(
               throw error;
             }
 
-            const amount =
-              quantity * rate;
+           const amount =
+  roundMoney2(
+    quantity * rate
+  );
 
             verifiedProducts.push({
               productId:
@@ -10445,46 +10465,60 @@ app.put(
               amount,
             });
 
-            totalQuantity +=
-              quantity;
+         totalQuantity =
+  roundQty2(
+    totalQuantity +
+    quantity
+  );
 
-            subTotal +=
-              amount;
+subTotal =
+  roundMoney2(
+    subTotal +
+    amount
+  );
           }
 
           // ============================================
           // RECALCULATE TOTALS
           // ============================================
 
-          const discountValue =
-            Math.max(
-              0,
-              Number(discount) || 0
-            );
+    const discountValue =
+  roundMoney2(
+    Math.max(
+      0,
+      Number(discount) || 0
+    )
+  );
 
-          const taxPercentageValue =
-            Math.max(
-              0,
-              Number(
-                taxPercentage
-              ) || 0
-            );
+const taxPercentageValue =
+  Math.max(
+    0,
+    Number(
+      taxPercentage
+    ) || 0
+  );
 
-          const taxableAmount =
-            Math.max(
-              0,
-              subTotal -
-              discountValue
-            );
+const taxableAmount =
+  roundMoney2(
+    Math.max(
+      0,
+      subTotal -
+      discountValue
+    )
+  );
 
-          const taxAmount =
-            taxableAmount *
-            taxPercentageValue /
-            100;
+const taxAmount =
+  roundMoney2(
+    taxableAmount *
+    taxPercentageValue /
+    100
+  );
 
-          const grandTotal =
-            taxableAmount +
-            taxAmount;
+const grandTotal =
+  roundMoney2(
+    taxableAmount +
+    taxAmount
+  );
           // ============================================
           // SUPPLIER PAYMENT SAFETY
           //
@@ -39963,45 +39997,7 @@ app.get(
       // COMMON PAYMENT CLASSIFIER
       // ==================================================
 
-      const classifyPaymentMode = (
-        rawMode
-      ) => {
-        const mode =
-          String(rawMode || "")
-            .trim()
-            .toLowerCase();
-
-        if (mode === "cash") {
-          return "cash";
-        }
-
-        if (
-          [
-            "upi",
-            "phonepe",
-            "google pay",
-            "gpay",
-            "paytm",
-          ].includes(mode)
-        ) {
-          return "online";
-        }
-
-        if (
-          [
-            "bank transfer",
-            "bank",
-            "neft",
-            "rtgs",
-            "imps",
-            "cheque",
-          ].includes(mode)
-        ) {
-          return "online";
-        }
-
-        return "other";
-      };
+    
 
       // ==================================================
       // LOAD ALLOCATION
@@ -42310,7 +42306,7 @@ app.get(
 
 
         const mode =
-          classifyHistoryPaymentMode(
+          classifyPaymentMode(
             collection.paymentMode
           );
 
@@ -45507,13 +45503,14 @@ app.put(
           .trim()
           .toUpperCase();
 
-      const {
-        name,
-        mobile,
-        email,
-        username,
-        isActive,
-      } = req.body;
+     const {
+  name,
+  mobile,
+  email,
+  username,
+  password,
+  isActive,
+} = req.body;
 
       const salesman =
         await Salesman.findOne({
@@ -45635,6 +45632,33 @@ app.put(
           isActive;
       }
 
+      // ================================================
+// RESET SALESMAN PASSWORD
+// ================================================
+
+if (
+  password !== undefined &&
+  password !== null &&
+  password.toString().trim() !== ""
+) {
+
+  const newPassword =
+    password.toString();
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Password must contain at least 6 characters.",
+    });
+  }
+
+  salesman.password =
+    await bcrypt.hash(
+      newPassword,
+      12
+    );
+}
       await salesman.save();
 
       return res.status(200).json({
@@ -48202,7 +48226,7 @@ function parseHistoryIstDateRange(startDateStr, endDateStr) {
   return { rangeStart, rangeEnd };
 }
 
-function classifyHistoryPaymentMode(
+function classifyPaymentMode(
   rawMode
 ) {
   const mode =
@@ -48313,7 +48337,7 @@ function getSaleBillingPaymentBreakup(
     }
 
     const group =
-      classifyHistoryPaymentMode(
+     classifyPaymentMode(
         rawMode
       );
 
@@ -49124,7 +49148,7 @@ app.get(
           );
 
         const modeGroup =
-          classifyHistoryPaymentMode(
+        classifyPaymentMode(
             col.paymentMode
           );
 
@@ -49522,7 +49546,7 @@ app.get(
         const amt = Math.max(0, Number(col.amount || 0));
         const cId = String(col.customerId || "").trim().toUpperCase();
         const cDate = col.collectionDate || null;
-        const modeGroup = classifyHistoryPaymentMode(col.paymentMode);
+        const modeGroup = classifyPaymentMode(col.paymentMode);
 
         let matchesFilter = true;
         if (requestedPaymentMode !== "ALL") {
@@ -49993,7 +50017,7 @@ app.get(
           );
 
         const modeGroup =
-          classifyHistoryPaymentMode(
+     classifyPaymentMode(
             col.paymentMode
           );
 
@@ -50380,7 +50404,7 @@ app.get(
 
 
               const modeGroup =
-                classifyHistoryPaymentMode(
+              classifyPaymentMode(
                   item.paymentMode
                 );
 
