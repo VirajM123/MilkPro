@@ -14407,18 +14407,102 @@ app.put(
               });
 
 
-            if (settlementExists) {
+         // ======================================================
+// SAFE ADMIN EDIT AFTER RETURN / RECONCILIATION
+//
+// Allow admin to edit customer / payment details
+// without modifying settled product quantities.
+//
+// Product additions, removals and quantity changes
+// remain blocked after settlement.
+//
+// Existing stock, allocation and financial validation
+// continues unchanged.
+// ======================================================
 
-              const error =
-                new Error(
-                  "This sale cannot be edited because return or reconciliation has already been recorded for this business date."
-                );
+if (settlementExists) {
 
-              error.statusCode =
-                409;
+  if (role !== "admin") {
+    const error = new Error(
+      "Only admin can edit a sale after return or reconciliation."
+    );
 
-              throw error;
-            }
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const originalProducts = Array.isArray(sale.products)
+    ? sale.products
+    : [];
+
+  const updatedProducts = Array.isArray(req.body.products)
+    ? req.body.products
+    : [];
+
+  const makeQuantityMap = (items) => {
+
+    const result = new Map();
+
+    for (const item of items) {
+
+      const productId = String(
+        item.productId || ""
+      ).trim().toUpperCase();
+
+      const quantity = Number(item.quantity);
+
+      if (
+        !productId ||
+        !Number.isFinite(quantity) ||
+        quantity <= 0 ||
+        result.has(productId)
+      ) {
+        return null;
+      }
+
+      result.set(productId, quantity);
+    }
+
+    return result;
+  };
+
+  const oldMap = makeQuantityMap(originalProducts);
+  const newMap = makeQuantityMap(updatedProducts);
+
+  let quantityChanged =
+    !oldMap ||
+    !newMap ||
+    oldMap.size !== newMap.size;
+
+  if (!quantityChanged) {
+
+    for (const [productId, oldQuantity] of oldMap) {
+
+      if (
+        !newMap.has(productId) ||
+        Math.abs(
+          oldQuantity - newMap.get(productId)
+        ) > 0.000001
+      ) {
+
+        quantityChanged = true;
+        break;
+      }
+    }
+  }
+
+  if (quantityChanged) {
+
+    const error = new Error(
+      "Return or reconciliation already exists. " +
+      "Product quantities cannot be changed after settlement. " +
+      "Customer and payment corrections are allowed."
+    );
+
+    error.statusCode = 409;
+    throw error;
+  }
+}
 
 
             const dayStock =
@@ -14866,15 +14950,14 @@ app.put(
           // ==================================================
           // RAW CUSTOMER CREDIT
           // ==================================================
-
-          const rawAdvanceBalance =
-            Math.max(
-              0,
-              Number(
-                lockedCustomer.balance ||
-                0
-              )
-            );
+const rawAdvanceBalance =
+  Math.max(
+    0,
+    Number(
+      customer.balance ||
+      0
+    )
+  );
 
 
           // ==================================================
